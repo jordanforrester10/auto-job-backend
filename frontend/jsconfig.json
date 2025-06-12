@@ -1,15 +1,27 @@
 {
   "compilerOptions": {
     "baseUrl": "src",
-    "incremental": true,
     "paths": {
-      "*": ["*"],
-      "components/*": ["components/*"],
-      "context/*": ["context/*"],
-      "utils/*": ["utils/*"],
-      "hooks/*": ["hooks/*"]
-    }
+      "*": ["node_modules/*", "src/*"]
+    },
+    "module": "esnext",
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowJs": true,
+    "checkJs": false,
+    "jsx": "react-jsx"
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "build", "functions"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "build"
+  ]
 }
