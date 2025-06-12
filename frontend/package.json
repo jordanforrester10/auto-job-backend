@@ -1,9 +1,7 @@
 {
-  "name": "auto-job-frontend",
-  "version": "1.0.0",
-  "description": "Auto-Job.ai Frontend Application",
+  "name": "job-app-mui",
+  "version": "0.1.0",
   "private": true,
-  "homepage": ".",
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
@@ -17,20 +15,16 @@
     "react-router-dom": "^7.5.3",
     "react-scripts": "5.0.1",
     "recharts": "^2.15.3",
-    "serve": "^14.2.1"
+    "serve": "^14.2.4"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "serve": "serve -s build -l 3000"
+    "eject": "react-scripts eject"
   },
   "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+    "extends": "react-app"
   },
   "browserslist": {
     "production": [
@@ -43,9 +37,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=8.0.0"
   }
 }
