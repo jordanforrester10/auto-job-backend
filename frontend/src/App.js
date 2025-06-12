@@ -1,35 +1,35 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from 'context/AuthContext';
-import { AiAssistantProvider } from 'context/AiAssistantContext';
-import ThemeProvider from 'ThemeProvider';
-import ProtectedRoute from 'components/auth/ProtectedRoute';
-import Login from 'components/auth/Login';
-import Register from 'components/auth/Register';
-import ForgotPassword from 'components/auth/ForgotPassword';
-import ResetPassword from 'components/auth/ResetPassword';
-import EmailVerification from 'components/auth/EmailVerification';
-import Dashboard from 'components/Dashboard';
-import ResumesPage from 'components/resumes/ResumesPage';
-import ResumeUploadDialog from 'components/resumes/ResumeUploadDialog';
-import ResumeDetail from 'components/resumes/ResumeDetail';
+import { AuthProvider } from './context/AuthContext';
+import { AiAssistantProvider } from './context/AiAssistantContext';
+import ThemeProvider from './ThemeProvider';
+import ProtectedRoute from './components/auth/ProtectedRoute';
+import Login from './components/auth/Login';
+import Register from './components/auth/Register';
+import ForgotPassword from './components/auth/ForgotPassword';
+import ResetPassword from './components/auth/ResetPassword';
+import EmailVerification from './components/auth/EmailVerification';
+import Dashboard from './components/Dashboard';
+import ResumesPage from './components/resumes/ResumesPage';
+import ResumeUploadDialog from './components/resumes/ResumeUploadDialog';
+import ResumeDetail from './components/resumes/ResumeDetail';
 
 // Import job-related components
-import JobsPage from 'components/jobs/JobsPage';
-import JobDetail from 'components/jobs/JobDetail';
-import ResumeTailoring from 'components/jobs/ResumeTailoring';
-import AiSearchesPage from 'components/jobs/AiSearchesPage';
+import JobsPage from './components/jobs/JobsPage';
+import JobDetail from './components/jobs/JobDetail';
+import ResumeTailoring from './components/jobs/ResumeTailoring';
+import AiSearchesPage from './components/jobs/AiSearchesPage';
 
 // Import recruiter-related components
-import RecruiterPage from 'components/recruiters/RecruiterPage';
-import RecruiterDetails from 'components/recruiters/RecruiterDetails';
-import OutreachTracker from 'components/recruiters/OutreachTracker';
+import RecruiterPage from './components/recruiters/RecruiterPage';
+import RecruiterDetails from './components/recruiters/RecruiterDetails';
+import OutreachTracker from './components/recruiters/OutreachTracker';
 
 // Import Settings
-import SettingsPage from 'components/SettingsPage';
+import SettingsPage from './components/SettingsPage';
 
 // Import Global AI Assistant
-import GlobalAiAssistant from 'components/assistant/GlobalAiAssistant';
+import GlobalAiAssistant from './components/assistant/GlobalAiAssistant';
 
 // Placeholder components for other sections
 const ApplicationsPage = () => <div>Applications Page (Coming Soon)</div>;
