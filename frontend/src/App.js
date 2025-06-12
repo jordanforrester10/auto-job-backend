@@ -1,12 +1,19 @@
 import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext.js';
+import ThemeProvider from './ThemeProvider.js';
 
-// Temporarily remove all imports to test basic build
 function App() {
   return (
-    <div>
-      <h1>Test App - Build Test</h1>
-      <p>If you see this, the basic build works!</p>
-    </div>
+    <ThemeProvider>
+      <AuthProvider>
+        <Router>
+          <Routes>
+            <Route path="/" element={<div><h1>Auto-Job.ai</h1><p>Context imports working!</p></div>} />
+          </Routes>
+        </Router>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
