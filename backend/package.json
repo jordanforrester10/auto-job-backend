@@ -40,7 +40,9 @@
     "cookie-parser": "^1.4.6",
     "express-mongo-sanitize": "^2.2.0",
     "xss-clean": "^0.1.4",
-    "hpp": "^0.2.3"
+    "hpp": "^0.2.3",
+    "docx": "^8.2.2",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
