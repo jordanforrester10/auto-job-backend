@@ -1,5 +1,4 @@
 // backend/controllers/settings.controller.js
-const bcrypt = require('bcrypt');
 const bcrypt = require('bcryptjs');
 const User = require('../models/mongodb/user.model');
 const Resume = require('../models/mongodb/resume.model');
