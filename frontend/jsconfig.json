@@ -1,7 +1,14 @@
 {
   "compilerOptions": {
     "baseUrl": "src",
-    "incremental": true
+    "incremental": true,
+    "paths": {
+      "*": ["*"],
+      "components/*": ["components/*"],
+      "context/*": ["context/*"],
+      "utils/*": ["utils/*"],
+      "hooks/*": ["hooks/*"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules", "build", "functions"]
