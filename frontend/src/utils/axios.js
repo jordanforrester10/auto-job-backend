@@ -1,9 +1,15 @@
 // frontend/src/utils/axios.js - ENHANCED WITH RATE LIMITING PROTECTION
 import axios from 'axios';
 
+// Determine the API base URL based on environment
+const getApiBaseUrl = () => {
+  // Use environment variable if available, otherwise fallback to localhost
+  return process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+};
+
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: getApiBaseUrl(),
   withCredentials: true, // Send cookies with requests
   headers: {
     'Content-Type': 'application/json',
@@ -11,6 +17,9 @@ const api = axios.create({
   },
   timeout: 60000, // 60 second timeout for AI requests
 });
+
+// Debug log to see which API URL is being used
+console.log('🔗 API Base URL:', getApiBaseUrl());
 
 // Rate limiting state
 let isRateLimited = false;
@@ -182,7 +191,7 @@ api.interceptors.response.use(
         
         // Check if backend server is running
         if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
-          error.apiMessage = 'Cannot connect to server. Please ensure the backend is running on http://localhost:5000';
+          error.apiMessage = 'Cannot connect to server. Please ensure the backend is running on ' + getApiBaseUrl();
           console.error('💡 Backend server might not be running. Check: npm start in backend directory');
         }
       }
