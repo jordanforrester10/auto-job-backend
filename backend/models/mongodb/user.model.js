@@ -1,6 +1,6 @@
 // backend/models/mongodb/user.model.js
 const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs'); // Changed from 'bcrypt' to 'bcryptjs'
 const crypto = require('crypto');
 
 const userSchema = new mongoose.Schema({
