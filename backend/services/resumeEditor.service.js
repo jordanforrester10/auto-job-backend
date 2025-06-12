@@ -5,7 +5,7 @@ const { PutObjectCommand } = require('@aws-sdk/client-s3');
 const { s3Client, S3_BUCKET } = require('../config/s3');
 const PDFDocument = require('pdfkit');
 const { Document, Packer, Paragraph, TextRun, HeadingLevel } = require('docx');
-const { v4: uuid } = require('uuid'); // Fixed this import
+const { v4: uuid } = require('uuid'); 
 
 class ResumeEditorService {
   /**
