@@ -1,12 +1,18 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "cd backend && npm install"
+    "builder": "NIXPACKS"
   },
   "deploy": {
     "startCommand": "cd backend && npm start",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
+  },
+  "environments": {
+    "production": {
+      "NIXPACKS_INSTALL_CMD": "cd backend && npm install",
+      "NIXPACKS_BUILD_CMD": "echo 'Build complete'",
+      "NIXPACKS_START_CMD": "cd backend && npm start"
+    }
   }
 }
