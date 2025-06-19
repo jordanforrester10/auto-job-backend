@@ -673,8 +673,8 @@ const JobsPage = () => {
         </Box>
         {activeResumes.length === 0 && (
           <Alert severity="info" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
-            You need at least one active resume to use the AI job search feature.
-            Please upload and activate a resume first.
+            You need at least one resume to use the AI job search feature.
+            Please upload a resume first.
           </Alert>
         )}
       </Paper>

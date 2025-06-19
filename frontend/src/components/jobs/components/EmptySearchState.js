@@ -69,8 +69,8 @@ const EmptySearchState = ({ onStartSearch }) => {
           </Button>
         </Box>
         <Alert severity="info" sx={{ mt: 2.5, maxWidth: 550, fontSize: '0.875rem' }}> {/* Reduced mt and maxWidth, added smaller fontSize */}
-          You need at least one active resume to use the AI Agent search feature.
-          Please upload and activate a resume first.
+          You need at least one resume to use the AI Agent search feature.
+          Please upload a resume first.
         </Alert>
       </Paper>
 

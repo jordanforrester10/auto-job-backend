@@ -430,7 +430,7 @@ const discoveredJobs = await extractJobContentFromUrls(jobUrls, search, careerPr
 async function findJobUrlsWithWebSearch(careerProfile, search) {
   try {
     await search.addReasoningLog(
-      'web_search_discovery',  // FIXED: Use correct phase enum
+      'web_search_discovery',
       'Starting job URL discovery using Claude web search API',
       { 
         targetTitles: careerProfile.targetJobTitles,
@@ -438,6 +438,13 @@ async function findJobUrlsWithWebSearch(careerProfile, search) {
         webSearchMethod: 'claude_web_search_api'
       }
     );
+    
+    console.log('🎯 DETAILED DEBUG: Starting Claude web search with profile:', {
+      targetJobTitles: careerProfile.targetJobTitles,
+      experienceLevel: careerProfile.experienceLevel,
+      targetKeywords: careerProfile.targetKeywords,
+      environment: process.env.NODE_ENV
+    });
     
     const response = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
@@ -488,69 +495,142 @@ etc.`
       tool_choice: { type: "any" }
     });
 
+    console.log('🎯 DETAILED DEBUG: Claude API Response received');
+    console.log('🎯 Response content array length:', response.content?.length || 0);
+    console.log('🎯 Response ID:', response.id);
+    console.log('🎯 Response model:', response.model);
+    console.log('🎯 Response usage:', JSON.stringify(response.usage, null, 2));
+
     const jobUrls = [];
     
-    // Process Claude's response to extract job URLs
-    for (const content of response.content) {
+    // ENHANCED: More detailed response processing with debugging
+    for (let i = 0; i < response.content.length; i++) {
+      const content = response.content[i];
+      console.log(`🎯 DETAILED DEBUG: Content[${i}] type: ${content.type}`);
+      
       if (content.type === 'text') {
         const text = content.text;
+        console.log(`🎯 DETAILED DEBUG: Text content length: ${text.length}`);
+        console.log(`🎯 DETAILED DEBUG: Text preview (first 500 chars): "${text.substring(0, 500)}"`);
         
-        // Extract URLs from the response
-        const urlMatches = text.match(/URL:\s*(https?:\/\/[^\s\n]+)/gi);
+        // ENHANCED: Multiple URL extraction patterns
+        const urlPatterns = [
+          /URL:\s*(https?:\/\/[^\s\n]+)/gi,
+          /url:\s*(https?:\/\/[^\s\n]+)/gi,
+          /(https?:\/\/[^\s\n]+\.(?:com|org|net|io|co|ai)[^\s\n]*)/gi,
+          /\[Direct job application URL\]:\s*(https?:\/\/[^\s\n]+)/gi,
+          /Application link:\s*(https?:\/\/[^\s\n]+)/gi
+        ];
         
-        if (urlMatches) {
-          urlMatches.forEach(match => {
-            const url = match.replace(/^URL:\s*/i, '').trim();
-            
+        let foundUrls = [];
+        
+        urlPatterns.forEach((pattern, patternIndex) => {
+          const matches = text.match(pattern);
+          if (matches) {
+            console.log(`🎯 DETAILED DEBUG: Pattern ${patternIndex} found ${matches.length} matches`);
+            foundUrls = foundUrls.concat(matches);
+          }
+        });
+        
+        console.log(`🎯 DETAILED DEBUG: Total URLs found with all patterns: ${foundUrls.length}`);
+        console.log(`🎯 DETAILED DEBUG: Found URLs:`, foundUrls);
+        
+        // Process found URLs
+        foundUrls.forEach((match, matchIndex) => {
+          let url = match;
+          
+          // Clean up URL extraction
+          url = url.replace(/^URL:\s*/i, '').trim();
+          url = url.replace(/^url:\s*/i, '').trim();
+          url = url.replace(/^\[Direct job application URL\]:\s*/i, '').trim();
+          url = url.replace(/^Application link:\s*/i, '').trim();
+          
+          console.log(`🎯 DETAILED DEBUG: Processing URL ${matchIndex}: ${url}`);
+          
+          if (isValidJobUrl(url)) {
             // Extract job info from the surrounding text
             const lines = text.split('\n');
             const urlLineIndex = lines.findIndex(line => line.includes(url));
+            
+            let title = 'Unknown Title';
+            let company = 'Unknown Company';
+            let matchReason = 'Found via Claude web search';
             
             if (urlLineIndex > 0) {
               const jobLine = lines[urlLineIndex - 1] || '';
               const matchReasonLine = lines[urlLineIndex + 1] || '';
               
-              // Parse job title and company
-              const jobMatch = jobLine.match(/JOB\s+\d+:\s*(.+?)\s+at\s+(.+?)$/i);
-              let title = 'Unknown Title';
-              let company = 'Unknown Company';
+              // Enhanced job title and company extraction
+              const jobPatterns = [
+                /JOB\s+\d+:\s*(.+?)\s+at\s+(.+?)$/i,
+                /(\w+.*?)\s+at\s+(.+?)$/i,
+                /(.+?)\s+-\s+(.+?)$/i
+              ];
               
-              if (jobMatch) {
-                title = jobMatch[1].trim();
-                company = jobMatch[2].trim();
+              for (const pattern of jobPatterns) {
+                const jobMatch = jobLine.match(pattern);
+                if (jobMatch) {
+                  title = jobMatch[1].trim();
+                  company = jobMatch[2].trim();
+                  break;
+                }
               }
               
               // Extract match reason
-              const matchReason = matchReasonLine.replace(/^Match Reason:\s*/i, '').trim();
-              
-              // Determine source platform from URL
-              const sourcePlatform = determineSourcePlatform(url);
-              
-              if (isValidJobUrl(url)) {
-                jobUrls.push({
-                  url: url,
-                  title: title,
-                  company: company,
-                  matchReason: matchReason,
-                  sourcePlatform: sourcePlatform,
-                  foundAt: new Date()
-                });
+              if (matchReasonLine.includes('Match Reason:')) {
+                matchReason = matchReasonLine.replace(/^Match Reason:\s*/i, '').trim();
               }
             }
-          });
-        }
+            
+            // Determine source platform from URL
+            const sourcePlatform = determineSourcePlatform(url);
+            
+            const jobUrlObj = {
+              url: url,
+              title: title,
+              company: company,
+              matchReason: matchReason,
+              sourcePlatform: sourcePlatform,
+              foundAt: new Date(),
+              extractionMethod: 'enhanced_debugging'
+            };
+            
+            jobUrls.push(jobUrlObj);
+            console.log(`🎯 DETAILED DEBUG: Added job URL:`, jobUrlObj);
+          } else {
+            console.log(`🎯 DETAILED DEBUG: Invalid job URL rejected: ${url}`);
+          }
+        });
+      } else if (content.type === 'tool_use') {
+        console.log(`🎯 DETAILED DEBUG: Tool use detected:`, content.name);
+      } else if (content.type === 'tool_result') {
+        console.log(`🎯 DETAILED DEBUG: Tool result detected`);
+      } else {
+        console.log(`🎯 DETAILED DEBUG: Other content type: ${content.type}`);
       }
     }
     
+    console.log(`🎯 FINAL DEBUG SUMMARY:`);
+    console.log(`🎯 Total content blocks processed: ${response.content.length}`);
+    console.log(`🎯 Total job URLs extracted: ${jobUrls.length}`);
+    console.log(`🎯 Environment: ${process.env.NODE_ENV}`);
+    console.log(`🎯 Claude API Key prefix: ${process.env.ANTHROPIC_API_KEY?.substring(0, 10)}...`);
+    
     await search.addReasoningLog(
-      'web_search_discovery',  // FIXED: Use correct phase enum
+      'web_search_discovery',
       `Found ${jobUrls.length} job URLs using Claude web search API`,
       {
         totalUrls: jobUrls.length,
         platforms: [...new Set(jobUrls.map(job => job.sourcePlatform))],
         companies: [...new Set(jobUrls.map(job => job.company))],
         searchMethod: 'claude_web_search_api',
-        webSearchMethod: 'claude_web_search_api'
+        webSearchMethod: 'claude_web_search_api',
+        debugInfo: {
+          contentBlocks: response.content.length,
+          hasTextContent: response.content.some(c => c.type === 'text'),
+          hasToolResults: response.content.some(c => c.type === 'tool_use' || c.type === 'tool_result'),
+          environment: process.env.NODE_ENV
+        }
       }
     );
     
@@ -558,7 +638,10 @@ etc.`
     return jobUrls;
     
   } catch (error) {
-    console.error('Error finding job URLs with web search:', error);
+    console.error('🎯 DETAILED DEBUG: Error finding job URLs with web search:', error);
+    console.error('🎯 Error name:', error.name);
+    console.error('🎯 Error message:', error.message);
+    console.error('🎯 Error stack:', error.stack);
     
     // Add error with correct enum
     await search.addError('web_search_failed', error.message, 'web_search_discovery', 'URL discovery failed');
