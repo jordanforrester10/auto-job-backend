@@ -1144,9 +1144,6 @@ function assessContentQuality(content) {
 }
 
 /**
- * Enhanced save jobs function with Claude web search metadata
- */
-/**
  * Enhanced save jobs function with Claude web search metadata, improved location extraction, and technical requirements
  */
 async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, search) {
@@ -1334,6 +1331,76 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
   }
   
   return savedCount;
+}
+
+/**
+ * ENHANCED: Extract technical requirements from AI jobs
+ */
+function extractTechnicalRequirements(jobData) {
+  const content = jobData.fullContent || '';
+  const technicalRequirements = [];
+  
+  // Extract programming languages
+  const languages = ['JavaScript', 'Python', 'Java', 'TypeScript', 'Go', 'Rust', 'C++', 'C#', 'PHP', 'Ruby', 'Swift', 'Kotlin', 'Scala', 'R'];
+  languages.forEach(lang => {
+    if (new RegExp(`\\b${lang}\\b`, 'i').test(content)) {
+      technicalRequirements.push({
+        category: 'Programming Languages',
+        requirement: lang,
+        importance: 'high'
+      });
+    }
+  });
+  
+  // Extract frameworks and technologies
+  const frameworks = ['React', 'Vue', 'Angular', 'Node.js', 'Express', 'Django', 'Flask', 'Spring', 'Rails', 'Laravel'];
+  frameworks.forEach(framework => {
+    if (new RegExp(`\\b${framework}\\b`, 'i').test(content)) {
+      technicalRequirements.push({
+        category: 'Frameworks & Technologies',
+        requirement: framework,
+        importance: 'medium'
+      });
+    }
+  });
+  
+  // Extract cloud platforms
+  const cloudPlatforms = ['AWS', 'Azure', 'Google Cloud', 'GCP', 'Kubernetes', 'Docker'];
+  cloudPlatforms.forEach(platform => {
+    if (new RegExp(`\\b${platform}\\b`, 'i').test(content)) {
+      technicalRequirements.push({
+        category: 'Cloud & Infrastructure',
+        requirement: platform,
+        importance: 'medium'
+      });
+    }
+  });
+  
+  // Extract databases
+  const databases = ['MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'Elasticsearch', 'DynamoDB', 'Cassandra'];
+  databases.forEach(db => {
+    if (new RegExp(`\\b${db}\\b`, 'i').test(content)) {
+      technicalRequirements.push({
+        category: 'Databases',
+        requirement: db,
+        importance: 'medium'
+      });
+    }
+  });
+  
+  // Extract AI/ML technologies
+  const aiMlTech = ['TensorFlow', 'PyTorch', 'Scikit-learn', 'Pandas', 'NumPy', 'Jupyter', 'MLflow', 'Airflow'];
+  aiMlTech.forEach(tech => {
+    if (new RegExp(`\\b${tech}\\b`, 'i').test(content)) {
+      technicalRequirements.push({
+        category: 'AI/ML Technologies',
+        requirement: tech,
+        importance: 'high'
+      });
+    }
+  });
+  
+  return technicalRequirements;
 }
 /**
  * Enhanced Phase 3: Premium Job Analysis (unchanged but with Claude web search context)
