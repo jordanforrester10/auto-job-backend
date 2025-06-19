@@ -1025,12 +1025,14 @@ function parseJobContent(content, jobUrl, careerProfile) {
         location = location.replace(/[:;,\.]$/, ''); // Remove trailing punctuation
         location = location.replace(/^[\s,]+|[\s,]+$/g, ''); // Remove leading/trailing spaces and commas
         
-        // Validate location - should not contain job-related terms
+        // Validate location - should not contain job-related terms or company names
         const invalidLocationTerms = [
           'job level', 'assessed', 'interviews', 'application', 'process', 'details',
           'arrangements', 'not available', 'posting', 'content', 'provided',
           'experience', 'requirements', 'qualifications', 'responsibilities',
-          'benefits', 'salary', 'compensation', 'title', 'role', 'position'
+          'benefits', 'salary', 'compensation', 'title', 'role', 'position',
+          'thirty madison', 'temporal technologies', 'company', 'organization',
+          'employer', 'team', 'startup', 'corporation', 'inc', 'llc', 'ltd'
         ];
         
         const isValidLocation = !invalidLocationTerms.some(term => 
@@ -1144,6 +1146,9 @@ function assessContentQuality(content) {
 /**
  * Enhanced save jobs function with Claude web search metadata
  */
+/**
+ * Enhanced save jobs function with Claude web search metadata, improved location extraction, and technical requirements
+ */
 async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, search) {
   let savedCount = 0;
   
@@ -1186,12 +1191,18 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
         sourcePlatform = 'AI_FOUND_INTELLIGENT';
       }
       
+      // ENHANCED: Process location with improved extraction
+      const enhancedLocation = parseLocationEnhanced(jobData.location);
+      
+      // ENHANCED: Extract technical requirements for AI jobs
+      const technicalRequirements = extractTechnicalRequirements(jobData);
+      
       // Create enhanced job record with Claude web search data
       const job = new Job({
         userId,
         title: jobData.title,
         company: jobData.company,
-        location: parseLocationEnhanced(jobData.location),
+        location: enhancedLocation, // Using enhanced location parsing
         description: jobData.fullContent,
         sourceUrl: jobData.jobUrl,
         sourcePlatform: sourcePlatform,
@@ -1217,7 +1228,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
           qualityLevel: 'premium'
         },
         
-        // Enhanced parsed data (premium quality)
+        // Enhanced parsed data (premium quality) - FIXED to match manual job analysis
         parsedData: {
           requirements: jobData.analysis?.requirements || [],
           responsibilities: jobData.analysis?.responsibilities || [],
@@ -1227,7 +1238,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
           experienceLevel: jobData.analysis?.experienceLevel || jobData.experienceLevel || 'Mid',
           yearsOfExperience: jobData.analysis?.yearsOfExperience || { minimum: 3, preferred: 5 },
           educationRequirements: jobData.analysis?.educationRequirements || [],
-          workArrangement: jobData.analysis?.workArrangement || jobData.workArrangement || 'unknown',
+          workArrangement: jobData.analysis?.workArrangement || jobData.workArrangement || 'remote',
           industryContext: jobData.analysis?.industryContext || jobData.industry || 'technology',
           roleCategory: jobData.analysis?.roleCategory || 'general',
           technicalComplexity: jobData.analysis?.technicalComplexity || 'medium',
@@ -1235,6 +1246,10 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
           companyStage: jobData.analysis?.companyStage || jobData.companySize || 'unknown',
           extractedAt: new Date(),
           extractionMethod: 'claude_web_search_premium',
+          
+          // FIXED: Add the technical requirements that were missing
+          technicalRequirements: jobData.analysis?.technicalRequirements || technicalRequirements,
+          
           // Enhanced Claude web search specific data
           claudeWebSearchData: {
             platform: jobData.sourcePlatform,
@@ -1252,7 +1267,8 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
             model: 'gpt-4o',
             analysisType: 'claude_web_search_discovery_premium',
             qualityLevel: 'same_as_manual',
-            discoveryPlatform: jobData.sourcePlatform
+            discoveryPlatform: jobData.sourcePlatform,
+            hasFullTechnicalAnalysis: true
           }
         },
         
@@ -1309,6 +1325,8 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
       });
       
       console.log(`✅ Saved: ${job.title} at ${job.company} (${jobData.sourcePlatform} - Claude web search discovery)`);
+      console.log(`📍 Location: ${enhancedLocation.city || enhancedLocation.remote ? 'Remote' : 'Not specified'}`);
+      console.log(`🔧 Technical Requirements: ${technicalRequirements.length} extracted`);
       
     } catch (error) {
       console.error(`Error saving job ${jobData.title}:`, error);
