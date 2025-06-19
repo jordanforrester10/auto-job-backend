@@ -944,12 +944,15 @@ function parseJobContent(content, jobUrl, careerProfile) {
       }
     }
     
-    // Extract work arrangement with more patterns
+    // FIXED: Extract work arrangement with proper enum values
     const workPatterns = [
-      { pattern: /remote.*?first|fully remote|100%\s*remote/i, arrangement: 'remote' },
-      { pattern: /hybrid|flexible|mix of remote/i, arrangement: 'hybrid' },
-      { pattern: /on-?site|in-?office|office-?based/i, arrangement: 'onsite' }
+      { pattern: /remote.*?first|fully remote|100%\s*remote|work from home|wfh/i, arrangement: 'remote' },
+      { pattern: /hybrid|flexible|mix of remote|part remote|some remote/i, arrangement: 'hybrid' },
+      { pattern: /on-?site|in-?office|office-?based|on-premise/i, arrangement: 'onsite' }
     ];
+    
+    // Default to remote if no pattern found
+    data.workArrangement = 'remote';
     
     for (const wp of workPatterns) {
       if (wp.pattern.test(content)) {
@@ -959,13 +962,16 @@ function parseJobContent(content, jobUrl, careerProfile) {
       }
     }
     
-    // Extract experience level
+    // Extract experience level with proper enum values
     const expPatterns = [
       { pattern: /senior|sr\.|lead/i, level: 'senior' },
       { pattern: /principal|staff|architect/i, level: 'lead' },
       { pattern: /junior|jr\.|entry|associate/i, level: 'junior' },
       { pattern: /director|vp|head of/i, level: 'executive' }
     ];
+    
+    // Default to mid if no pattern found
+    data.experienceLevel = 'mid';
     
     for (const ep of expPatterns) {
       if (ep.pattern.test(content)) {
@@ -999,23 +1005,59 @@ function parseJobContent(content, jobUrl, careerProfile) {
     );
     console.log(`🎁 Found ${data.benefits.length} benefits`);
     
-    // Extract location from content
+    // FIXED: Extract location from content with better patterns and validation
     const locationPatterns = [
-      /location:?\s*([^\n]+)/i,
-      /based in:?\s*([^\n]+)/i,
-      /office:?\s*([^\n]+)/i
+      /(?:location|located|based|headquarters?):\s*([A-Za-z\s,]+(?:CA|NY|TX|FL|WA|IL|MA|PA|OH|GA|NC|NJ|VA|MI|AZ|CO|TN|IN|SC|MO|MD|WI|MN|AL|UT|NV|KS|LA|AR|NE|IA|MS|OK|CT|OR|DE|NH|VT|ME|RI|MT|ND|SD|WY|AK|HI|DC))/i,
+      /(?:office|headquarters|hq)(?:\s+(?:in|at|located))?\s*([A-Za-z\s,]+(?:CA|NY|TX|FL|WA|IL|MA|PA|OH|GA|NC|NJ|VA|MI|AZ|CO|TN|IN|SC|MO|MD|WI|MN|AL|UT|NV|KS|LA|AR|NE|IA|MS|OK|CT|OR|DE|NH|VT|ME|RI|MT|ND|SD|WY|AK|HI|DC))/i,
+      /(?:remote|anywhere|distributed|global)/i,
+      /(?:san francisco|new york|los angeles|chicago|boston|seattle|austin|denver|atlanta|miami|dallas|houston|philadelphia|washington|portland|san diego|phoenix|detroit|minneapolis|tampa|orlando|charlotte|nashville|baltimore|milwaukee|kansas city|cleveland|columbus|indianapolis|jacksonville|memphis|louisville|oklahoma city|las vegas|albuquerque|tucson|fresno|sacramento|long beach|mesa|virginia beach|colorado springs|omaha|raleigh|tulsa|wichita|arlington|bakersfield|new orleans|honolulu|anaheim|santa ana|riverside|corpus christi|lexington|stockton|henderson|saint paul|pittsburgh|cincinnati|anchorage|toledo|newark|greensboro|lincoln|buffalo|fort wayne|jersey city|chula vista|madison|norfolk|chandler|laredo|baton rouge|lubbock|scottsdale|garland|glendale|reno|hialeah|chesapeake|irving|north las vegas|fremont|gilbert|san bernardino|boise|birmingham)/i
     ];
+    
+    // Default location
+    data.location = 'Not specified';
     
     for (const pattern of locationPatterns) {
       const locationMatch = content.match(pattern);
       if (locationMatch) {
-        data.location = locationMatch[1].trim();
-        console.log(`📍 Found location: ${data.location}`);
-        break;
+        let location = locationMatch[1] ? locationMatch[1].trim() : locationMatch[0].trim();
+        
+        // Clean up location string
+        location = location.replace(/[:;,\.]$/, ''); // Remove trailing punctuation
+        location = location.replace(/^[\s,]+|[\s,]+$/g, ''); // Remove leading/trailing spaces and commas
+        
+        // Validate location - should not contain job-related terms
+        const invalidLocationTerms = [
+          'job level', 'assessed', 'interviews', 'application', 'process', 'details',
+          'arrangements', 'not available', 'posting', 'content', 'provided',
+          'experience', 'requirements', 'qualifications', 'responsibilities',
+          'benefits', 'salary', 'compensation', 'title', 'role', 'position'
+        ];
+        
+        const isValidLocation = !invalidLocationTerms.some(term => 
+          location.toLowerCase().includes(term.toLowerCase())
+        );
+        
+        if (isValidLocation && location.length > 2 && location.length < 100) {
+          data.location = location;
+          console.log(`📍 Found valid location: ${data.location}`);
+          break;
+        } else {
+          console.log(`📍 Rejected invalid location: ${location}`);
+        }
+      }
+    }
+    
+    // If no specific location found, check for remote work indicators
+    if (data.location === 'Not specified') {
+      if (/remote|distributed|anywhere|work from home|wfh/i.test(content)) {
+        data.location = 'Remote';
+        console.log(`📍 Set location to Remote based on content`);
       }
     }
     
     console.log(`✅ Content parsing completed for: ${jobUrl.title}`);
+    console.log(`🔧 Final workArrangement: ${data.workArrangement}`);
+    console.log(`🔧 Final experienceLevel: ${data.experienceLevel}`);
     
   } catch (error) {
     console.error(`❌ Error parsing job content for ${jobUrl.title}:`, error);
