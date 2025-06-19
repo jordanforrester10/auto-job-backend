@@ -1144,7 +1144,8 @@ function assessContentQuality(content) {
 }
 
 /**
- * Enhanced save jobs function with Claude web search metadata, improved location extraction, and technical requirements
+ * Enhanced save jobs function with Claude web search metadata and technical requirements
+ * (Uses your existing parseJobContent and parseLocationEnhanced functions)
  */
 async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, search) {
   let savedCount = 0;
@@ -1188,10 +1189,10 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
         sourcePlatform = 'AI_FOUND_INTELLIGENT';
       }
       
-      // ENHANCED: Process location with improved extraction
+      // Use your existing parseLocationEnhanced function
       const enhancedLocation = parseLocationEnhanced(jobData.location);
       
-      // ENHANCED: Extract technical requirements for AI jobs
+      // ENHANCED: Extract technical requirements for AI jobs to match manual job quality
       const technicalRequirements = extractTechnicalRequirements(jobData);
       
       // Create enhanced job record with Claude web search data
@@ -1199,7 +1200,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
         userId,
         title: jobData.title,
         company: jobData.company,
-        location: enhancedLocation, // Using enhanced location parsing
+        location: enhancedLocation, // Using your enhanced location parsing
         description: jobData.fullContent,
         sourceUrl: jobData.jobUrl,
         sourcePlatform: sourcePlatform,
@@ -1334,73 +1335,134 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
 }
 
 /**
- * ENHANCED: Extract technical requirements from AI jobs
+ * ENHANCED: Extract technical requirements from AI jobs to match manual job analysis quality
  */
 function extractTechnicalRequirements(jobData) {
   const content = jobData.fullContent || '';
   const technicalRequirements = [];
   
-  // Extract programming languages
-  const languages = ['JavaScript', 'Python', 'Java', 'TypeScript', 'Go', 'Rust', 'C++', 'C#', 'PHP', 'Ruby', 'Swift', 'Kotlin', 'Scala', 'R'];
-  languages.forEach(lang => {
-    if (new RegExp(`\\b${lang}\\b`, 'i').test(content)) {
-      technicalRequirements.push({
-        category: 'Programming Languages',
-        requirement: lang,
-        importance: 'high'
-      });
-    }
-  });
-  
-  // Extract frameworks and technologies
-  const frameworks = ['React', 'Vue', 'Angular', 'Node.js', 'Express', 'Django', 'Flask', 'Spring', 'Rails', 'Laravel'];
-  frameworks.forEach(framework => {
-    if (new RegExp(`\\b${framework}\\b`, 'i').test(content)) {
-      technicalRequirements.push({
-        category: 'Frameworks & Technologies',
-        requirement: framework,
-        importance: 'medium'
-      });
-    }
-  });
-  
-  // Extract cloud platforms
-  const cloudPlatforms = ['AWS', 'Azure', 'Google Cloud', 'GCP', 'Kubernetes', 'Docker'];
-  cloudPlatforms.forEach(platform => {
-    if (new RegExp(`\\b${platform}\\b`, 'i').test(content)) {
-      technicalRequirements.push({
-        category: 'Cloud & Infrastructure',
-        requirement: platform,
-        importance: 'medium'
-      });
-    }
-  });
-  
-  // Extract databases
-  const databases = ['MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'Elasticsearch', 'DynamoDB', 'Cassandra'];
-  databases.forEach(db => {
-    if (new RegExp(`\\b${db}\\b`, 'i').test(content)) {
-      technicalRequirements.push({
-        category: 'Databases',
-        requirement: db,
-        importance: 'medium'
-      });
-    }
-  });
-  
-  // Extract AI/ML technologies
-  const aiMlTech = ['TensorFlow', 'PyTorch', 'Scikit-learn', 'Pandas', 'NumPy', 'Jupyter', 'MLflow', 'Airflow'];
-  aiMlTech.forEach(tech => {
-    if (new RegExp(`\\b${tech}\\b`, 'i').test(content)) {
-      technicalRequirements.push({
-        category: 'AI/ML Technologies',
-        requirement: tech,
-        importance: 'high'
-      });
-    }
-  });
-  
-  return technicalRequirements;
+  try {
+    // Extract programming languages
+    const languages = [
+      'JavaScript', 'Python', 'Java', 'TypeScript', 'Go', 'Rust', 'C++', 'C#', 'PHP', 
+      'Ruby', 'Swift', 'Kotlin', 'Scala', 'R', 'Dart', 'Elixir', 'Clojure', 'Haskell'
+    ];
+    languages.forEach(lang => {
+      if (new RegExp(`\\b${lang}\\b`, 'i').test(content)) {
+        technicalRequirements.push({
+          category: 'Programming Languages',
+          requirement: lang,
+          importance: 'high'
+        });
+      }
+    });
+    
+    // Extract frameworks and technologies
+    const frameworks = [
+      'React', 'Vue', 'Angular', 'Node.js', 'Express', 'Django', 'Flask', 'Spring', 
+      'Rails', 'Laravel', 'Next.js', 'Nuxt.js', 'Svelte', 'Ember.js', 'Backbone.js',
+      'jQuery', 'Bootstrap', 'Tailwind', 'Material-UI', 'Ant Design'
+    ];
+    frameworks.forEach(framework => {
+      if (new RegExp(`\\b${framework}\\b`, 'i').test(content)) {
+        technicalRequirements.push({
+          category: 'Frameworks & Technologies',
+          requirement: framework,
+          importance: 'medium'
+        });
+      }
+    });
+    
+    // Extract cloud platforms and infrastructure
+    const cloudPlatforms = [
+      'AWS', 'Amazon Web Services', 'Azure', 'Google Cloud', 'GCP', 'Kubernetes', 'Docker',
+      'Terraform', 'Ansible', 'Jenkins', 'GitLab CI', 'GitHub Actions', 'CircleCI',
+      'Heroku', 'Vercel', 'Netlify', 'DigitalOcean', 'Linode'
+    ];
+    cloudPlatforms.forEach(platform => {
+      if (new RegExp(`\\b${platform}\\b`, 'i').test(content)) {
+        technicalRequirements.push({
+          category: 'Cloud & Infrastructure',
+          requirement: platform,
+          importance: 'medium'
+        });
+      }
+    });
+    
+    // Extract databases
+    const databases = [
+      'MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'Elasticsearch', 'DynamoDB', 'Cassandra',
+      'Oracle', 'SQL Server', 'SQLite', 'MariaDB', 'CouchDB', 'Neo4j', 'InfluxDB'
+    ];
+    databases.forEach(db => {
+      if (new RegExp(`\\b${db}\\b`, 'i').test(content)) {
+        technicalRequirements.push({
+          category: 'Databases',
+          requirement: db,
+          importance: 'medium'
+        });
+      }
+    });
+    
+    // Extract AI/ML technologies
+    const aiMlTech = [
+      'TensorFlow', 'PyTorch', 'Scikit-learn', 'Pandas', 'NumPy', 'Jupyter', 'MLflow', 
+      'Airflow', 'Keras', 'OpenCV', 'NLTK', 'spaCy', 'Hugging Face', 'Transformers',
+      'LangChain', 'OpenAI', 'Anthropic', 'Claude', 'GPT', 'BERT', 'ResNet'
+    ];
+    aiMlTech.forEach(tech => {
+      if (new RegExp(`\\b${tech}\\b`, 'i').test(content)) {
+        technicalRequirements.push({
+          category: 'AI/ML Technologies',
+          requirement: tech,
+          importance: 'high'
+        });
+      }
+    });
+    
+    // Extract development tools
+    const devTools = [
+      'Git', 'GitHub', 'GitLab', 'Bitbucket', 'Jira', 'Confluence', 'Slack', 'Teams',
+      'VS Code', 'IntelliJ', 'Eclipse', 'Vim', 'Emacs', 'Postman', 'Insomnia',
+      'Figma', 'Sketch', 'Adobe Creative Suite', 'Photoshop', 'Illustrator'
+    ];
+    devTools.forEach(tool => {
+      if (new RegExp(`\\b${tool}\\b`, 'i').test(content)) {
+        technicalRequirements.push({
+          category: 'Development Tools',
+          requirement: tool,
+          importance: 'low'
+        });
+      }
+    });
+    
+    // Extract testing frameworks
+    const testingFrameworks = [
+      'Jest', 'Mocha', 'Jasmine', 'Cypress', 'Selenium', 'TestNG', 'JUnit', 'PyTest',
+      'RSpec', 'Cucumber', 'Playwright', 'Puppeteer'
+    ];
+    testingFrameworks.forEach(framework => {
+      if (new RegExp(`\\b${framework}\\b`, 'i').test(content)) {
+        technicalRequirements.push({
+          category: 'Testing Frameworks',
+          requirement: framework,
+          importance: 'medium'
+        });
+      }
+    });
+    
+    // Remove duplicates based on requirement name
+    const uniqueRequirements = technicalRequirements.filter((req, index, self) =>
+      index === self.findIndex(r => r.requirement === req.requirement)
+    );
+    
+    console.log(`🔧 Extracted ${uniqueRequirements.length} technical requirements for ${jobData.title}`);
+    return uniqueRequirements;
+    
+  } catch (error) {
+    console.error(`❌ Error extracting technical requirements for ${jobData.title}:`, error);
+    return [];
+  }
 }
 /**
  * Enhanced Phase 3: Premium Job Analysis (unchanged but with Claude web search context)
