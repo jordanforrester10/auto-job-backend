@@ -14,6 +14,7 @@ import {
   useMediaQuery,
   Avatar,
   Collapse,
+  Tooltip,
 } from '@mui/material';
 import { Link, useLocation } from 'react-router-dom';
 import {
@@ -125,6 +126,19 @@ const Sidebar = ({ open, onClose }) => {
 
   const isSubItemActive = (subItemPath) => {
     return location.pathname === subItemPath;
+  };
+
+  // Helper function to get user display name
+  const getUserDisplayName = () => {
+    if (currentUser?.firstName && currentUser?.lastName) {
+      return `${currentUser.firstName} ${currentUser.lastName}`;
+    }
+    return currentUser?.firstName || 'User';
+  };
+
+  // Helper function to get user email with proper truncation
+  const getUserEmail = () => {
+    return currentUser?.email || 'user@example.com';
   };
 
   const drawerContent = (
@@ -338,7 +352,7 @@ const Sidebar = ({ open, onClose }) => {
       
       <Divider sx={{ mt: 2, flexShrink: 0 }} />
       
-      {/* User Section - Fixed at bottom */}
+      {/* User Section - Fixed at bottom with improved email handling */}
       <Box sx={{ p: 2, flexShrink: 0 }}>
         <Box sx={{ 
           display: 'flex', 
@@ -347,7 +361,8 @@ const Sidebar = ({ open, onClose }) => {
           p: 1.5,
           borderRadius: 2,
           backgroundColor: 'rgba(26, 115, 232, 0.04)',
-          border: '1px solid rgba(26, 115, 232, 0.1)'
+          border: '1px solid rgba(26, 115, 232, 0.1)',
+          minWidth: 0, // Allow shrinking
         }}>
           <Avatar 
             sx={{ 
@@ -356,18 +371,48 @@ const Sidebar = ({ open, onClose }) => {
               mr: 2,
               bgcolor: 'primary.main',
               fontSize: '1rem',
-              fontWeight: 600
+              fontWeight: 600,
+              flexShrink: 0, // Prevent avatar from shrinking
             }}
           >
             {currentUser?.firstName?.[0] || 'U'}
           </Avatar>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600 }} noWrap>
-              {currentUser?.firstName ? `${currentUser.firstName} ${currentUser.lastName}` : 'User'}
+          <Box sx={{ 
+            flex: 1, 
+            minWidth: 0, // Allow this box to shrink
+            overflow: 'hidden' // Prevent overflow
+          }}>
+            <Typography 
+              variant="subtitle2" 
+              sx={{ 
+                fontWeight: 600,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                lineHeight: 1.2
+              }}
+            >
+              {getUserDisplayName()}
             </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {currentUser?.email || 'user@example.com'}
-            </Typography>
+            <Tooltip title={getUserEmail()} arrow placement="top">
+              <Typography 
+                variant="caption" 
+                color="text.secondary" 
+                sx={{
+                  display: 'block',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  lineHeight: 1.2,
+                  cursor: 'help', // Show that it's interactive
+                  '&:hover': {
+                    color: 'text.primary', // Slightly darker on hover
+                  }
+                }}
+              >
+                {getUserEmail()}
+              </Typography>
+            </Tooltip>
           </Box>
         </Box>
         
