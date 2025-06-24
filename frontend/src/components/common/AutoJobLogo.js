@@ -1,6 +1,6 @@
-// src/components/common/AutoJobLogo.js
+// src/components/common/AutoJobLogo.js - FIXED VERSION
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, useTheme } from '@mui/material';
 
 /**
  * Shared logo component for auto-job.ai
@@ -16,6 +16,8 @@ const AutoJobLogo = ({
   onClick = null,
   sx = {}
 }) => {
+  const theme = useTheme();
+
   // Size configurations
   const sizeConfig = {
     small: {
@@ -44,43 +46,59 @@ const AutoJobLogo = ({
     }
   };
 
-  const config = sizeConfig[size];
+  const config = sizeConfig[size] || sizeConfig.medium;
 
-  // Color configurations
-  const colorConfig = {
-    primary: {
-      logoText: (theme) => theme.palette.primary.main,
-      taglineText: (theme) => theme.palette.text.secondary,
-      robotFill: '#e3f2fd',
-      robotStroke: (theme) => theme.palette.primary.main,
-      antennaColor: (theme) => theme.palette.success.main,
-      eyeColor: (theme) => theme.palette.primary.main,
-      mouthColor: (theme) => theme.palette.success.main,
-      sidePanelColor: (theme) => theme.palette.warning.main
-    },
-    white: {
-      logoText: '#ffffff',
-      taglineText: 'rgba(255, 255, 255, 0.8)',
-      robotFill: 'rgba(255, 255, 255, 0.9)',
-      robotStroke: '#ffffff',
-      antennaColor: '#4caf50',
-      eyeColor: '#2196f3',
-      mouthColor: '#4caf50',
-      sidePanelColor: '#ff9800'
-    },
-    gradient: {
-      logoText: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 50%, #34a853 100%)',
-      taglineText: (theme) => theme.palette.text.secondary,
-      robotFill: '#e3f2fd',
-      robotStroke: '#1a73e8',
-      antennaColor: '#34a853',
-      eyeColor: '#1a73e8',
-      mouthColor: '#34a853',
-      sidePanelColor: '#fbbc04'
+  // Color configurations - FIXED: Now properly handles theme functions
+  const getColorConfig = () => {
+    switch (color) {
+      case 'primary':
+        return {
+          logoText: theme.palette.primary.main,
+          taglineText: theme.palette.text.secondary,
+          robotFill: '#e3f2fd',
+          robotStroke: theme.palette.primary.main,
+          antennaColor: theme.palette.success.main,
+          eyeColor: theme.palette.primary.main,
+          mouthColor: theme.palette.success.main,
+          sidePanelColor: theme.palette.warning.main
+        };
+      case 'white':
+        return {
+          logoText: '#ffffff',
+          taglineText: 'rgba(255, 255, 255, 0.8)',
+          robotFill: 'rgba(255, 255, 255, 0.9)',
+          robotStroke: '#ffffff',
+          antennaColor: '#4caf50',
+          eyeColor: '#2196f3',
+          mouthColor: '#4caf50',
+          sidePanelColor: '#ff9800'
+        };
+      case 'gradient':
+        return {
+          logoText: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 50%, #34a853 100%)',
+          taglineText: theme.palette.text.secondary,
+          robotFill: '#e3f2fd',
+          robotStroke: '#1a73e8',
+          antennaColor: '#34a853',
+          eyeColor: '#1a73e8',
+          mouthColor: '#34a853',
+          sidePanelColor: '#fbbc04'
+        };
+      default:
+        return {
+          logoText: theme.palette.primary.main,
+          taglineText: theme.palette.text.secondary,
+          robotFill: '#e3f2fd',
+          robotStroke: theme.palette.primary.main,
+          antennaColor: theme.palette.success.main,
+          eyeColor: theme.palette.primary.main,
+          mouthColor: theme.palette.success.main,
+          sidePanelColor: theme.palette.warning.main
+        };
     }
   };
 
-  const colors = colorConfig[color];
+  const colors = getColorConfig();
 
   // Robot SVG Component
   const RobotIcon = () => (
@@ -99,8 +117,8 @@ const AutoJobLogo = ({
         height="40" 
         rx="8" 
         ry="8" 
-        fill={typeof colors.robotFill === 'function' ? colors.robotFill : colors.robotFill}
-        stroke={typeof colors.robotStroke === 'function' ? colors.robotStroke : colors.robotStroke}
+        fill={colors.robotFill}
+        stroke={colors.robotStroke}
         strokeWidth="2"
       />
       
@@ -162,7 +180,7 @@ const AutoJobLogo = ({
     </svg>
   );
 
-  // Logo text styles
+  // Logo text styles - FIXED: Now properly handles gradient colors
   const logoTextStyle = {
     fontSize: config.logoText,
     fontWeight: 700,
@@ -173,14 +191,14 @@ const AutoJobLogo = ({
       WebkitTextFillColor: 'transparent',
       backgroundClip: 'text'
     } : {
-      color: typeof colors.logoText === 'function' ? colors.logoText : colors.logoText
+      color: colors.logoText
     })
   };
 
   const taglineTextStyle = {
     fontSize: config.taglineText,
     fontWeight: 500,
-    color: typeof colors.taglineText === 'function' ? colors.taglineText : colors.taglineText,
+    color: colors.taglineText,
     mt: 0.5
   };
 

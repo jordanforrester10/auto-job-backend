@@ -1,11 +1,10 @@
-// src/components/auth/Register.js
+// src/components/auth/Register.js - CENTERED DESIGN MATCHING LOGIN THEME
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { 
   TextField, 
   Button, 
   Typography, 
-  Container, 
   Box, 
   Alert, 
   Paper, 
@@ -13,9 +12,6 @@ import {
   InputAdornment,
   IconButton,
   Divider,
-  Card,
-  CardContent,
-  Chip,
   LinearProgress,
   CircularProgress
 } from '@mui/material';
@@ -27,10 +23,6 @@ import {
   VisibilityOff,
   Login as LoginIcon,
   CheckCircle as CheckCircleIcon,
-  SmartToy as SmartToyIcon,
-  Speed as SpeedIcon,
-  Work as WorkIcon,
-  TrendingUp as TrendingUpIcon,
   Security as SecurityIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
@@ -119,434 +111,441 @@ const Register = () => {
 
   return (
     <Box sx={{ 
+      // Ensure full viewport coverage
       minHeight: '100vh',
+      minHeight: '100dvh',
+      height: '100%',
       background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 50%, #00c4b4 100%)',
+      // Fix for white bar - ensure background covers everything
+      backgroundAttachment: 'fixed',
+      backgroundSize: 'cover',
+      backgroundRepeat: 'no-repeat',
       display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
       alignItems: 'center',
-      py: 3
+      padding: { xs: 2, sm: 3 },
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      // Ensure proper scrolling behavior
+      position: 'relative',
+      // Custom scrollbar styling
+      '&::-webkit-scrollbar': {
+        width: '6px',
+      },
+      '&::-webkit-scrollbar-track': {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: '3px',
+      },
+      '&::-webkit-scrollbar-thumb': {
+        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+        borderRadius: '3px',
+        '&:hover': {
+          backgroundColor: 'rgba(255, 255, 255, 0.5)',
+        },
+      },
     }}>
-      <Container maxWidth="lg">
-        <Grid container spacing={4} alignItems="center" sx={{ minHeight: '90vh' }}>
-          {/* Left Side - Branding & Benefits */}
-          <Grid item xs={12} md={6}>
-            <Box sx={{ color: 'white', pr: { md: 4 } }}>
-              {/* Logo Section */}
-              <Box sx={{ mb: 4 }}>
-                <AutoJobLogo 
-                  variant="horizontal"
-                  size="large"
-                  color="white"
-                  showTagline={true}
-                />
-              </Box>
-
-              {/* Value Proposition */}
-              <Typography 
-                variant="h4" 
-                sx={{ 
-                  fontWeight: 600,
-                  mb: 2,
-                  lineHeight: 1.2
-                }}
-              >
-                Stay Ahead of The Market and Power Your Job Search Today
-              </Typography>
-              
-              <Typography 
-                variant="h6" 
-                sx={{ 
-                  opacity: 0.9,
-                  fontWeight: 400,
-                  mb: 4,
-                  lineHeight: 1.4
-                }}
-              >
-                Join thousands of professionals who've transformed their job search 
-                with our AI intelligent platform and accessing our database of over 300k recruiters
-              </Typography>
-
-              {/* Benefits List */}
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-                  What you'll get with auto-job.ai:
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
-                      <CheckCircleIcon sx={{ mr: 2, color: '#34a853' }} />
-                      <Typography variant="body1">
-                        <strong>3x faster interview callbacks</strong> with AI-Tailored resumes
-                      </Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
-                      <CheckCircleIcon sx={{ mr: 2, color: '#34a853' }} />
-                      <Typography variant="body1">
-                        <strong>24/7 AI agents</strong> finding you jobs and reaching out to recruiters
-                      </Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
-                      <CheckCircleIcon sx={{ mr: 2, color: '#34a853' }} />
-                      <Typography variant="body1">
-                        <strong>Smart job matching</strong> based on your resume and preferences
-                      </Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
-                      <CheckCircleIcon sx={{ mr: 2, color: '#34a853' }} />
-                      <Typography variant="body1">
-                        <strong>AI Assistant</strong> to help you stay ahead of the job market
-                      </Typography>
-                    </Box>
-                  </Grid>
-                </Grid>
-              </Box>
-
-              {/* Social Proof */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                <Chip 
-                  label="Free to Start" 
-                  variant="outlined" 
-                  sx={{ 
-                    color: 'white', 
-                    borderColor: 'rgba(255,255,255,0.4)',
-                    background: 'rgba(255,255,255,0.1)',
-                    fontWeight: 500
-                  }} 
-                  icon={<CheckCircleIcon sx={{ color: '#34a853 !important' }} />}
-                />
-                <Chip 
-                  label="No Credit Card Required" 
-                  variant="outlined" 
-                  sx={{ 
-                    color: 'white', 
-                    borderColor: 'rgba(255,255,255,0.4)',
-                    background: 'rgba(255,255,255,0.1)',
-                    fontWeight: 500
-                  }} 
-                  icon={<SecurityIcon sx={{ color: '#4285f4 !important' }} />}
-                />
-              </Box>
+      <Box 
+        sx={{ 
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          width: '100%',
+          maxWidth: { xs: '450px', sm: '500px' },
+          mx: 'auto',
+          my: { xs: 3, sm: 4 }, // Margin top and bottom for proper spacing
+          position: 'relative',
+          flex: '0 1 auto', // Allow shrinking but don't grow
+        }}
+      >
+        {/* Main Form Container */}
+        <Paper 
+          elevation={0}
+          sx={{ 
+            p: { xs: 3, sm: 4 },
+            width: '100%',
+            background: 'rgba(255, 255, 255, 0.98)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+            borderRadius: 3
+          }}
+        >
+          {/* Header with Logo */}
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
+            <Box sx={{ mb: 2 }}>
+              <AutoJobLogo 
+                variant="icon-only"
+                size="medium"
+                color="primary"
+              />
             </Box>
-          </Grid>
-
-          {/* Right Side - Registration Form */}
-          <Grid item xs={12} md={6}>
-            <Paper 
-              elevation={0}
+            
+            <Typography 
+              component="h1" 
+              variant="h4" 
               sx={{ 
-                p: 4, 
-                background: 'rgba(255, 255, 255, 0.98)',
-                backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.3)',
-                boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
+                fontWeight: 600,
+                color: 'text.primary',
+                mb: 1,
+                fontSize: { xs: '1.625rem', sm: '1.75rem' }
               }}
             >
-              {/* Header */}
-              <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <AutoJobLogo 
-                  variant="icon-only"
-                  size="medium"
-                  color="primary"
+              Create Your Account
+            </Typography>
+            <Typography 
+              variant="body1" 
+              color="text.secondary"
+              sx={{ 
+                fontSize: { xs: '0.875rem', sm: '0.95rem' }
+              }}
+            >
+              Join auto-job.ai and accelerate your career today
+            </Typography>
+          </Box>
+          
+          {error && (
+            <Alert 
+              severity="error" 
+              sx={{ 
+                mb: 3,
+                '& .MuiAlert-icon': {
+                  fontSize: '1.25rem'
+                }
+              }}
+            >
+              {error}
+            </Alert>
+          )}
+          
+          {success && (
+            <Alert 
+              severity="success" 
+              sx={{ 
+                mb: 3,
+                '& .MuiAlert-icon': {
+                  fontSize: '1.25rem'
+                }
+              }}
+            >
+              {success}
+            </Alert>
+          )}
+          
+          <Box component="form" onSubmit={handleSubmit}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  required
+                  fullWidth
+                  id="firstName"
+                  label="First Name"
+                  name="firstName"
+                  autoComplete="given-name"
+                  value={formData.firstName}
+                  onChange={handleChange}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonIcon color="primary" />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      '& fieldset': {
+                        borderColor: 'rgba(0, 0, 0, 0.12)',
+                      },
+                    }
+                  }}
                 />
-                <Typography 
-                  component="h1" 
-                  variant="h4" 
-                  sx={{ 
-                    fontWeight: 600,
-                    color: 'text.primary',
-                    mb: 0.5,
-                    mt: 1
-                  }}
-                >
-                  Create Your Account
-                </Typography>
-                <Typography 
-                  variant="body1" 
-                  color="text.secondary"
-                  sx={{ mb: 2 }}
-                >
-                  Join auto-job.ai and accelerate your career today
-                </Typography>
-              </Box>
-              
-              {error && (
-                <Alert 
-                  severity="error" 
-                  sx={{ 
-                    mb: 3,
-                    '& .MuiAlert-icon': {
-                      fontSize: '1.25rem'
-                    }
-                  }}
-                >
-                  {error}
-                </Alert>
-              )}
-              
-              {success && (
-                <Alert 
-                  severity="success" 
-                  sx={{ 
-                    mb: 3,
-                    '& .MuiAlert-icon': {
-                      fontSize: '1.25rem'
-                    }
-                  }}
-                >
-                  {success}
-                </Alert>
-              )}
-              
-              <Box component="form" onSubmit={handleSubmit}>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      required
-                      fullWidth
-                      id="firstName"
-                      label="First Name"
-                      name="firstName"
-                      autoComplete="given-name"
-                      value={formData.firstName}
-                      onChange={handleChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      required
-                      fullWidth
-                      id="lastName"
-                      label="Last Name"
-                      name="lastName"
-                      autoComplete="family-name"
-                      value={formData.lastName}
-                      onChange={handleChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      required
-                      fullWidth
-                      id="email"
-                      label="Email Address"
-                      name="email"
-                      autoComplete="email"
-                      value={formData.email}
-                      onChange={handleChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <EmailIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      required
-                      fullWidth
-                      name="password"
-                      label="Password"
-                      type={showPassword ? 'text' : 'password'}
-                      id="password"
-                      autoComplete="new-password"
-                      value={formData.password}
-                      onChange={handleChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <LockIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              aria-label="toggle password visibility"
-                              onClick={() => setShowPassword(!showPassword)}
-                              edge="end"
-                              size="small"
-                            >
-                              {showPassword ? <VisibilityOff /> : <Visibility />}
-                            </IconButton>
-                          </InputAdornment>
-                        ),
-                      }}
-                      helperText="At least 8 characters with uppercase, lowercase, number, and special character"
-                    />
-                    {formData.password && (
-                      <Box sx={{ mt: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            Password strength:
-                          </Typography>
-                          <Typography 
-                            variant="caption" 
-                            color={`${passwordStrength.color}.main`}
-                            sx={{ fontWeight: 500 }}
-                          >
-                            {passwordStrength.label}
-                          </Typography>
-                        </Box>
-                        <LinearProgress 
-                          variant="determinate" 
-                          value={passwordStrength.score} 
-                          color={passwordStrength.color}
-                          sx={{ height: 4 }}
-                        />
-                      </Box>
-                    )}
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      required
-                      fullWidth
-                      name="confirmPassword"
-                      label="Confirm Password"
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      id="confirmPassword"
-                      value={formData.confirmPassword}
-                      onChange={handleChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <LockIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              aria-label="toggle confirm password visibility"
-                              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                              edge="end"
-                              size="small"
-                            >
-                              {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
-                            </IconButton>
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                </Grid>
-                
-                <Button
-                  type="submit"
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  required
                   fullWidth
-                  variant="contained"
-                  size="large"
-                  disabled={loading}
-                  sx={{ 
-                    mt: 3, 
-                    mb: 3,
-                    py: 1.5,
-                    fontSize: '1rem',
-                    fontWeight: 600,
-                    background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 100%)',
-                    '&:hover': {
-                      background: 'linear-gradient(135deg, #1557b0 0%, #3367d6 100%)',
-                    },
-                    '&:disabled': {
-                      background: theme => theme.palette.action.disabledBackground
+                  id="lastName"
+                  label="Last Name"
+                  name="lastName"
+                  autoComplete="family-name"
+                  value={formData.lastName}
+                  onChange={handleChange}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonIcon color="primary" />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      '& fieldset': {
+                        borderColor: 'rgba(0, 0, 0, 0.12)',
+                      },
                     }
                   }}
-                >
-                  {loading ? (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <CircularProgress size={20} color="inherit" />
-                      Creating your account...
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  required
+                  fullWidth
+                  id="email"
+                  label="Email Address"
+                  name="email"
+                  autoComplete="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <EmailIcon color="primary" />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{
+                    mb: 1,
+                    '& .MuiOutlinedInput-root': {
+                      '& fieldset': {
+                        borderColor: 'rgba(0, 0, 0, 0.12)',
+                      },
+                    }
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  required
+                  fullWidth
+                  name="password"
+                  label="Password"
+                  type={showPassword ? 'text' : 'password'}
+                  id="password"
+                  autoComplete="new-password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockIcon color="primary" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="toggle password visibility"
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                          size="small"
+                        >
+                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                  helperText="At least 8 characters with uppercase, lowercase, number, and special character"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      '& fieldset': {
+                        borderColor: 'rgba(0, 0, 0, 0.12)',
+                      },
+                    }
+                  }}
+                />
+                {formData.password && (
+                  <Box sx={{ mt: 1, mb: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <Typography 
+                        variant="caption" 
+                        color="text.secondary"
+                        sx={{ fontSize: '0.75rem' }}
+                      >
+                        Password strength:
+                      </Typography>
+                      <Typography 
+                        variant="caption" 
+                        color={`${passwordStrength.color}.main`}
+                        sx={{ 
+                          fontWeight: 500,
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        {passwordStrength.label}
+                      </Typography>
                     </Box>
-                  ) : (
-                    'Create Your Free Account'
-                  )}
-                </Button>
-                
-                <Divider sx={{ my: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Already have an account?
-                  </Typography>
-                </Divider>
-                
-                <Button
-                  component={Link}
-                  to="/login"
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={passwordStrength.score} 
+                      color={passwordStrength.color}
+                      sx={{ height: 4, borderRadius: 2 }}
+                    />
+                  </Box>
+                )}
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  required
                   fullWidth
-                  variant="outlined"
-                  size="large"
-                  startIcon={<LoginIcon />}
-                  sx={{ 
-                    py: 1.5,
-                    fontSize: '1rem',
-                    fontWeight: 500
+                  name="confirmPassword"
+                  label="Confirm Password"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  id="confirmPassword"
+                  value={formData.confirmPassword}
+                  onChange={handleChange}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockIcon color="primary" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="toggle confirm password visibility"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          edge="end"
+                          size="small"
+                        >
+                          {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
                   }}
-                >
-                  Sign In Instead
-                </Button>
-              </Box>
-
-              {/* Terms and Privacy */}
-              <Box sx={{ 
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      '& fieldset': {
+                        borderColor: 'rgba(0, 0, 0, 0.12)',
+                      },
+                    }
+                  }}
+                />
+              </Grid>
+            </Grid>
+            
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              size="large"
+              disabled={loading}
+              sx={{ 
                 mt: 3, 
-                pt: 3, 
-                borderTop: '1px solid',
-                borderColor: 'divider',
-                textAlign: 'center'
-              }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  By creating an account, you agree to our{' '}
-                  <Link to="/terms" style={{ color: 'inherit', textDecoration: 'underline' }}>
-                    Terms of Service
-                  </Link>
-                  {' '}and{' '}
-                  <Link to="/privacy" style={{ color: 'inherit', textDecoration: 'underline' }}>
-                    Privacy Policy
-                  </Link>
-                </Typography>
-                <Box sx={{ 
-                  display: 'flex', 
-                  justifyContent: 'center', 
-                  alignItems: 'center', 
-                  gap: 3,
-                  flexWrap: 'wrap',
-                  mt: 1
-                }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <SecurityIcon sx={{ fontSize: 16, color: 'success.main' }} />
-                    <Typography variant="caption" color="text.secondary">
-                      SSL Encrypted
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
-                    <Typography variant="caption" color="text.secondary">
-                      No Spam Guarantee
-                    </Typography>
-                  </Box>
+                mb: 3,
+                py: 1.5,
+                fontSize: '1rem',
+                fontWeight: 600,
+                background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 100%)',
+                borderRadius: 2,
+                textTransform: 'none',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #1557b0 0%, #3367d6 100%)',
+                },
+                '&:disabled': {
+                  background: theme => theme.palette.action.disabledBackground
+                }
+              }}
+            >
+              {loading ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CircularProgress size={20} color="inherit" />
+                  Creating your account...
                 </Box>
+              ) : (
+                'Create Your Free Account'
+              )}
+            </Button>
+            
+            <Divider sx={{ my: 2 }}>
+              <Typography 
+                variant="body2" 
+                color="text.secondary"
+                sx={{ fontSize: '0.875rem' }}
+              >
+                Already have an account?
+              </Typography>
+            </Divider>
+            
+            <Button
+              component={Link}
+              to="/login"
+              fullWidth
+              variant="outlined"
+              size="large"
+              startIcon={<LoginIcon />}
+              sx={{ 
+                py: 1.5,
+                fontSize: '0.9rem',
+                fontWeight: 500,
+                borderRadius: 2,
+                textTransform: 'none',
+                borderColor: 'primary.main',
+                color: 'primary.main',
+                '&:hover': {
+                  borderColor: 'primary.dark',
+                  backgroundColor: 'rgba(26, 115, 232, 0.04)'
+                }
+              }}
+            >
+              Sign In Instead
+            </Button>
+          </Box>
+
+          {/* Terms and Trust Indicators Footer */}
+          <Box sx={{ 
+            mt: 3,
+            pt: 2,
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            textAlign: 'center'
+          }}>
+            <Typography 
+              variant="body2" 
+              color="text.secondary" 
+              sx={{ 
+                mb: 1.5,
+                fontSize: '0.8rem'
+              }}
+            >
+              By creating an account, you agree to our{' '}
+              <Link to="/terms" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                Terms of Service
+              </Link>
+              {' '}and{' '}
+              <Link to="/privacy" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                Privacy Policy
+              </Link>
+            </Typography>
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              gap: { xs: 2, sm: 3 },
+              flexWrap: 'wrap'
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <SecurityIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                <Typography 
+                  variant="caption" 
+                  color="text.secondary"
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  SSL Encrypted
+                </Typography>
               </Box>
-            </Paper>
-          </Grid>
-        </Grid>
-      </Container>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                <Typography 
+                  variant="caption" 
+                  color="text.secondary"
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  No Spam Guarantee
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+        </Paper>
+      </Box>
     </Box>
   );
 };

@@ -1,21 +1,16 @@
-// src/components/auth/Login.js
+// src/components/auth/Login.js - CENTERED DESIGN MATCHING YOUR IMAGE
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { 
   TextField, 
   Button, 
   Typography, 
-  Container, 
   Box, 
   Alert, 
   Paper,
   InputAdornment,
   IconButton,
   Divider,
-  Grid,
-  Card,
-  CardContent,
-  Chip,
   CircularProgress
 } from '@mui/material';
 import { 
@@ -25,12 +20,7 @@ import {
   VisibilityOff,
   PersonAdd as PersonAddIcon,
   Help as HelpIcon,
-  SmartToy as SmartToyIcon,
-  Work as WorkIcon,
-  Speed as SpeedIcon,
-  CheckCircle as CheckCircleIcon,
-  TrendingUp as TrendingUpIcon,
-  Security as SecurityIcon
+  CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import AutoJobLogo from '../common/AutoJobLogo';
@@ -72,421 +62,307 @@ const Login = () => {
   return (
     <Box sx={{ 
       minHeight: '100vh',
+      minHeight: '100dvh',
       background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 50%, #00c4b4 100%)',
       display: 'flex',
       alignItems: 'center',
-      py: 3
+      justifyContent: 'center',
+      padding: { xs: 3, sm: 4 }, // Increased padding
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      paddingBottom: { xs: 4, sm: 5 }, // Extra bottom padding to prevent cutoff
     }}>
-      <Container maxWidth="lg">
-        <Grid container spacing={4} alignItems="center" sx={{ minHeight: '90vh' }}>
-          {/* Left Side - Branding & Features */}
-          <Grid item xs={12} md={6}>
-            <Box sx={{ color: 'white', pr: { md: 4 } }}>
-              {/* Logo Section */}
-              <Box sx={{ mb: 4 }}>
-                <AutoJobLogo 
-                  variant="horizontal"
-                  size="large"
-                  color="white"
-                  showTagline={true}
-                />
-              </Box>
-
-              {/* Value Proposition */}
-              <Typography 
-                variant="h4" 
-                sx={{ 
-                  fontWeight: 600,
-                  mb: 2,
-                  lineHeight: 1.2
-                }}
-              >
-                Transform Your Job Search with AI
-              </Typography>
-              
-              <Typography 
-                variant="h6" 
-                sx={{ 
-                  opacity: 0.9,
-                  fontWeight: 400,
-                  mb: 4,
-                  lineHeight: 1.4
-                }}
-              >
-                Join thousands of professionals who've accelerated their careers 
-                with our AI-powered job matching platform.
-              </Typography>
-
-              {/* Feature Grid */}
-              <Grid container spacing={2} sx={{ mb: 4 }}>
-                <Grid item xs={12} sm={6}>
-                  <Card sx={{ 
-                    background: 'rgba(255, 255, 255, 0.15)', 
-                    backdropFilter: 'blur(10px)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: 'white',
-                    transition: 'transform 0.2s ease-in-out',
-                    '&:hover': {
-                      transform: 'translateY(-2px)'
-                    }
-                  }}>
-                    <CardContent sx={{ p: 2.5 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1.5 }}>
-                        <SpeedIcon sx={{ mr: 1.5, color: '#34a853', fontSize: '1.5rem' }} />
-                        <Box>
-                          <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            3x Faster Results
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.9, lineHeight: 1.4 }}>
-                            Get interview callbacks 3x faster than traditional job searching methods
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                
-                <Grid item xs={12} sm={6}>
-                  <Card sx={{ 
-                    background: 'rgba(255, 255, 255, 0.15)', 
-                    backdropFilter: 'blur(10px)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: 'white',
-                    transition: 'transform 0.2s ease-in-out',
-                    '&:hover': {
-                      transform: 'translateY(-2px)'
-                    }
-                  }}>
-                    <CardContent sx={{ p: 2.5 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1.5 }}>
-                        <SmartToyIcon sx={{ mr: 1.5, color: '#4285f4', fontSize: '1.5rem' }} />
-                        <Box>
-                          <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            AI Automation
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.9, lineHeight: 1.4 }}>
-                            24/7 AI agents handle applications, follow-ups, and scheduling
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                
-                <Grid item xs={12} sm={6}>
-                  <Card sx={{ 
-                    background: 'rgba(255, 255, 255, 0.15)', 
-                    backdropFilter: 'blur(10px)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: 'white',
-                    transition: 'transform 0.2s ease-in-out',
-                    '&:hover': {
-                      transform: 'translateY(-2px)'
-                    }
-                  }}>
-                    <CardContent sx={{ p: 2.5 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1.5 }}>
-                        <WorkIcon sx={{ mr: 1.5, color: '#fbbc04', fontSize: '1.5rem' }} />
-                        <Box>
-                          <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            Smart Matching
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.9, lineHeight: 1.4 }}>
-                            AI analyzes your profile to find perfect job matches automatically
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                
-                <Grid item xs={12} sm={6}>
-                  <Card sx={{ 
-                    background: 'rgba(255, 255, 255, 0.15)', 
-                    backdropFilter: 'blur(10px)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: 'white',
-                    transition: 'transform 0.2s ease-in-out',
-                    '&:hover': {
-                      transform: 'translateY(-2px)'
-                    }
-                  }}>
-                    <CardContent sx={{ p: 2.5 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1.5 }}>
-                        <TrendingUpIcon sx={{ mr: 1.5, color: '#00c4b4', fontSize: '1.5rem' }} />
-                        <Box>
-                          <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            Higher Success
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.9, lineHeight: 1.4 }}>
-                            85% higher interview callback rate compared to manual applications
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </Grid>
-
-              {/* Social Proof */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                <Chip 
-                  label="10,000+ Active Users" 
-                  variant="outlined" 
-                  sx={{ 
-                    color: 'white', 
-                    borderColor: 'rgba(255,255,255,0.4)',
-                    background: 'rgba(255,255,255,0.1)',
-                    fontWeight: 500
-                  }} 
-                  icon={<CheckCircleIcon sx={{ color: '#34a853 !important' }} />}
-                />
-                <Chip 
-                  label="4.9/5 User Rating" 
-                  variant="outlined" 
-                  sx={{ 
-                    color: 'white', 
-                    borderColor: 'rgba(255,255,255,0.4)',
-                    background: 'rgba(255,255,255,0.1)',
-                    fontWeight: 500
-                  }} 
-                  icon={<CheckCircleIcon sx={{ color: '#fbbc04 !important' }} />}
-                />
-                <Chip 
-                  label="50K+ Jobs Matched" 
-                  variant="outlined" 
-                  sx={{ 
-                    color: 'white', 
-                    borderColor: 'rgba(255,255,255,0.4)',
-                    background: 'rgba(255,255,255,0.1)',
-                    fontWeight: 500
-                  }} 
-                  icon={<CheckCircleIcon sx={{ color: '#00c4b4 !important' }} />}
-                />
-              </Box>
+      <Box 
+        sx={{ 
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          width: '100%',
+          maxWidth: { xs: '400px', sm: '450px' }, // Made wider
+          mx: 'auto'
+        }}
+      >
+        {/* Main Form Container - Proper width like in image */}
+        <Paper 
+          elevation={0}
+          sx={{ 
+            p: { xs: 3, sm: 4 },
+            width: '100%',
+            background: 'rgba(255, 255, 255, 0.98)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+            borderRadius: 3
+          }}
+        >
+          {/* Header with Logo */}
+          <Box sx={{ textAlign: 'center', mb: 4 }}>
+            <Box sx={{ mb: 3 }}>
+              <AutoJobLogo 
+                variant="icon-only"
+                size="medium"
+                color="primary"
+              />
             </Box>
-          </Grid>
-
-          {/* Right Side - Login Form */}
-          <Grid item xs={12} md={6}>
-            <Paper 
-              elevation={0}
+            
+            <Typography 
+              component="h1" 
+              variant="h4" 
               sx={{ 
-                p: 4, 
-                background: 'rgba(255, 255, 255, 0.98)',
-                backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.3)',
-                boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
+                fontWeight: 600,
+                color: 'text.primary',
+                mb: 1,
+                fontSize: { xs: '1.75rem', sm: '2rem' }
               }}
             >
-              {/* Header */}
-              <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <AutoJobLogo 
-                  variant="icon-only"
-                  size="medium"
-                  color="primary"
-                />
-                <Typography 
-                  component="h1" 
-                  variant="h4" 
-                  sx={{ 
-                    fontWeight: 600,
-                    color: 'text.primary',
-                    mb: 0.5,
-                    mt: 1
-                  }}
-                >
-                  Welcome Back
-                </Typography>
-                <Typography 
-                  variant="body1" 
-                  color="text.secondary"
-                  sx={{ mb: 2 }}
-                >
-                  Sign in to continue your AI-powered job search journey
-                </Typography>
-              </Box>
-              
-              {error && (
-                <Alert 
-                  severity="error" 
-                  sx={{ 
-                    mb: 3,
-                    '& .MuiAlert-icon': {
-                      fontSize: '1.25rem'
-                    }
-                  }}
-                >
-                  {error}
-                </Alert>
+              Welcome Back
+            </Typography>
+            <Typography 
+              variant="body1" 
+              color="text.secondary"
+              sx={{ 
+                fontSize: { xs: '0.9rem', sm: '1rem' }
+              }}
+            >
+              Sign in to continue your AI-powered job search journey
+            </Typography>
+          </Box>
+          
+          {error && (
+            <Alert 
+              severity="error" 
+              sx={{ 
+                mb: 3,
+                '& .MuiAlert-icon': {
+                  fontSize: '1.25rem'
+                }
+              }}
+            >
+              {error}
+            </Alert>
+          )}
+          
+          <Box component="form" onSubmit={handleSubmit}>
+            {/* Email Field */}
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              id="email"
+              label="Email Address"
+              name="email"
+              autoComplete="email"
+              autoFocus
+              value={formData.email}
+              onChange={handleChange}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <EmailIcon color="primary" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ 
+                mb: 2,
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': {
+                    borderColor: 'rgba(0, 0, 0, 0.12)',
+                  },
+                }
+              }}
+            />
+            
+            {/* Password Field */}
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              name="password"
+              label="Password"
+              type={showPassword ? 'text' : 'password'}
+              id="password"
+              autoComplete="current-password"
+              value={formData.password}
+              onChange={handleChange}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LockIcon color="primary" />
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="toggle password visibility"
+                      onClick={handleClickShowPassword}
+                      edge="end"
+                      size="small"
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ 
+                mb: 3,
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': {
+                    borderColor: 'rgba(0, 0, 0, 0.12)',
+                  },
+                }
+              }}
+            />
+            
+            {/* Sign In Button */}
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              size="large"
+              disabled={loading}
+              sx={{ 
+                py: 1.5,
+                fontSize: '1rem',
+                fontWeight: 600,
+                mb: 3,
+                background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 100%)',
+                borderRadius: 2,
+                textTransform: 'none',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #1557b0 0%, #3367d6 100%)',
+                },
+                '&:disabled': {
+                  background: theme => theme.palette.action.disabledBackground
+                }
+              }}
+            >
+              {loading ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CircularProgress size={20} color="inherit" />
+                  Signing you in...
+                </Box>
+              ) : (
+                'Sign In'
               )}
-              
-              <Box component="form" onSubmit={handleSubmit}>
-                <TextField
-                  margin="normal"
-                  required
-                  fullWidth
-                  id="email"
-                  label="Email Address"
-                  name="email"
-                  autoComplete="email"
-                  autoFocus
-                  value={formData.email}
-                  onChange={handleChange}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <EmailIcon color="primary" />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{ mb: 2 }}
-                />
-                
-                <TextField
-                  margin="normal"
-                  required
-                  fullWidth
-                  name="password"
-                  label="Password"
-                  type={showPassword ? 'text' : 'password'}
-                  id="password"
-                  autoComplete="current-password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <LockIcon color="primary" />
-                      </InputAdornment>
-                    ),
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          aria-label="toggle password visibility"
-                          onClick={handleClickShowPassword}
-                          edge="end"
-                          size="small"
-                        >
-                          {showPassword ? <VisibilityOff /> : <Visibility />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{ mb: 3 }}
-                />
-                
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  disabled={loading}
-                  sx={{ 
-                    py: 1.5,
-                    fontSize: '1rem',
-                    fontWeight: 600,
-                    mb: 3,
-                    background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 100%)',
-                    '&:hover': {
-                      background: 'linear-gradient(135deg, #1557b0 0%, #3367d6 100%)',
-                    },
-                    '&:disabled': {
-                      background: theme => theme.palette.action.disabledBackground
-                    }
-                  }}
+            </Button>
+
+            {/* Divider */}
+            <Divider sx={{ my: 2 }}>
+              <Typography 
+                variant="body2" 
+                color="text.secondary"
+                sx={{ fontSize: '0.875rem' }}
+              >
+                New to auto-job.ai?
+              </Typography>
+            </Divider>
+            
+            {/* Create Account Button */}
+            <Button
+              component={Link}
+              to="/register"
+              fullWidth
+              variant="outlined"
+              size="large"
+              startIcon={<PersonAddIcon />}
+              sx={{ 
+                py: 1.5,
+                fontSize: '0.9rem',
+                fontWeight: 500,
+                mb: 2,
+                borderRadius: 2,
+                textTransform: 'none',
+                borderColor: 'primary.main',
+                color: 'primary.main',
+                '&:hover': {
+                  borderColor: 'primary.dark',
+                  backgroundColor: 'rgba(26, 115, 232, 0.04)'
+                }
+              }}
+            >
+              Create Your Free Account
+            </Button>
+            
+            {/* Forgot Password Link */}
+            <Button
+              component={Link}
+              to="/forgot-password"
+              fullWidth
+              variant="text"
+              startIcon={<HelpIcon />}
+              sx={{ 
+                py: 1,
+                color: 'text.secondary',
+                fontSize: '0.875rem',
+                textTransform: 'none',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.04)'
+                }
+              }}
+            >
+              Forgot your password?
+            </Button>
+          </Box>
+
+          {/* Trust Indicators Footer */}
+          <Box sx={{ 
+            mt: 3, // Reduced top margin 
+            pt: 2, // Reduced top padding
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            textAlign: 'center'
+          }}>
+            <Typography 
+              variant="body2" 
+              color="text.secondary" 
+              sx={{ 
+                mb: 1.5, // Reduced bottom margin
+                fontSize: '0.875rem'
+              }}
+            >
+              Trusted by professionals worldwide
+            </Typography>
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              gap: { xs: 2, sm: 3 }, // Responsive gap
+              flexWrap: 'wrap'
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                <Typography 
+                  variant="caption" 
+                  color="text.secondary"
+                  sx={{ fontSize: '0.75rem' }}
                 >
-                  {loading ? (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <CircularProgress size={20} color="inherit" />
-                      Signing you in...
-                    </Box>
-                  ) : (
-                    'Sign In'
-                  )}
-                </Button>
-
-                <Divider sx={{ my: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    New to auto-job.ai?
-                  </Typography>
-                </Divider>
-                
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                  <Button
-                    component={Link}
-                    to="/register"
-                    fullWidth
-                    variant="outlined"
-                    size="large"
-                    startIcon={<PersonAddIcon />}
-                    sx={{ 
-                      py: 1.5,
-                      fontSize: '1rem',
-                      fontWeight: 500
-                    }}
-                  >
-                    Create Your Free Account
-                  </Button>
-                  
-                  <Button
-                    component={Link}
-                    to="/forgot-password"
-                    fullWidth
-                    variant="text"
-                    startIcon={<HelpIcon />}
-                    sx={{ 
-                      py: 1,
-                      color: 'text.secondary'
-                    }}
-                  >
-                    Forgot your password?
-                  </Button>
-                </Box>
-              </Box>
-
-              {/* Trust Indicators */}
-              <Box sx={{ 
-                mt: 3, 
-                pt: 3, 
-                borderTop: '1px solid',
-                borderColor: 'divider',
-                textAlign: 'center'
-              }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                  Trusted by professionals worldwide
+                  Bank-Level Security
                 </Typography>
-                <Box sx={{ 
-                  display: 'flex', 
-                  justifyContent: 'center', 
-                  alignItems: 'center', 
-                  gap: 3,
-                  flexWrap: 'wrap'
-                }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <SecurityIcon sx={{ fontSize: 16, color: 'success.main' }} />
-                    <Typography variant="caption" color="text.secondary">
-                      Bank-Level Security
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
-                    <Typography variant="caption" color="text.secondary">
-                      GDPR Compliant
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
-                    <Typography variant="caption" color="text.secondary">
-                      24/7 Support
-                    </Typography>
-                  </Box>
-                </Box>
               </Box>
-            </Paper>
-          </Grid>
-        </Grid>
-      </Container>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                <Typography 
+                  variant="caption" 
+                  color="text.secondary"
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  GDPR Compliant
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                <Typography 
+                  variant="caption" 
+                  color="text.secondary"
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  24/7 Support
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+        </Paper>
+      </Box>
     </Box>
   );
 };

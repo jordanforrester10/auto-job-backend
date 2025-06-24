@@ -1,19 +1,16 @@
-// src/components/auth/ForgotPassword.js
+// src/components/auth/ForgotPassword.js - CENTERED DESIGN WITHOUT HOW IT WORKS SECTION
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   TextField, 
   Button, 
   Typography, 
-  Container, 
   Box, 
   Alert, 
   Paper,
   InputAdornment,
-  Grid,
-  Card,
-  CardContent,
-  CircularProgress
+  CircularProgress,
+  Divider
 } from '@mui/material';
 import { 
   Email as EmailIcon,
@@ -53,382 +50,317 @@ const ForgotPassword = () => {
 
   return (
     <Box sx={{ 
+      // Ensure full viewport coverage
       minHeight: '100vh',
+      minHeight: '100dvh',
+      height: '100%',
       background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 50%, #00c4b4 100%)',
+      // Fix for white bar - ensure background covers everything
+      backgroundAttachment: 'fixed',
+      backgroundSize: 'cover',
+      backgroundRepeat: 'no-repeat',
       display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
       alignItems: 'center',
-      py: 3
+      padding: { xs: 2, sm: 3 },
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      // Ensure proper scrolling behavior
+      position: 'relative',
+      // Custom scrollbar styling
+      '&::-webkit-scrollbar': {
+        width: '6px',
+      },
+      '&::-webkit-scrollbar-track': {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: '3px',
+      },
+      '&::-webkit-scrollbar-thumb': {
+        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+        borderRadius: '3px',
+        '&:hover': {
+          backgroundColor: 'rgba(255, 255, 255, 0.5)',
+        },
+      },
     }}>
-      <Container maxWidth="lg">
-        <Grid container spacing={4} alignItems="center" sx={{ minHeight: '90vh' }}>
-          {/* Left Side - Branding & Help */}
-          <Grid item xs={12} md={6}>
-            <Box sx={{ color: 'white', pr: { md: 4 } }}>
-              {/* Logo Section */}
-              <Box sx={{ mb: 4 }}>
-                <AutoJobLogo 
-                  variant="horizontal"
-                  size="large"
-                  color="white"
-                  showTagline={true}
-                />
-              </Box>
-
-              {/* Help Content */}
-              <Typography 
-                variant="h4" 
-                sx={{ 
-                  fontWeight: 600,
-                  mb: 2,
-                  lineHeight: 1.2
-                }}
-              >
-                Need Help Accessing Your Account?
-              </Typography>
-              
-              <Typography 
-                variant="h6" 
-                sx={{ 
-                  opacity: 0.9,
-                  fontWeight: 400,
-                  mb: 4,
-                  lineHeight: 1.4
-                }}
-              >
-                Don't worry, it happens to the best of us. We'll help you get back 
-                to your AI-powered job search in no time.
-              </Typography>
-
-              {/* Help Steps */}
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
-                  How it works:
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12}>
-                    <Card sx={{ 
-                      background: 'rgba(255, 255, 255, 0.15)', 
-                      backdropFilter: 'blur(10px)',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      color: 'white',
-                      mb: 2
-                    }}>
-                      <CardContent sx={{ p: 2.5 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
-                          <Box 
-                            sx={{ 
-                              background: '#34a853',
-                              borderRadius: '50%',
-                              width: 24,
-                              height: 24,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              mr: 2,
-                              mt: 0.5,
-                              flexShrink: 0
-                            }}
-                          >
-                            <Typography variant="caption" sx={{ color: 'white', fontWeight: 600 }}>
-                              1
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
-                              Enter your email address
-                            </Typography>
-                            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                              The same email you used to create your auto-job.ai account
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-
-                  <Grid item xs={12}>
-                    <Card sx={{ 
-                      background: 'rgba(255, 255, 255, 0.15)', 
-                      backdropFilter: 'blur(10px)',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      color: 'white',
-                      mb: 2
-                    }}>
-                      <CardContent sx={{ p: 2.5 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
-                          <Box 
-                            sx={{ 
-                              background: '#4285f4',
-                              borderRadius: '50%',
-                              width: 24,
-                              height: 24,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              mr: 2,
-                              mt: 0.5,
-                              flexShrink: 0
-                            }}
-                          >
-                            <Typography variant="caption" sx={{ color: 'white', fontWeight: 600 }}>
-                              2
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
-                              Check your email
-                            </Typography>
-                            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                              We'll send you a secure link to reset your password
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-
-                  <Grid item xs={12}>
-                    <Card sx={{ 
-                      background: 'rgba(255, 255, 255, 0.15)', 
-                      backdropFilter: 'blur(10px)',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      color: 'white'
-                    }}>
-                      <CardContent sx={{ p: 2.5 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
-                          <Box 
-                            sx={{ 
-                              background: '#00c4b4',
-                              borderRadius: '50%',
-                              width: 24,
-                              height: 24,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              mr: 2,
-                              mt: 0.5,
-                              flexShrink: 0
-                            }}
-                          >
-                            <Typography variant="caption" sx={{ color: 'white', fontWeight: 600 }}>
-                              3
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
-                              Create a new password
-                            </Typography>
-                            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                              Follow the link to set up a secure new password
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
-              </Box>
-
-              {/* Security Note */}
-              <Box sx={{ 
-                background: 'rgba(255, 255, 255, 0.1)', 
-                backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+      <Box 
+        sx={{ 
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          width: '100%',
+          // BACK TO ORIGINAL WIDTH
+          maxWidth: { xs: '450px', sm: '500px' },
+          mx: 'auto',
+          my: { xs: 3, sm: 4 }, // Margin top and bottom for proper spacing
+          position: 'relative',
+          flex: '0 1 auto', // Allow shrinking but don't grow
+        }}
+      >
+        {/* Main Form Container */}
+        <Paper 
+          elevation={0}
+          sx={{ 
+            p: { xs: 3, sm: 4 },
+            width: '100%',
+            background: 'rgba(255, 255, 255, 0.98)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+            borderRadius: 3
+          }}
+        >
+          {/* Header with Logo */}
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
+            <Box sx={{ mb: 2 }}>
+              <AutoJobLogo 
+                variant="icon-only"
+                size="medium"
+                color="primary"
+              />
+            </Box>
+            
+            <Typography 
+              component="h1" 
+              variant="h4" 
+              sx={{ 
+                fontWeight: 600,
+                color: 'text.primary',
+                mb: 1,
+                fontSize: { xs: '1.625rem', sm: '1.75rem' }
+              }}
+            >
+              Reset Your Password
+            </Typography>
+            <Typography 
+              variant="body1" 
+              color="text.secondary"
+              sx={{ 
+                fontSize: { xs: '0.875rem', sm: '0.95rem' }
+              }}
+            >
+              Enter your email address and we'll send you instructions to reset your password
+            </Typography>
+          </Box>
+          
+          {error && (
+            <Alert 
+              severity="error" 
+              sx={{ 
+                mb: 3,
+                '& .MuiAlert-icon': {
+                  fontSize: '1.25rem'
+                }
+              }}
+            >
+              {error}
+            </Alert>
+          )}
+          
+          {success && (
+            <Alert 
+              severity="success" 
+              sx={{ 
+                mb: 3,
+                '& .MuiAlert-icon': {
+                  fontSize: '1.25rem'
+                }
+              }}
+            >
+              {success}
+            </Alert>
+          )}
+          
+          <Box component="form" onSubmit={handleSubmit}>
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              id="email"
+              label="Email Address"
+              name="email"
+              autoComplete="email"
+              autoFocus
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <EmailIcon color="primary" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ 
+                mb: 3,
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': {
+                    borderColor: 'rgba(0, 0, 0, 0.12)',
+                  },
+                }
+              }}
+            />
+            
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              size="large"
+              disabled={loading}
+              startIcon={!loading && <SendIcon />}
+              sx={{ 
+                py: 1.5,
+                fontSize: '1rem',
+                fontWeight: 600,
+                mb: 3,
+                background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 100%)',
                 borderRadius: 2,
-                p: 2.5
-              }}>
-                <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
-                  <SecurityIcon sx={{ mr: 1.5, color: '#34a853', mt: 0.5 }} />
-                  <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      Security First
-                    </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.9, lineHeight: 1.4 }}>
-                      For your security, password reset links expire after 1 hour. 
-                      If you don't see our email, check your spam folder.
-                    </Typography>
-                  </Box>
+                textTransform: 'none',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #1557b0 0%, #3367d6 100%)',
+                },
+                '&:disabled': {
+                  background: theme => theme.palette.action.disabledBackground
+                }
+              }}
+            >
+              {loading ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CircularProgress size={20} color="inherit" />
+                  Sending reset link...
+                </Box>
+              ) : (
+                'Send Reset Instructions'
+              )}
+            </Button>
+
+            <Divider sx={{ my: 2 }}>
+              <Typography 
+                variant="body2" 
+                color="text.secondary"
+                sx={{ fontSize: '0.875rem' }}
+              >
+                Remember your password?
+              </Typography>
+            </Divider>
+            
+            <Button
+              component={Link}
+              to="/login"
+              fullWidth
+              variant="outlined"
+              size="large"
+              startIcon={<ArrowBackIcon />}
+              sx={{ 
+                py: 1.5,
+                fontSize: '0.9rem',
+                fontWeight: 500,
+                borderRadius: 2,
+                textTransform: 'none',
+                borderColor: 'primary.main',
+                color: 'primary.main',
+                '&:hover': {
+                  borderColor: 'primary.dark',
+                  backgroundColor: 'rgba(26, 115, 232, 0.04)'
+                }
+              }}
+            >
+              Back to Sign In
+            </Button>
+          </Box>
+
+          {/* Simple Security Note */}
+          <Box sx={{ 
+            mt: 3,
+            pt: 3,
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            textAlign: 'center'
+          }}>
+            <Box sx={{ 
+              background: 'rgba(52, 168, 83, 0.04)', 
+              border: '1px solid rgba(52, 168, 83, 0.12)',
+              borderRadius: 2,
+              p: 2.5,
+              mb: 2
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+                <SecurityIcon sx={{ 
+                  mr: 1.5, 
+                  color: '#34a853', 
+                  mt: 0.25,
+                  fontSize: '1.5rem',
+                  flexShrink: 0
+                }} />
+                <Box sx={{ textAlign: 'left' }}>
+                  <Typography 
+                    variant="subtitle1" 
+                    sx={{ 
+                      fontWeight: 600, 
+                      mb: 0.5,
+                      fontSize: '1rem'
+                    }}
+                  >
+                    Security First
+                  </Typography>
+                  <Typography 
+                    variant="body2" 
+                    color="text.secondary"
+                    sx={{ 
+                      lineHeight: 1.4,
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    For your security, password reset links expire after 1 hour. 
+                    If you don't see our email, check your spam folder.
+                  </Typography>
                 </Box>
               </Box>
             </Box>
-          </Grid>
 
-          {/* Right Side - Reset Form */}
-          <Grid item xs={12} md={6}>
-            <Paper 
-              elevation={0}
+            <Typography 
+              variant="body2" 
+              color="text.secondary" 
               sx={{ 
-                p: 4, 
-                background: 'rgba(255, 255, 255, 0.98)',
-                backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.3)',
-                boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
+                mb: 1.5,
+                fontSize: '0.875rem'
               }}
             >
-              {/* Header */}
-              <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <AutoJobLogo 
-                  variant="icon-only"
-                  size="medium"
-                  color="primary"
-                />
+              Still having trouble? We're here to help.
+            </Typography>
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              gap: { xs: 2, sm: 3 },
+              flexWrap: 'wrap'
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <HelpIcon sx={{ fontSize: 16, color: 'primary.main' }} />
                 <Typography 
-                  component="h1" 
-                  variant="h4" 
-                  sx={{ 
-                    fontWeight: 600,
-                    color: 'text.primary',
-                    mb: 0.5,
-                    mt: 1
-                  }}
-                >
-                  Reset Your Password
-                </Typography>
-                <Typography 
-                  variant="body1" 
+                  variant="caption" 
                   color="text.secondary"
-                  sx={{ mb: 2 }}
+                  sx={{ fontSize: '0.75rem' }}
                 >
-                  Enter your email address and we'll send you instructions to reset your password
+                  <Link to="/help" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                    Contact Support
+                  </Link>
                 </Typography>
               </Box>
-              
-              {error && (
-                <Alert 
-                  severity="error" 
-                  sx={{ 
-                    mb: 3,
-                    '& .MuiAlert-icon': {
-                      fontSize: '1.25rem'
-                    }
-                  }}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                <Typography 
+                  variant="caption" 
+                  color="text.secondary"
+                  sx={{ fontSize: '0.75rem' }}
                 >
-                  {error}
-                </Alert>
-              )}
-              
-              {success && (
-                <Alert 
-                  severity="success" 
-                  sx={{ 
-                    mb: 3,
-                    '& .MuiAlert-icon': {
-                      fontSize: '1.25rem'
-                    }
-                  }}
-                >
-                  {success}
-                </Alert>
-              )}
-              
-              <Box component="form" onSubmit={handleSubmit}>
-                <TextField
-                  margin="normal"
-                  required
-                  fullWidth
-                  id="email"
-                  label="Email Address"
-                  name="email"
-                  autoComplete="email"
-                  autoFocus
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <EmailIcon color="primary" />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{ mb: 3 }}
-                />
-                
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  disabled={loading}
-                  startIcon={!loading && <SendIcon />}
-                  sx={{ 
-                    py: 1.5,
-                    fontSize: '1rem',
-                    fontWeight: 600,
-                    mb: 3,
-                    background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 100%)',
-                    '&:hover': {
-                      background: 'linear-gradient(135deg, #1557b0 0%, #3367d6 100%)',
-                    },
-                    '&:disabled': {
-                      background: theme => theme.palette.action.disabledBackground
-                    }
-                  }}
-                >
-                  {loading ? (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <CircularProgress size={20} color="inherit" />
-                      Sending reset link...
-                    </Box>
-                  ) : (
-                    'Send Reset Instructions'
-                  )}
-                </Button>
-                
-                <Button
-                  component={Link}
-                  to="/login"
-                  fullWidth
-                  variant="outlined"
-                  size="large"
-                  startIcon={<ArrowBackIcon />}
-                  sx={{ 
-                    py: 1.5,
-                    fontSize: '1rem',
-                    fontWeight: 500
-                  }}
-                >
-                  Back to Sign In
-                </Button>
-              </Box>
-
-              {/* Help Information */}
-              <Box sx={{ 
-                mt: 3, 
-                pt: 3, 
-                borderTop: '1px solid',
-                borderColor: 'divider',
-                textAlign: 'center'
-              }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Still having trouble? We're here to help.
+                  Available 24/7
                 </Typography>
-                <Box sx={{ 
-                  display: 'flex', 
-                  justifyContent: 'center', 
-                  alignItems: 'center', 
-                  gap: 3,
-                  flexWrap: 'wrap'
-                }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <HelpIcon sx={{ fontSize: 16, color: 'primary.main' }} />
-                    <Typography variant="caption" color="text.secondary">
-                      <Link to="/help" style={{ color: 'inherit', textDecoration: 'underline' }}>
-                        Contact Support
-                      </Link>
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
-                    <Typography variant="caption" color="text.secondary">
-                      Available 24/7
-                    </Typography>
-                  </Box>
-                </Box>
               </Box>
-            </Paper>
-          </Grid>
-        </Grid>
-      </Container>
+            </Box>
+          </Box>
+        </Paper>
+      </Box>
     </Box>
   );
 };
