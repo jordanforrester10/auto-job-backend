@@ -424,22 +424,23 @@ const discoveredJobs = await extractJobContentFromUrls(jobUrls, search, careerPr
 
 
 /**
- * Step 1: Find Job URLs using Claude Web Search
+ * Step 1: Find Job URLs using Claude Web Search - FIXED URL EXTRACTION
  * Mimics the approach from your general chat example
  */
 async function findJobUrlsWithWebSearch(careerProfile, search) {
   try {
     await search.addReasoningLog(
       'web_search_discovery',
-      'Starting job URL discovery using Claude web search API',
+      'Starting job URL discovery using Claude web search API with FIXED URL extraction',
       { 
         targetTitles: careerProfile.targetJobTitles,
         searchApproach: 'Claude web search like general chat',
-        webSearchMethod: 'claude_web_search_api'
+        webSearchMethod: 'claude_web_search_api',
+        urlExtractionFix: 'Enhanced patterns for URLs with and without protocols'
       }
     );
     
-    console.log('🎯 DETAILED DEBUG: Starting Claude web search with profile:', {
+    console.log('🎯 DETAILED DEBUG: Starting Claude web search with FIXED URL extraction:', {
       targetJobTitles: careerProfile.targetJobTitles,
       experienceLevel: careerProfile.experienceLevel,
       targetKeywords: careerProfile.targetKeywords,
@@ -464,7 +465,7 @@ TARGET PROFILE:
 
 Please find 8-12 current job openings that match this profile. For each job, I need:
 1. The company name and job title
-2. The direct job application URL (especially from Greenhouse, Lever, Indeed, or company career pages)
+2. The direct job application URL (include full URLs with https:// when possible)
 3. Brief description of why it's a good match
 
 Focus on:
@@ -474,13 +475,15 @@ Focus on:
 - Remote/hybrid opportunities when possible
 - Jobs from well-known ATS systems (Greenhouse, Lever, etc.)
 
-Return the results in this format:
+IMPORTANT: Please provide COMPLETE URLs including https:// protocol. If you find URLs without https://, I can add the protocol later.
+
+Return the results in this exact format:
 JOB 1: [Job Title] at [Company Name]
-URL: [Direct job application URL]
+URL: [Complete job application URL with https://]
 Match Reason: [Why this is a good fit]
 
 JOB 2: [Job Title] at [Company Name]  
-URL: [Direct job application URL]
+URL: [Complete job application URL with https://]
 Match Reason: [Why this is a good fit]
 
 etc.`
@@ -497,13 +500,10 @@ etc.`
 
     console.log('🎯 DETAILED DEBUG: Claude API Response received');
     console.log('🎯 Response content array length:', response.content?.length || 0);
-    console.log('🎯 Response ID:', response.id);
-    console.log('🎯 Response model:', response.model);
-    console.log('🎯 Response usage:', JSON.stringify(response.usage, null, 2));
 
     const jobUrls = [];
     
-    // ENHANCED: More detailed response processing with debugging
+    // ENHANCED: More comprehensive URL extraction with FIXED patterns
     for (let i = 0; i < response.content.length; i++) {
       const content = response.content[i];
       console.log(`🎯 DETAILED DEBUG: Content[${i}] type: ${content.type}`);
@@ -513,13 +513,29 @@ etc.`
         console.log(`🎯 DETAILED DEBUG: Text content length: ${text.length}`);
         console.log(`🎯 DETAILED DEBUG: Text preview (first 500 chars): "${text.substring(0, 500)}"`);
         
-        // ENHANCED: Multiple URL extraction patterns
+        // FIXED: Enhanced URL extraction patterns
         const urlPatterns = [
-          /URL:\s*(https?:\/\/[^\s\n]+)/gi,
-          /url:\s*(https?:\/\/[^\s\n]+)/gi,
-          /(https?:\/\/[^\s\n]+\.(?:com|org|net|io|co|ai)[^\s\n]*)/gi,
-          /\[Direct job application URL\]:\s*(https?:\/\/[^\s\n]+)/gi,
-          /Application link:\s*(https?:\/\/[^\s\n]+)/gi
+          // Standard URL patterns with protocol
+          /URL:\s*(https?:\/\/[^\s\n\)]+)/gi,
+          /url:\s*(https?:\/\/[^\s\n\)]+)/gi,
+          /(https?:\/\/[^\s\n\)]+)/gi,
+          
+          // FIXED: Patterns for URLs without protocol
+          /URL:\s*([a-zA-Z0-9][a-zA-Z0-9-._]*\.[a-zA-Z]{2,}(?:\/[^\s\n\)]*)?)/gi,
+          /url:\s*([a-zA-Z0-9][a-zA-Z0-9-._]*\.[a-zA-Z]{2,}(?:\/[^\s\n\)]*)?)/gi,
+          
+          // FIXED: Domain patterns for company career pages
+          /([a-zA-Z0-9][a-zA-Z0-9-._]*\.(?:com|org|net|io|co|ai)(?:\/[^\s\n\)]*)?)/gi,
+          
+          // FIXED: Specific job board patterns
+          /(greenhouse\.io\/[^\s\n\)]+)/gi,
+          /(lever\.co\/[^\s\n\)]+)/gi,
+          /(indeed\.com\/[^\s\n\)]+)/gi,
+          /(linkedin\.com\/jobs\/[^\s\n\)]+)/gi,
+          
+          // FIXED: Career page patterns
+          /([a-zA-Z0-9-]+\.(?:com|org|net|io|co|ai)\/careers[^\s\n\)]*)/gi,
+          /([a-zA-Z0-9-]+\.(?:com|org|net|io|co|ai)\/jobs[^\s\n\)]*)/gi
         ];
         
         let foundUrls = [];
@@ -535,22 +551,21 @@ etc.`
         console.log(`🎯 DETAILED DEBUG: Total URLs found with all patterns: ${foundUrls.length}`);
         console.log(`🎯 DETAILED DEBUG: Found URLs:`, foundUrls);
         
-        // Process found URLs
+        // Process found URLs with FIXED validation
         foundUrls.forEach((match, matchIndex) => {
-          let url = match;
-          
-          // Clean up URL extraction
-          url = url.replace(/^URL:\s*/i, '').trim();
-          url = url.replace(/^url:\s*/i, '').trim();
-          url = url.replace(/^\[Direct job application URL\]:\s*/i, '').trim();
-          url = url.replace(/^Application link:\s*/i, '').trim();
+          let url = cleanExtractedUrl(match);
           
           console.log(`🎯 DETAILED DEBUG: Processing URL ${matchIndex}: ${url}`);
           
-          if (isValidJobUrl(url)) {
+          if (isValidJobUrlFixed(url)) {
+            // Ensure URL has protocol
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+              url = 'https://' + url;
+            }
+            
             // Extract job info from the surrounding text
             const lines = text.split('\n');
-            const urlLineIndex = lines.findIndex(line => line.includes(url));
+            const urlLineIndex = lines.findIndex(line => line.includes(match));
             
             let title = 'Unknown Title';
             let company = 'Unknown Company';
@@ -592,7 +607,7 @@ etc.`
               matchReason: matchReason,
               sourcePlatform: sourcePlatform,
               foundAt: new Date(),
-              extractionMethod: 'enhanced_debugging'
+              extractionMethod: 'enhanced_url_extraction_fixed'
             };
             
             jobUrls.push(jobUrlObj);
@@ -614,17 +629,16 @@ etc.`
     console.log(`🎯 Total content blocks processed: ${response.content.length}`);
     console.log(`🎯 Total job URLs extracted: ${jobUrls.length}`);
     console.log(`🎯 Environment: ${process.env.NODE_ENV}`);
-    console.log(`🎯 Claude API Key prefix: ${process.env.ANTHROPIC_API_KEY?.substring(0, 10)}...`);
     
     await search.addReasoningLog(
       'web_search_discovery',
-      `Found ${jobUrls.length} job URLs using Claude web search API`,
+      `Found ${jobUrls.length} job URLs using Claude web search API with FIXED extraction`,
       {
         totalUrls: jobUrls.length,
         platforms: [...new Set(jobUrls.map(job => job.sourcePlatform))],
         companies: [...new Set(jobUrls.map(job => job.company))],
         searchMethod: 'claude_web_search_api',
-        webSearchMethod: 'claude_web_search_api',
+        urlExtractionMethod: 'enhanced_patterns_fixed',
         debugInfo: {
           contentBlocks: response.content.length,
           hasTextContent: response.content.some(c => c.type === 'text'),
@@ -634,16 +648,11 @@ etc.`
       }
     );
     
-    console.log(`✅ Found ${jobUrls.length} job URLs using Claude web search API`);
+    console.log(`✅ Found ${jobUrls.length} job URLs using Claude web search API with FIXED extraction`);
     return jobUrls;
     
   } catch (error) {
     console.error('🎯 DETAILED DEBUG: Error finding job URLs with web search:', error);
-    console.error('🎯 Error name:', error.name);
-    console.error('🎯 Error message:', error.message);
-    console.error('🎯 Error stack:', error.stack);
-    
-    // Add error with correct enum
     await search.addError('web_search_failed', error.message, 'web_search_discovery', 'URL discovery failed');
     throw error;
   }
@@ -885,29 +894,78 @@ function determineSourcePlatform(url) {
   if (lowerUrl.includes('indeed.com')) return 'Indeed';
   if (lowerUrl.includes('linkedin.com')) return 'LinkedIn';
   if (lowerUrl.includes('workday.com')) return 'Workday';
-  if (lowerUrl.includes('careers.') || lowerUrl.includes('/careers/')) return 'Company Career Page';
   if (lowerUrl.includes('bamboohr.com')) return 'BambooHR';
   if (lowerUrl.includes('smartrecruiters.com')) return 'SmartRecruiters';
   if (lowerUrl.includes('jobvite.com')) return 'Jobvite';
+  if (lowerUrl.includes('careers.') || lowerUrl.includes('/careers/')) return 'Company Career Page';
+  if (lowerUrl.includes('/jobs/')) return 'Company Jobs Page';
+  
+  // FIXED: Detect company domains
+  if (lowerUrl.match(/^https?:\/\/[^\/]+\.(com|io|co|ai|org|net)/)) {
+    return 'Company Website';
+  }
   
   return 'Other';
 }
 
-function isValidJobUrl(url) {
+function isValidJobUrlFixed(url) {
   if (!url || typeof url !== 'string') return false;
   
-  const lowerUrl = url.toLowerCase();
+  // Clean the URL first
+  const cleanUrl = url.toLowerCase().trim();
   
-  // Check if it's a valid HTTP/HTTPS URL
-  if (!lowerUrl.startsWith('http://') && !lowerUrl.startsWith('https://')) return false;
+  // FIXED: Accept URLs with or without protocol
+  const hasProtocol = cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://');
+  const isDomainOnly = /^[a-zA-Z0-9][a-zA-Z0-9-._]*\.[a-zA-Z]{2,}/.test(cleanUrl);
   
-  // Check if it contains job-related keywords
+  if (!hasProtocol && !isDomainOnly) return false;
+  
+  // Check if it contains job-related keywords or known job platforms
   const jobKeywords = [
-    'job', 'jobs', 'career', 'careers', 'apply', 'position', 'opening',
-    'greenhouse.io', 'lever.co', 'indeed.com', 'linkedin.com/jobs'
+    'job', 'jobs', 'career', 'careers', 'apply', 'position', 'opening', 'hiring',
+    'greenhouse.io', 'lever.co', 'indeed.com', 'linkedin.com/jobs',
+    'workday.com', 'bamboohr.com', 'smartrecruiters.com', 'jobvite.com'
   ];
   
-  return jobKeywords.some(keyword => lowerUrl.includes(keyword));
+  const hasJobKeywords = jobKeywords.some(keyword => cleanUrl.includes(keyword));
+  
+  // FIXED: Also accept company domain patterns that likely have job pages
+  const companyDomainPatterns = [
+    /\/careers/,
+    /\/jobs/,
+    /\/apply/,
+    /\/hiring/,
+    /\.com$/,
+    /\.io$/,
+    /\.co$/,
+    /\.ai$/,
+    /\.org$/,
+    /\.net$/
+  ];
+  
+  const isLikelyJobUrl = companyDomainPatterns.some(pattern => pattern.test(cleanUrl));
+  
+  // FIXED: Accept if it has job keywords OR looks like a company career page
+  return hasJobKeywords || isLikelyJobUrl;
+}
+
+function cleanExtractedUrl(match) {
+  let url = match;
+  
+  // Clean up URL extraction
+  url = url.replace(/^URL:\s*/i, '').trim();
+  url = url.replace(/^url:\s*/i, '').trim();
+  url = url.replace(/^\[Direct job application URL\]:\s*/i, '').trim();
+  url = url.replace(/^Application link:\s*/i, '').trim();
+  
+  // Remove trailing punctuation that might be part of sentence
+  url = url.replace(/[.,;!?]+$/, '');
+  url = url.replace(/\)$/, ''); // Remove closing parenthesis
+  
+  // Remove any surrounding quotes
+  url = url.replace(/^["']|["']$/g, '');
+  
+  return url.trim();
 }
 
 function parseJobContent(content, jobUrl, careerProfile) {
