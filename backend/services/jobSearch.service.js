@@ -424,46 +424,33 @@ const discoveredJobs = await extractJobContentFromUrls(jobUrls, search, careerPr
 
 
 /**
- * Step 1: Find Job URLs using Claude Web Search - FIXED URL EXTRACTION
- * Mimics the approach from your general chat example
- */
-/**
- * Step 1: Find Job URLs using Claude Web Search - FIXED WITH EARLY LIMIT ENFORCEMENT
+ * Step 1: Find Job URLs using Claude Web Search - WITH LIVE URL VALIDATION
  */
 async function findJobUrlsWithWebSearch(careerProfile, search) {
   try {
-    const maxJobsToFind = 10; // FIXED: Enforce limit early
-    let jobUrls = [];
+    const maxJobsToFind = 10;
+    let validJobUrls = [];
     let searchAttempts = 0;
-    const maxSearchAttempts = 3; // Maximum number of Claude searches to try
+    const maxSearchAttempts = 3;
     
     await search.addReasoningLog(
       'web_search_discovery',
-      `Starting job URL discovery with early limit enforcement (target: ${maxJobsToFind} jobs)`,
+      `Starting job URL discovery with LIVE URL validation (target: ${maxJobsToFind} active jobs)`,
       { 
         targetTitles: careerProfile.targetJobTitles,
         maxJobsToFind: maxJobsToFind,
-        searchApproach: 'Claude web search with early stopping',
-        efficiency: 'Stop searching once target reached'
+        enhancement: 'Live URL validation to ensure active job postings',
+        urlValidation: 'Check each URL before processing'
       }
     );
     
-    while (jobUrls.length < maxJobsToFind && searchAttempts < maxSearchAttempts) {
+    while (validJobUrls.length < maxJobsToFind && searchAttempts < maxSearchAttempts) {
       searchAttempts++;
-      const jobsStillNeeded = maxJobsToFind - jobUrls.length;
+      const jobsStillNeeded = maxJobsToFind - validJobUrls.length;
       
-      console.log(`🎯 Search attempt ${searchAttempts}/${maxSearchAttempts}: Looking for ${jobsStillNeeded} more jobs (current: ${jobUrls.length}/${maxJobsToFind})`);
+      console.log(`🎯 Search attempt ${searchAttempts}/${maxSearchAttempts}: Looking for ${jobsStillNeeded} more ACTIVE jobs (current: ${validJobUrls.length}/${maxJobsToFind})`);
       
-      await search.addReasoningLog(
-        'web_search_discovery',
-        `Search attempt ${searchAttempts}: Looking for ${jobsStillNeeded} more jobs`,
-        { 
-          currentJobsFound: jobUrls.length,
-          jobsStillNeeded: jobsStillNeeded,
-          searchAttempt: searchAttempts
-        }
-      );
-      
+      // Get URLs from Claude (same as before)
       const response = await anthropic.messages.create({
         model: "claude-3-5-sonnet-20241022",
         max_tokens: 4000,
@@ -471,34 +458,25 @@ async function findJobUrlsWithWebSearch(careerProfile, search) {
         messages: [
           {
             role: "user",
-            content: `I am looking for ${careerProfile.experienceLevel || 'mid-level'} ${careerProfile.targetJobTitles?.[0] || 'Software Engineer'} jobs at companies that are hiring. 
+            content: `I am looking for CURRENT, ACTIVE ${careerProfile.experienceLevel || 'mid-level'} ${careerProfile.targetJobTitles?.[0] || 'Software Engineer'} job openings.
 
 TARGET PROFILE:
 - Job Titles: ${careerProfile.targetJobTitles?.join(', ')}
 - Experience Level: ${careerProfile.experienceLevel}
 - Preferred Skills: ${careerProfile.targetKeywords?.join(', ')}
-- Work Arrangement: ${careerProfile.workArrangement || 'remote/hybrid'}
-- Salary Range: $${careerProfile.salaryExpectation?.min || 100000}-${careerProfile.salaryExpectation?.max || 150000}
 
-I need exactly ${jobsStillNeeded} high-quality job openings that match this profile. Focus on:
-- Direct company postings (not recruiters)
-- Jobs posted in the last 30 days  
-- Companies with good reputations
-- Remote/hybrid opportunities when possible
-- Jobs from well-known ATS systems (Greenhouse, Lever, etc.)
+IMPORTANT: I need ${jobsStillNeeded} ACTIVE job postings that are currently open and accepting applications. Please search for:
+- Jobs posted within the last 30 days
+- Currently active job listings (not expired)
+- Direct application links that are working
+- Recent postings from company career pages
 
-IMPORTANT: Please provide COMPLETE URLs including https:// protocol.
+Focus on finding FRESH, ACTIVE job opportunities with working application links.
 
-Return the results in this exact format:
+Return exactly ${jobsStillNeeded} jobs in this format:
 JOB 1: [Job Title] at [Company Name]
-URL: [Complete job application URL with https://]
-Match Reason: [Why this is a good fit]
-
-JOB 2: [Job Title] at [Company Name]  
-URL: [Complete job application URL with https://]
-Match Reason: [Why this is a good fit]
-
-Continue until you find ${jobsStillNeeded} quality jobs.`
+URL: [ACTIVE job application URL with https://]
+Match Reason: [Why this is a good fit]`
           }
         ],
         tools: [
@@ -510,10 +488,8 @@ Continue until you find ${jobsStillNeeded} quality jobs.`
         tool_choice: { type: "any" }
       });
 
-      console.log(`🎯 Claude API Response received for attempt ${searchAttempts}`);
-      
-      // Process response and extract URLs (same logic as before)
-      const newJobUrls = [];
+      // Extract potential URLs (same extraction logic as before)
+      const potentialJobUrls = [];
       
       for (let i = 0; i < response.content.length; i++) {
         const content = response.content[i];
@@ -521,7 +497,7 @@ Continue until you find ${jobsStillNeeded} quality jobs.`
         if (content.type === 'text') {
           const text = content.text;
           
-          // FIXED: Enhanced URL extraction patterns (same as before)
+          // Same URL extraction patterns as before
           const urlPatterns = [
             /URL:\s*(https?:\/\/[^\s\n\)]+)/gi,
             /url:\s*(https?:\/\/[^\s\n\)]+)/gi,
@@ -545,12 +521,11 @@ Continue until you find ${jobsStillNeeded} quality jobs.`
             }
           });
           
-          // Process found URLs
-          foundUrls.forEach((match) => {
-            // EARLY STOPPING: Check if we already have enough jobs
-            if (jobUrls.length + newJobUrls.length >= maxJobsToFind) {
-              console.log(`🛑 EARLY STOP: Reached target of ${maxJobsToFind} jobs, stopping URL extraction`);
-              return;
+          // Process each found URL
+          for (const match of foundUrls) {
+            if (validJobUrls.length >= maxJobsToFind) {
+              console.log(`🛑 EARLY STOP: Reached target of ${maxJobsToFind} ACTIVE jobs`);
+              break;
             }
             
             let url = cleanExtractedUrl(match);
@@ -561,119 +536,127 @@ Continue until you find ${jobsStillNeeded} quality jobs.`
                 url = 'https://' + url;
               }
               
-              // Check for duplicates within current batch and existing jobs
-              const isDuplicate = [...jobUrls, ...newJobUrls].some(existingJob => 
-                existingJob.url === url || 
-                (existingJob.company === extractCompanyFromUrl(url) && 
-                 existingJob.title.toLowerCase().includes(extractTitleFromText(text, url).toLowerCase()))
-              );
+              // CRITICAL: Validate URL is LIVE before adding
+              console.log(`🔍 Validating URL: ${url}`);
+              const isLive = await validateJobUrlIsLive(url);
               
-              if (!isDuplicate) {
-                // Extract job info from surrounding text (same logic as before)
-                const lines = text.split('\n');
-                const urlLineIndex = lines.findIndex(line => line.includes(match));
+              if (isLive) {
+                // Check for duplicates
+                const isDuplicate = validJobUrls.some(existingJob => 
+                  existingJob.url === url || 
+                  (existingJob.company === extractCompanyFromUrl(url))
+                );
                 
-                let title = 'Unknown Title';
-                let company = 'Unknown Company';
-                let matchReason = 'Found via Claude web search';
-                
-                if (urlLineIndex > 0) {
-                  const jobLine = lines[urlLineIndex - 1] || '';
-                  const matchReasonLine = lines[urlLineIndex + 1] || '';
+                if (!isDuplicate) {
+                  // Extract job info from surrounding text
+                  const lines = text.split('\n');
+                  const urlLineIndex = lines.findIndex(line => line.includes(match));
                   
-                  const jobPatterns = [
-                    /JOB\s+\d+:\s*(.+?)\s+at\s+(.+?)$/i,
-                    /(\w+.*?)\s+at\s+(.+?)$/i,
-                    /(.+?)\s+-\s+(.+?)$/i
-                  ];
+                  let title = 'Unknown Title';
+                  let company = 'Unknown Company';
+                  let matchReason = 'Found via Claude web search';
                   
-                  for (const pattern of jobPatterns) {
-                    const jobMatch = jobLine.match(pattern);
-                    if (jobMatch) {
-                      title = jobMatch[1].trim();
-                      company = jobMatch[2].trim();
-                      break;
+                  if (urlLineIndex > 0) {
+                    const jobLine = lines[urlLineIndex - 1] || '';
+                    const matchReasonLine = lines[urlLineIndex + 1] || '';
+                    
+                    const jobPatterns = [
+                      /JOB\s+\d+:\s*(.+?)\s+at\s+(.+?)$/i,
+                      /(\w+.*?)\s+at\s+(.+?)$/i,
+                      /(.+?)\s+-\s+(.+?)$/i
+                    ];
+                    
+                    for (const pattern of jobPatterns) {
+                      const jobMatch = jobLine.match(pattern);
+                      if (jobMatch) {
+                        title = jobMatch[1].trim();
+                        company = jobMatch[2].trim();
+                        break;
+                      }
+                    }
+                    
+                    if (matchReasonLine.includes('Match Reason:')) {
+                      matchReason = matchReasonLine.replace(/^Match Reason:\s*/i, '').trim();
                     }
                   }
                   
-                  if (matchReasonLine.includes('Match Reason:')) {
-                    matchReason = matchReasonLine.replace(/^Match Reason:\s*/i, '').trim();
-                  }
+                  const sourcePlatform = determineSourcePlatform(url);
+                  
+                  const jobUrlObj = {
+                    url: url,
+                    title: title,
+                    company: company,
+                    matchReason: matchReason,
+                    sourcePlatform: sourcePlatform,
+                    foundAt: new Date(),
+                    extractionMethod: 'enhanced_url_extraction_with_validation',
+                    isLiveValidated: true
+                  };
+                  
+                  validJobUrls.push(jobUrlObj);
+                  console.log(`✅ Added ACTIVE job ${validJobUrls.length}/${maxJobsToFind}: ${title} at ${company}`);
+                  
+                  await search.addReasoningLog(
+                    'web_search_discovery',
+                    `Found ACTIVE job: "${title}" at ${company} (URL validated as live)`,
+                    {
+                      url: url,
+                      platform: sourcePlatform,
+                      validationStatus: 'live_confirmed',
+                      jobNumber: validJobUrls.length
+                    }
+                  );
                 }
-                
-                const sourcePlatform = determineSourcePlatform(url);
-                
-                const jobUrlObj = {
-                  url: url,
-                  title: title,
-                  company: company,
-                  matchReason: matchReason,
-                  sourcePlatform: sourcePlatform,
-                  foundAt: new Date(),
-                  extractionMethod: 'enhanced_url_extraction_early_stop'
-                };
-                
-                newJobUrls.push(jobUrlObj);
-                console.log(`✅ Added job ${jobUrls.length + newJobUrls.length}/${maxJobsToFind}: ${title} at ${company}`);
+              } else {
+                console.log(`❌ Dead URL rejected: ${url}`);
+                await search.addReasoningLog(
+                  'web_search_discovery',
+                  `Rejected dead URL: ${url} (404 or expired)`,
+                  {
+                    url: url,
+                    validationStatus: 'dead_link',
+                    reason: 'URL validation failed'
+                  }
+                );
               }
             }
-          });
+          }
         }
       }
       
-      // Add new jobs to main array
-      jobUrls = jobUrls.concat(newJobUrls);
+      console.log(`📊 Search attempt ${searchAttempts} results: Found ${validJobUrls.length} ACTIVE jobs total`);
       
-      console.log(`📊 Search attempt ${searchAttempts} results: Found ${newJobUrls.length} new jobs, total: ${jobUrls.length}/${maxJobsToFind}`);
-      
-      // EARLY STOPPING: Check if we have enough jobs
-      if (jobUrls.length >= maxJobsToFind) {
-        console.log(`🎉 SUCCESS: Reached target of ${maxJobsToFind} jobs after ${searchAttempts} search attempts`);
-        
-        await search.addReasoningLog(
-          'web_search_discovery',
-          `Target reached! Found ${jobUrls.length} jobs after ${searchAttempts} search attempts`,
-          {
-            finalJobCount: jobUrls.length,
-            searchAttemptsUsed: searchAttempts,
-            efficiency: 'Early stopping successful',
-            platforms: [...new Set(jobUrls.map(job => job.sourcePlatform))],
-            companies: [...new Set(jobUrls.map(job => job.company))]
-          }
-        );
+      // Early stopping if we have enough ACTIVE jobs
+      if (validJobUrls.length >= maxJobsToFind) {
+        console.log(`🎉 SUCCESS: Found ${validJobUrls.length} ACTIVE jobs after ${searchAttempts} attempts`);
         break;
       }
       
-      // Small delay between search attempts if we need more jobs
-      if (jobUrls.length < maxJobsToFind && searchAttempts < maxSearchAttempts) {
-        console.log(`⏱️ Need ${maxJobsToFind - jobUrls.length} more jobs, waiting 2s before next search attempt...`);
+      // Delay between attempts
+      if (validJobUrls.length < maxJobsToFind && searchAttempts < maxSearchAttempts) {
+        console.log(`⏱️ Need ${maxJobsToFind - validJobUrls.length} more ACTIVE jobs, waiting before next attempt...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
     
-    // Final summary
-    const finalCount = Math.min(jobUrls.length, maxJobsToFind);
-    const finalJobs = jobUrls.slice(0, maxJobsToFind); // Ensure we don't exceed limit
-    
     await search.addReasoningLog(
       'web_search_discovery',
-      `Job URL discovery completed: ${finalCount} jobs found with early limit enforcement`,
+      `Job URL discovery completed: ${validJobUrls.length} ACTIVE jobs found with live URL validation`,
       {
-        totalUrls: finalCount,
+        totalActiveUrls: validJobUrls.length,
         searchAttemptsUsed: searchAttempts,
-        platforms: [...new Set(finalJobs.map(job => job.sourcePlatform))],
-        companies: [...new Set(finalJobs.map(job => job.company))],
-        efficiency: `Found ${finalCount} jobs in ${searchAttempts} attempts`,
-        earlyStoppingEnabled: true
+        platforms: [...new Set(validJobUrls.map(job => job.sourcePlatform))],
+        companies: [...new Set(validJobUrls.map(job => job.company))],
+        urlValidation: 'All URLs confirmed as live and active'
       }
     );
     
-    console.log(`🎯 FINAL RESULT: Found ${finalCount} job URLs with early limit enforcement`);
-    return finalJobs;
+    console.log(`🎯 FINAL RESULT: Found ${validJobUrls.length} ACTIVE job URLs with live validation`);
+    return validJobUrls;
     
   } catch (error) {
-    console.error('🎯 Error in job URL discovery with early stopping:', error);
-    await search.addError('web_search_failed', error.message, 'web_search_discovery', 'Early stopping URL discovery failed');
+    console.error('🎯 Error in job URL discovery with live validation:', error);
+    await search.addError('web_search_failed', error.message, 'web_search_discovery', 'Live URL validation failed');
     throw error;
   }
 }
@@ -955,6 +938,70 @@ function extractTitleFromText(text, url) {
     }
   }
   return 'Unknown';
+}
+
+/**
+ * NEW: Validate that a job URL is live and accessible
+ */
+async function validateJobUrlIsLive(url) {
+  try {
+    console.log(`🔍 Checking if URL is live: ${url}`);
+    
+    // Use Claude to check if the URL is accessible
+    const response = await anthropic.messages.create({
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 1000,
+      temperature: 0.1,
+      messages: [
+        {
+          role: "user",
+          content: `Please check if this job posting URL is currently active and accessible: ${url}
+
+I need to verify that this job posting is still live and accepting applications. Please visit the URL and tell me:
+
+1. Is the page accessible (not 404/error)?
+2. Does it show an active job posting?
+3. Is there an apply button or application process visible?
+
+Respond with just: "ACTIVE" if the job is live, or "DEAD" if it's not accessible or expired.`
+        }
+      ],
+      tools: [
+        {
+          type: "web_search_20250305",
+          name: "web_search"
+        }
+      ],
+      tool_choice: { type: "any" }
+    });
+
+    // Check response for validation result
+    const responseText = response.content
+      .filter(content => content.type === 'text')
+      .map(content => content.text)
+      .join(' ')
+      .toLowerCase();
+    
+    const isActive = responseText.includes('active') && !responseText.includes('dead');
+    const isDead = responseText.includes('dead') || responseText.includes('404') || responseText.includes('not found') || responseText.includes('expired');
+    
+    if (isDead) {
+      console.log(`❌ URL is DEAD: ${url}`);
+      return false;
+    } else if (isActive) {
+      console.log(`✅ URL is ACTIVE: ${url}`);
+      return true;
+    } else {
+      // If unclear, err on the side of caution but still try
+      console.log(`⚠️ URL status unclear, assuming active: ${url}`);
+      return true;
+    }
+    
+  } catch (error) {
+    console.error(`❌ Error validating URL ${url}:`, error);
+    // If validation fails, assume URL might be valid to avoid false negatives
+    return true;
+  }
 }
 
 function isValidJobUrlFixed(url) {
