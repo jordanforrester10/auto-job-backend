@@ -266,7 +266,7 @@ app.use('/api/settings', settingsRoutes); // NEW: Mount settings routes
 
 // FIXED: Catch-all route with named parameter (this was the problem!)
 // Changed from '/api/*' to '/api/*path' - the wildcard MUST be named
-app.all('/api/*path', (req, res) => {
+app.all('/api/*', (req, res) => {
   res.status(404).json({
     success: false,
     error: `API endpoint ${req.originalUrl} not found`,

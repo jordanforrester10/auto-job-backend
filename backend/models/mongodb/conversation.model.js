@@ -1,11 +1,11 @@
-// backend/models/mongodb/conversation.model.js
+// backend/models/mongodb/conversation.model.js - ENHANCED FOR PERSISTENCE
 const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema({
   id: {
     type: String,
     required: true,
-    unique: true
+    default: () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   },
   type: {
     type: String,
@@ -36,6 +36,22 @@ const messageSchema = new mongoose.Schema({
       score: Number,
       magnitude: Number,
       label: String
+    },
+    // NEW: Resume editing specific metadata
+    isResumeEdit: {
+      type: Boolean,
+      default: false
+    },
+    resumeChanges: [{
+      section: String,
+      action: String,
+      reason: String
+    }],
+    newAnalysis: {
+      overallScore: Number,
+      atsCompatibility: Number,
+      strengths: [String],
+      weaknesses: [String]
     }
   },
   attachments: [{
@@ -148,7 +164,15 @@ const conversationSchema = new mongoose.Schema({
       min: 0,
       max: 100,
       default: 0
-    }
+    },
+    insights: [{
+      type: String,
+      description: String,
+      confidence: Number,
+      actionable: Boolean,
+      generatedAt: Date
+    }],
+    lastAnalyzedAt: Date
   },
   settings: {
     memoryEnabled: {
@@ -168,15 +192,34 @@ const conversationSchema = new mongoose.Schema({
       default: 90
     }
   },
+  // ENHANCED: Better state management
+  isActive: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
+  isStarred: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  isPinned: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  lastActiveAt: {
+    type: Date,
+    default: Date.now,
+    index: true
+  },
+  // DEPRECATED: Keep for backward compatibility but use isActive instead
   status: {
     type: String,
     enum: ['active', 'archived', 'deleted'],
     default: 'active'
   },
-  lastActiveAt: {
-    type: Date,
-    default: Date.now
-  },
+  // Legacy fields - keep for backward compatibility
   pinned: {
     type: Boolean,
     default: false
@@ -189,39 +232,55 @@ const conversationSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Indexes for performance
-conversationSchema.index({ userId: 1, status: 1, lastActiveAt: -1 });
-conversationSchema.index({ userId: 1, category: 1 });
-conversationSchema.index({ userId: 1, tags: 1 });
+// ENHANCED: Compound indexes for better performance
+conversationSchema.index({ userId: 1, isActive: 1, lastActiveAt: -1 });
+conversationSchema.index({ userId: 1, category: 1, isActive: 1 });
+conversationSchema.index({ userId: 1, tags: 1, isActive: 1 });
+conversationSchema.index({ userId: 1, isStarred: 1, isActive: 1 });
+conversationSchema.index({ userId: 1, isPinned: 1, isActive: 1 });
 conversationSchema.index({ 'messages.type': 1, 'messages.createdAt': -1 });
 conversationSchema.index({ 'summary.keyTopics': 1 });
 conversationSchema.index({ lastActiveAt: -1 });
 
 // Virtual for message count
 conversationSchema.virtual('totalMessages').get(function() {
-  return this.messages.length;
+  return this.messages ? this.messages.length : 0;
 });
 
 // Virtual for last message
 conversationSchema.virtual('lastMessage').get(function() {
-  return this.messages.length > 0 ? this.messages[this.messages.length - 1] : null;
+  return this.messages && this.messages.length > 0 ? this.messages[this.messages.length - 1] : null;
 });
 
-// Pre-save middleware to update analytics
+// ENHANCED: Pre-save middleware with better analytics
 conversationSchema.pre('save', function(next) {
+  // Update message count and last active time when messages are modified
   if (this.isModified('messages')) {
-    this.analytics.messageCount = this.messages.length;
-    this.analytics.tokensUsed = this.messages.reduce((total, msg) => {
+    this.analytics.messageCount = this.messages ? this.messages.length : 0;
+    this.analytics.tokensUsed = this.messages ? this.messages.reduce((total, msg) => {
       return total + (msg.metadata?.tokens || 0);
-    }, 0);
+    }, 0) : 0;
     this.lastActiveAt = new Date();
   }
+  
+  // Ensure backward compatibility
+  if (this.isModified('isStarred')) {
+    this.starred = this.isStarred;
+  }
+  if (this.isModified('isPinned')) {
+    this.pinned = this.isPinned;
+  }
+  if (this.isModified('isActive')) {
+    this.status = this.isActive ? 'active' : 'archived';
+  }
+  
   next();
 });
 
-// Instance methods
+// ENHANCED: Instance methods
 conversationSchema.methods.addMessage = function(messageData) {
-  const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  // Generate a more robust unique ID
+  const messageId = messageData.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${this.messages.length}`;
   
   const message = {
     id: messageId,
@@ -235,21 +294,25 @@ conversationSchema.methods.addMessage = function(messageData) {
   
   this.messages.push(message);
   this.lastActiveAt = new Date();
+  this.markModified('messages');
   
   return message;
 };
 
 conversationSchema.methods.getRecentMessages = function(limit = 10) {
+  if (!this.messages) return [];
   return this.messages
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, limit);
 };
 
 conversationSchema.methods.getMessagesByType = function(type) {
+  if (!this.messages) return [];
   return this.messages.filter(msg => msg.type === type);
 };
 
 conversationSchema.methods.searchMessages = function(query) {
+  if (!this.messages) return [];
   const searchRegex = new RegExp(query, 'i');
   return this.messages.filter(msg => 
     searchRegex.test(msg.content) || 
@@ -264,12 +327,13 @@ conversationSchema.methods.updateSummary = function(summaryData) {
     generatedAt: new Date(),
     version: (this.summary?.version || 0) + 1
   };
+  this.markModified('summary');
 };
 
 conversationSchema.methods.calculateEngagementScore = function() {
-  const messageCount = this.messages.length;
-  const userMessages = this.messages.filter(m => m.type === 'user').length;
-  const aiMessages = this.messages.filter(m => m.type === 'ai').length;
+  const messageCount = this.messages ? this.messages.length : 0;
+  const userMessages = this.messages ? this.messages.filter(m => m.type === 'user').length : 0;
+  const aiMessages = this.messages ? this.messages.filter(m => m.type === 'ai').length : 0;
   
   // Base score on conversation length
   let score = Math.min(messageCount * 2, 40);
@@ -281,9 +345,9 @@ conversationSchema.methods.calculateEngagementScore = function() {
   }
   
   // Bonus for user actions taken
-  const actionCount = this.messages.reduce((count, msg) => {
+  const actionCount = this.messages ? this.messages.reduce((count, msg) => {
     return count + (msg.metadata?.actions?.length || 0);
-  }, 0);
+  }, 0) : 0;
   score += Math.min(actionCount * 5, 20);
   
   // Bonus for user satisfaction
@@ -295,14 +359,17 @@ conversationSchema.methods.calculateEngagementScore = function() {
   return this.analytics.engagementScore;
 };
 
-// Static methods
+// ENHANCED: Static methods
 conversationSchema.statics.findByUserId = function(userId, options = {}) {
-  const query = { userId, status: { $ne: 'deleted' } };
+  const query = { 
+    userId, 
+    isActive: true  // Use isActive instead of status
+  };
   
   if (options.category) query.category = options.category;
   if (options.tags && options.tags.length > 0) query.tags = { $in: options.tags };
-  if (options.pinned !== undefined) query.pinned = options.pinned;
-  if (options.starred !== undefined) query.starred = options.starred;
+  if (options.pinned !== undefined) query.isPinned = options.pinned;
+  if (options.starred !== undefined) query.isStarred = options.starred;
   
   return this.find(query)
     .sort(options.sort || { lastActiveAt: -1 })
@@ -316,7 +383,7 @@ conversationSchema.statics.searchConversations = function(userId, searchQuery, o
   
   return this.find({
     userId,
-    status: { $ne: 'deleted' },
+    isActive: true,
     $or: [
       { title: searchRegex },
       { description: searchRegex },
@@ -331,7 +398,7 @@ conversationSchema.statics.searchConversations = function(userId, searchQuery, o
 
 conversationSchema.statics.getConversationStats = function(userId) {
   return this.aggregate([
-    { $match: { userId: mongoose.Types.ObjectId(userId), status: { $ne: 'deleted' } } },
+    { $match: { userId: mongoose.Types.ObjectId(userId), isActive: true } },
     {
       $group: {
         _id: null,
@@ -343,6 +410,40 @@ conversationSchema.statics.getConversationStats = function(userId) {
       }
     }
   ]);
+};
+
+// ENHANCED: Migration helper method
+conversationSchema.statics.migrateToIsActive = async function(userId = null) {
+  const query = userId ? { userId } : {};
+  
+  try {
+    // Migrate status to isActive
+    await this.updateMany(
+      { ...query, status: 'active' },
+      { $set: { isActive: true } }
+    );
+    
+    await this.updateMany(
+      { ...query, status: { $in: ['archived', 'deleted'] } },
+      { $set: { isActive: false } }
+    );
+    
+    // Migrate pinned/starred to isPinned/isStarred
+    await this.updateMany(
+      { ...query, pinned: true },
+      { $set: { isPinned: true } }
+    );
+    
+    await this.updateMany(
+      { ...query, starred: true },
+      { $set: { isStarred: true } }
+    );
+    
+    console.log('✅ Conversation migration completed');
+  } catch (error) {
+    console.error('❌ Conversation migration failed:', error);
+    throw error;
+  }
 };
 
 // Text search index

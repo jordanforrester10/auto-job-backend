@@ -1,15 +1,11 @@
-// src/context/AiAssistantContext.js - COMPLETE FILE WITH NEW CONVERSATION FIX
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+// src/context/AiAssistantContext.js - RAG VERSION WITH NO MEMORY SYSTEM
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
-import resumeService from '../utils/resumeService';
-import jobService from '../utils/jobService';
 import assistantService from '../utils/assistantService';
 
-// Create the context
 const AiAssistantContext = createContext();
 
-// Custom hook to use the context
 export const useAiAssistant = () => {
   const context = useContext(AiAssistantContext);
   if (!context) {
@@ -18,165 +14,383 @@ export const useAiAssistant = () => {
   return context;
 };
 
-// Provider component
 export const AiAssistantProvider = ({ children }) => {
   const location = useLocation();
   const { currentUser, isAuthenticated } = useAuth();
   
-  // AI Assistant state
+  // 🔥 SIMPLIFIED STATE - No Memory System
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   
-  // Enhanced conversation state
+  // Conversation state
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [conversationsLoading, setConversationsLoading] = useState(false);
-  const [conversationError, setConversationError] = useState(null);
-  
-  // Memory state
-  const [userMemories, setUserMemories] = useState([]);
-  const [memoryInsights, setMemoryInsights] = useState([]);
-  const [memoriesLoading, setMemoriesLoading] = useState(false);
-  
-  // Context awareness
-  const [currentContext, setCurrentContext] = useState({
-    page: 'dashboard',
-    resumeCount: 0,
-    jobCount: 0,
-    currentResume: null,
-    currentJob: null,
-    userProfile: null
-  });
-  
-  // Suggestions and analytics
-  const [contextualSuggestions, setContextualSuggestions] = useState([]);
-  const [suggestionsCount, setSuggestionsCount] = useState(0);
-  const [analytics, setAnalytics] = useState(null);
   
   // Chat state
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [contextualSuggestions, setContextualSuggestions] = useState([]);
+  
+  // 🆕 RAG Context state - attached resumes/jobs per conversation
+  const [conversationContexts, setConversationContexts] = useState(new Map());
+  
+  // Performance tracking
+  const [isInitialized, setIsInitialized] = useState(false);
+  const initTimeoutRef = useRef(null);
+  const lastUpdateRef = useRef(0);
 
-  // Initialize on authentication
-  useEffect(() => {
-    if (isAuthenticated && currentUser) {
-      initializeAiAssistant();
-    } else {
-      resetState();
-    }
-  }, [isAuthenticated, currentUser]);
+  // 🔥 SIMPLIFIED storage keys - no memory
+  const STORAGE_KEYS = {
+    currentConversationId: `ai_conv_${currentUser?._id || 'anon'}`,
+    isOpen: `ai_open_${currentUser?._id || 'anon'}`,
+    conversationContexts: `ai_contexts_${currentUser?._id || 'anon'}`
+  };
 
-  // Update context when location changes
-  useEffect(() => {
-    if (isAuthenticated && currentUser) {
-      updateContextFromLocation();
-    }
-  }, [location.pathname, isAuthenticated, currentUser]);
+  // 🆕 RAG Context Management
+  const getConversationContext = useCallback((conversationId) => {
+    if (!conversationId) return { resumes: [], jobs: [] };
+    return conversationContexts.get(conversationId) || { resumes: [], jobs: [] };
+  }, [conversationContexts]);
 
-  // Load conversation when current conversation changes
-  useEffect(() => {
-    if (currentConversationId && !currentConversationId.startsWith('new-conversation-')) {
-      loadConversation(currentConversationId);
-    }
-  }, [currentConversationId]);
-
-  /**
-   * Initialize AI Assistant system
-   */
-  const initializeAiAssistant = useCallback(async () => {
-    try {
-      await Promise.all([
-        loadConversations(),
-        loadMemoryInsights(),
-        updateContextFromLocation()
-      ]);
-    } catch (error) {
-      console.error('Failed to initialize AI Assistant:', error);
-      setError('Failed to initialize AI Assistant');
-    }
-  }, []);
-
-  /**
-   * Reset all state
-   */
-  const resetState = useCallback(() => {
-    setConversations([]);
-    setCurrentConversationId(null);
-    setCurrentConversation(null);
-    setUserMemories([]);
-    setMemoryInsights([]);
-    setMessages([]);
-    setContextualSuggestions([]);
-    setAnalytics(null);
-    setError(null);
-    setCurrentContext({
-      page: 'auth',
-      resumeCount: 0,
-      jobCount: 0,
-      currentResume: null,
-      currentJob: null,
-      userProfile: null
+  const setConversationContext = useCallback((conversationId, context) => {
+    if (!conversationId) return;
+    
+    setConversationContexts(prev => {
+      const newMap = new Map(prev);
+      newMap.set(conversationId, context);
+      
+      // Cache to localStorage
+      try {
+        const cacheData = {};
+        newMap.forEach((value, key) => {
+          cacheData[key] = value;
+        });
+        localStorage.setItem(STORAGE_KEYS.conversationContexts, JSON.stringify(cacheData));
+      } catch (e) {
+        console.warn('Failed to cache conversation contexts:', e);
+      }
+      
+      return newMap;
     });
+  }, [STORAGE_KEYS.conversationContexts]);
+
+  // 🔥 SIMPLIFIED: Basic context update (no external API calls)
+  const updateBasicContext = useCallback(() => {
+    const pathSegments = location.pathname.split('/').filter(Boolean);
+    const page = pathSegments[0] || 'dashboard';
+    
+    // Generate simple suggestions based on page
+    const suggestions = generateContextualSuggestions(page);
+    setContextualSuggestions(suggestions);
+    
+    console.log('⚡ Basic context update for page:', page);
+  }, [location.pathname]);
+
+  // 🔥 SIMPLIFIED: Generate suggestions without heavy processing
+  const generateContextualSuggestions = useCallback((page) => {
+    const suggestions = {
+      dashboard: ['Help with resume', 'Find jobs', 'Career advice', 'What should I focus on?'],
+      resumes: ['Improve resume', 'Optimize for ATS', 'Add skills', 'Update experience'],
+      jobs: ['Analyze job posting', 'Match to resume', 'Interview prep', 'Write cover letter'],
+      recruiters: ['Find recruiters', 'Write outreach message', 'Track responses', 'Network strategy']
+    };
+
+    return suggestions[page] || suggestions.dashboard;
   }, []);
 
-  /**
-   * Load user's conversations
-   */
+  // 🔥 SIMPLIFIED: Fast initialization without memory system
+  const initializeAiAssistant = useCallback(async () => {
+    if (isInitialized || !isAuthenticated || !currentUser) return;
+    
+    try {
+      console.log('⚡ Fast AI Assistant initialization (RAG mode)...');
+      
+      // Load saved UI state immediately
+      try {
+        const savedIsOpen = localStorage.getItem(STORAGE_KEYS.isOpen) === 'true';
+        const savedConversationId = localStorage.getItem(STORAGE_KEYS.currentConversationId);
+        const savedContexts = localStorage.getItem(STORAGE_KEYS.conversationContexts);
+        
+        if (savedIsOpen !== undefined) setIsOpen(savedIsOpen);
+        if (savedConversationId) setCurrentConversationId(savedConversationId);
+        if (savedContexts) {
+          try {
+            const parsedContexts = JSON.parse(savedContexts);
+            const contextMap = new Map(Object.entries(parsedContexts));
+            setConversationContexts(contextMap);
+          } catch (e) {
+            console.warn('Failed to parse saved contexts');
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load saved state:', e);
+      }
+
+      // Load conversations in background
+      setTimeout(async () => {
+        try {
+          await loadConversations();
+        } catch (error) {
+          console.warn('Background conversation loading failed:', error);
+        }
+      }, 0);
+
+      // Update basic context
+      updateBasicContext();
+      
+      setIsInitialized(true);
+      console.log('✅ Fast AI Assistant initialization completed (RAG mode)');
+      
+    } catch (error) {
+      console.error('AI Assistant initialization failed:', error);
+      setError('Failed to initialize AI Assistant');
+      setIsInitialized(true);
+    }
+  }, [isInitialized, isAuthenticated, currentUser, STORAGE_KEYS, updateBasicContext]);
+
+  // 🔥 SIMPLIFIED: Fast conversation loading
   const loadConversations = useCallback(async (options = {}) => {
     try {
       setConversationsLoading(true);
-      setConversationError(null);
 
-      const response = await assistantService.getConversations({
+      // Try cache first
+      try {
+        const cacheKey = `conversations_cache_${currentUser?._id}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const parsedCache = JSON.parse(cached);
+          if (Date.now() - parsedCache.timestamp < 2 * 60 * 1000) {
+            console.log('📋 Using cached conversations');
+            setConversations(parsedCache.conversations || []);
+            setConversationsLoading(false);
+            
+            // Load fresh data in background
+            setTimeout(async () => {
+              try {
+                const fresh = await assistantService.getConversations({ limit: 20 });
+                setConversations(fresh.conversations || []);
+                localStorage.setItem(cacheKey, JSON.stringify({
+                  conversations: fresh.conversations || [],
+                  timestamp: Date.now()
+                }));
+              } catch (error) {
+                console.warn('Background conversation refresh failed:', error);
+              }
+            }, 0);
+            return;
+          }
+        }
+      } catch (cacheError) {
+        console.warn('Cache retrieval failed:', cacheError);
+      }
+
+      // Load fresh data
+      const response = await assistantService.getConversations({ 
         limit: 20,
-        sortBy: 'lastActiveAt',
-        ...options
+        sortBy: 'lastActiveAt'
       });
 
-      // Filter out placeholder conversations
-      const realConversations = response.conversations?.filter(conv => !conv.isPlaceholder) || [];
-      setConversations(realConversations);
+      setConversations(response.conversations || []);
       
-      // Set current conversation to most recent if none selected
-      if (!currentConversationId && realConversations.length > 0) {
-        setCurrentConversationId(realConversations[0]._id);
+      // Cache the results
+      try {
+        const cacheKey = `conversations_cache_${currentUser?._id}`;
+        localStorage.setItem(cacheKey, JSON.stringify({
+          conversations: response.conversations || [],
+          timestamp: Date.now()
+        }));
+      } catch (cacheError) {
+        console.warn('Failed to cache conversations:', cacheError);
       }
+
+      console.log(`✅ Loaded ${response.conversations?.length || 0} conversations`);
 
     } catch (error) {
       console.error('Failed to load conversations:', error);
-      setConversationError('Failed to load conversations');
+      setError('Failed to load conversations');
+      setConversations([]);
     } finally {
       setConversationsLoading(false);
     }
-  }, [currentConversationId]);
+  }, [currentUser?._id]);
 
-  /**
-   * Load specific conversation
-   */
-  const loadConversation = useCallback(async (conversationId) => {
+  // 🆕 ENHANCED: Send message with RAG context
+  const sendMessage = useCallback(async (message, contextData = {}) => {
     try {
-      const conversation = await assistantService.getConversation(conversationId);
-      setCurrentConversation(conversation);
-      setMessages(conversation.messages || []);
-    } catch (error) {
-      console.error('Failed to load conversation:', error);
-      setError('Failed to load conversation');
-    }
-  }, []);
+      setIsLoading(true);
+      setError(null);
 
-  /**
-   * Create new conversation - PROPERLY FIXED
-   */
+      // Validate message
+      const validation = assistantService.validateMessage(message);
+      if (!validation.valid) {
+        throw new Error(validation.error);
+      }
+
+      // Add user message immediately
+      const userMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'user',
+        content: message,
+        timestamp: new Date(),
+        createdAt: new Date()
+      };
+      setMessages(prev => [...prev, userMessage]);
+
+      // Get current conversation context
+      const currentContext = getConversationContext(currentConversationId);
+      
+      // Merge with any new context data
+      const fullContext = {
+        ...currentContext,
+        ...contextData,
+        conversationId: currentConversationId
+      };
+
+      // Determine if new conversation
+      const isNewConversation = !currentConversationId || 
+                              currentConversationId.startsWith('new-conversation-') ||
+                              contextData.newConversation;
+
+      console.log('🤖 Sending message with RAG context:', {
+        hasResumes: fullContext.attachedResumes?.length > 0,
+        hasJobs: fullContext.attachedJobs?.length > 0,
+        conversationId: currentConversationId
+      });
+
+      // Send to AI with RAG context
+      const response = await assistantService.sendMessage({
+        message,
+        context: fullContext,
+        conversationId: isNewConversation ? null : currentConversationId,
+        newConversation: isNewConversation
+      });
+
+      // Add AI response
+      const aiMessage = {
+        id: `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'ai',
+        content: response.message,
+        timestamp: new Date(),
+        createdAt: new Date(),
+        suggestions: response.suggestions || [],
+        metadata: response.performance || {}
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+
+      // Handle conversation state
+      if (response.conversationId) {
+        if (isNewConversation) {
+          console.log('💾 New conversation created:', response.conversationId);
+          
+          const newConversation = {
+            _id: response.conversationId,
+            title: response.conversationTitle || 'New Conversation',
+            messages: [userMessage, aiMessage],
+            messageCount: 2,
+            createdAt: new Date(),
+            lastActiveAt: new Date(),
+            isActive: true
+          };
+          
+          setCurrentConversationId(response.conversationId);
+          setCurrentConversation(newConversation);
+          setConversations(prev => [newConversation, ...prev]);
+          
+          localStorage.setItem(STORAGE_KEYS.currentConversationId, response.conversationId);
+          
+        } else {
+          // Update existing conversation
+          const updatedConversation = {
+            ...currentConversation,
+            messages: [...(currentConversation?.messages || []), userMessage, aiMessage],
+            messageCount: (currentConversation?.messageCount || 0) + 2,
+            lastActiveAt: new Date()
+          };
+          
+          setCurrentConversation(updatedConversation);
+          setConversations(prev => prev.map(conv => 
+            conv._id === response.conversationId ? updatedConversation : conv
+          ));
+        }
+      }
+
+      // Update suggestions
+      if (response.suggestions && response.suggestions.length > 0) {
+        setContextualSuggestions(response.suggestions);
+      }
+
+      console.log('✅ Message sent successfully with RAG context');
+      return response;
+
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      setError(error.message || 'Failed to send message');
+      
+      const errorMessage = {
+        id: `msg_${Date.now() + 2}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'ai',
+        content: "I'm having trouble connecting right now. Please try again in a moment.",
+        timestamp: new Date(),
+        createdAt: new Date(),
+        isError: true
+      };
+      setMessages(prev => [...prev, errorMessage]);
+
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentConversationId, currentConversation, getConversationContext, STORAGE_KEYS.currentConversationId]);
+
+  // 🔥 SIMPLIFIED: Fast conversation switching with context loading
+  const switchConversation = useCallback(async (conversationId) => {
+    if (conversationId === currentConversationId) return;
+    
+    console.log('⚡ Fast conversation switch:', conversationId);
+    
+    // Find conversation in current list first
+    const foundConversation = conversations.find(conv => conv._id === conversationId);
+    
+    if (foundConversation) {
+      setCurrentConversationId(conversationId);
+      setCurrentConversation(foundConversation);
+      setMessages(foundConversation.messages || []);
+      setError(null);
+      
+      localStorage.setItem(STORAGE_KEYS.currentConversationId, conversationId);
+      
+      console.log('✅ Fast conversation switch completed');
+    } else {
+      // Load conversation in background
+      setCurrentConversationId(conversationId);
+      setMessages([]);
+      setError(null);
+      localStorage.setItem(STORAGE_KEYS.currentConversationId, conversationId);
+      
+      setTimeout(async () => {
+        try {
+          const conversation = await assistantService.getConversation(conversationId);
+          setCurrentConversation(conversation);
+          setMessages(conversation.messages || []);
+        } catch (error) {
+          console.error('Failed to load conversation:', error);
+          setError('Failed to load conversation');
+        }
+      }, 0);
+    }
+  }, [currentConversationId, conversations, STORAGE_KEYS.currentConversationId]);
+
+  // 🔥 SIMPLIFIED: Conversation creation
   const createNewConversation = useCallback(async (title, category = 'general') => {
     try {
-      console.log('Creating new conversation...');
-      
-      // Create a temporary conversation placeholder
-      const tempConversationId = `new-conversation-${Date.now()}`;
+      console.log('⚡ Creating new conversation...');
+      // Create placeholder immediately
+      const tempId = `new-conversation-${Date.now()}`;
       const placeholderConversation = {
-        _id: tempConversationId,
+        _id: tempId,
         title: title || 'New Conversation',
         category,
         messages: [],
@@ -184,17 +398,19 @@ export const AiAssistantProvider = ({ children }) => {
         createdAt: new Date(),
         lastActiveAt: new Date(),
         isPlaceholder: true,
-        status: 'active'
+        isActive: true
       };
       
-      // Add to conversations list and set as current
       setConversations(prev => [placeholderConversation, ...prev]);
-      setCurrentConversationId(tempConversationId);
+      setCurrentConversationId(tempId);
       setCurrentConversation(placeholderConversation);
       setMessages([]);
       setError(null);
       
-      console.log('New conversation placeholder created:', tempConversationId);
+      // Initialize empty context for new conversation
+      setConversationContext(tempId, { resumes: [], jobs: [] });
+      
+      console.log('✅ Placeholder conversation created');
       return placeholderConversation;
 
     } catch (error) {
@@ -202,155 +418,23 @@ export const AiAssistantProvider = ({ children }) => {
       setError('Failed to create new conversation');
       return null;
     }
-  }, []);
+  }, [setConversationContext]);
 
-  /**
-   * Send message - ENHANCED to handle new conversations
-   */
-  const sendMessage = useCallback(async (message, options = {}) => {
-  try {
-    setIsLoading(true);
-    setError(null);
-
-    // Add user message immediately to UI with proper timestamp
-    const userMessage = {
-      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      type: 'user',
-      content: message,
-      timestamp: new Date(), // FIXED: Use Date object instead of timestamp
-      createdAt: new Date() // FIXED: Add createdAt for consistency
-    };
-    setMessages(prev => [...prev, userMessage]);
-
-    // Check if this is a new conversation (placeholder)
-    const isNewConversation = !currentConversationId || 
-                             currentConversationId.startsWith('new-conversation-') ||
-                             options.newConversation;
-
-    // Prepare request data
-    const requestData = {
-      message,
-      context: currentContext,
-      conversationId: isNewConversation ? null : currentConversationId,
-      newConversation: isNewConversation,
-      conversationHistory: isNewConversation ? [] : messages.slice(-5)
-    };
-
-    console.log('Sending message:', { 
-      isNewConversation, 
-      currentConversationId, 
-      messageLength: message.length 
-    });
-
-    // Send to AI
-    const response = await assistantService.sendMessage(requestData);
-
-    // Add AI response to UI with proper timestamp
-    const aiMessage = {
-      id: `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`,
-      type: 'ai',
-      content: response.message,
-      timestamp: new Date(), // FIXED: Use Date object
-      createdAt: new Date(), // FIXED: Add createdAt
-      suggestions: response.suggestions || [],
-      actions: response.actions || [],
-      memoryInsights: response.memoryInsights || []
-    };
-
-    setMessages(prev => [...prev, aiMessage]);
-
-    // Handle new conversation ID from backend
-    if (response.conversationId) {
-      // If this was a new conversation, update the ID and remove placeholder
-      if (isNewConversation) {
-        console.log('New conversation created with ID:', response.conversationId);
-        
-        // Remove the placeholder conversation
-        setConversations(prev => prev.filter(conv => !conv.isPlaceholder));
-        
-        // Set the real conversation ID
-        setCurrentConversationId(response.conversationId);
-        
-        // Refresh conversations to get the real conversation data
-        setTimeout(() => {
-          loadConversations();
-        }, 500);
-      }
-      
-      // Update conversation title if provided
-      if (response.conversationTitle) {
-        setCurrentConversation(prev => ({
-          ...prev,
-          title: response.conversationTitle
-        }));
-      }
-    }
-
-    // Update suggestions
-    if (response.suggestions && response.suggestions.length > 0) {
-      setContextualSuggestions(response.suggestions);
-      setSuggestionsCount(response.suggestions.length);
-    }
-
-    return response;
-
-  } catch (error) {
-    console.error('Failed to send message:', error);
-    setError('Failed to send message. Please try again.');
-    
-    // Add error message to UI with proper timestamp
-    const errorMessage = {
-      id: `msg_${Date.now() + 2}_${Math.random().toString(36).substr(2, 9)}`,
-      type: 'ai',
-      content: "I'm having trouble connecting right now. Please try again in a moment.",
-      timestamp: new Date(), // FIXED: Use Date object
-      createdAt: new Date(), // FIXED: Add createdAt
-      isError: true
-    };
-    setMessages(prev => [...prev, errorMessage]);
-
-  } finally {
-    setIsLoading(false);
-  }
-}, [currentContext, currentConversationId, messages, loadConversations]);
-
-  /**
-   * Switch to different conversation
-   */
-  const switchConversation = useCallback(async (conversationId) => {
-    if (conversationId === currentConversationId) return;
-    
-    console.log('Switching to conversation:', conversationId);
-    setCurrentConversationId(conversationId);
-    setMessages([]);
-    setError(null);
-    
-    // Don't load placeholder conversations
-    if (!conversationId.startsWith('new-conversation-')) {
-      // The useEffect will handle loading the conversation
-    }
-  }, [currentConversationId]);
-
-  /**
-   * Update conversation metadata
-   */
+  // 🔥 SIMPLIFIED: Conversation management
   const updateConversation = useCallback(async (conversationId, updates) => {
     try {
-      // Don't update placeholder conversations
       if (conversationId.startsWith('new-conversation-')) {
         return null;
       }
 
       const updatedConversation = await assistantService.updateConversation(conversationId, updates);
       
-      // Update in conversations list
       setConversations(prev => 
         prev.map(conv => 
           conv._id === conversationId ? { ...conv, ...updatedConversation } : conv
         )
       );
 
-      // Update current conversation if it's the one being updated
       if (conversationId === currentConversationId) {
         setCurrentConversation(prev => ({ ...prev, ...updatedConversation }));
       }
@@ -364,332 +448,336 @@ export const AiAssistantProvider = ({ children }) => {
     }
   }, [currentConversationId]);
 
-  /**
-   * Delete conversation
-   */
   const deleteConversation = useCallback(async (conversationId, permanent = false) => {
+    console.log('🗑️ Starting conversation deletion process:', {
+      conversationId,
+      permanent,
+      currentConversationId,
+      conversationsCount: conversations.length
+    });
+
     try {
-      // Handle placeholder conversations
+      // Validate input
+      if (!conversationId) {
+        throw new Error('Conversation ID is required');
+      }
+
+      // Handle placeholder conversations (new conversations that haven't been saved yet)
       if (conversationId.startsWith('new-conversation-')) {
-        setConversations(prev => prev.filter(conv => conv._id !== conversationId));
+        console.log('🔄 Deleting placeholder conversation:', conversationId);
+        
+        // Remove from local state immediately
+        setConversations(prev => {
+          const filtered = prev.filter(conv => conv._id !== conversationId);
+          console.log('✅ Placeholder conversation removed, remaining:', filtered.length);
+          return filtered;
+        });
+        
+        // Remove context for deleted conversation
+        setConversationContexts(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(conversationId);
+          console.log('✅ Context removed for placeholder conversation');
+          return newMap;
+        });
+        
+        // Handle current conversation switching
         if (conversationId === currentConversationId) {
+          console.log('🔄 Deleted conversation was current, switching...');
           const remaining = conversations.filter(conv => conv._id !== conversationId);
           if (remaining.length > 0) {
+            console.log('✅ Switching to next conversation:', remaining[0]._id);
             setCurrentConversationId(remaining[0]._id);
+            setCurrentConversation(remaining[0]);
+            setMessages(remaining[0].messages || []);
           } else {
+            console.log('✅ No remaining conversations, clearing state');
             setCurrentConversationId(null);
             setCurrentConversation(null);
             setMessages([]);
+            localStorage.removeItem(STORAGE_KEYS.currentConversationId);
           }
         }
-        return;
+        
+        console.log('✅ Placeholder conversation deletion completed');
+        return { success: true, message: 'Conversation deleted successfully' };
       }
 
-      await assistantService.deleteConversation(conversationId, permanent);
+      // For real conversations, call the API
+      console.log('🌐 Calling API to delete conversation:', conversationId);
       
-      // Remove from conversations list
-      setConversations(prev => prev.filter(conv => conv._id !== conversationId));
+      const result = await assistantService.deleteConversation(conversationId, permanent);
+      console.log('✅ API delete response:', result);
       
-      // If it was the current conversation, switch to another one
+      // Update local state after successful API call
+      console.log('🔄 Updating local state after successful deletion...');
+      
+      setConversations(prev => {
+        const filtered = prev.filter(conv => conv._id !== conversationId);
+        console.log('✅ Conversation removed from state, remaining:', filtered.length);
+        return filtered;
+      });
+      
+      // Remove context for deleted conversation
+      setConversationContexts(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(conversationId);
+        
+        // Update localStorage cache
+        try {
+          const cacheData = {};
+          newMap.forEach((value, key) => {
+            cacheData[key] = value;
+          });
+          localStorage.setItem(STORAGE_KEYS.conversationContexts, JSON.stringify(cacheData));
+          console.log('✅ Context cache updated');
+        } catch (e) {
+          console.warn('Failed to update context cache:', e);
+        }
+        
+        console.log('✅ Context removed for real conversation');
+        return newMap;
+      });
+      
+      // Handle current conversation switching if needed
       if (conversationId === currentConversationId) {
-        const remainingConversations = conversations.filter(conv => conv._id !== conversationId);
-        if (remainingConversations.length > 0) {
-          setCurrentConversationId(remainingConversations[0]._id);
+        console.log('🔄 Deleted conversation was current, switching...');
+        
+        // Get the current list (before the deletion)
+        const remaining = conversations.filter(conv => conv._id !== conversationId);
+        
+        if (remaining.length > 0) {
+          const nextConv = remaining[0];
+          console.log('✅ Switching to next conversation:', nextConv._id);
+          
+          setCurrentConversationId(nextConv._id);
+          setCurrentConversation(nextConv);
+          setMessages(nextConv.messages || []);
+          localStorage.setItem(STORAGE_KEYS.currentConversationId, nextConv._id);
         } else {
+          console.log('✅ No remaining conversations, clearing state');
           setCurrentConversationId(null);
           setCurrentConversation(null);
           setMessages([]);
+          localStorage.removeItem(STORAGE_KEYS.currentConversationId);
         }
       }
+      
+      // Clear conversation cache
+      try {
+        const cacheKey = `conversations_cache_${currentUser?._id}`;
+        localStorage.removeItem(cacheKey);
+        console.log('✅ Conversation cache cleared');
+      } catch (e) {
+        console.warn('Failed to clear conversation cache:', e);
+      }
+      
+      console.log('🎉 Conversation deletion completed successfully!');
+      return result || { success: true, message: 'Conversation deleted successfully' };
 
     } catch (error) {
-      console.error('Failed to delete conversation:', error);
-      setError('Failed to delete conversation');
+      console.error('❌ Error deleting conversation:', {
+        conversationId,
+        error: error.message,
+        stack: error.stack
+      });
+      
+      // Set error state for user feedback
+      setError(`Failed to delete conversation: ${error.message}`);
+      
+      // Re-throw the error so the UI can handle it
+      throw error;
     }
-  }, [currentConversationId, conversations]);
+  }, [
+    currentConversationId, 
+    conversations, 
+    currentUser?._id, 
+    STORAGE_KEYS.currentConversationId,
+    STORAGE_KEYS.conversationContexts
+  ]);
 
-  /**
-   * Load memory insights
-   */
-  const loadMemoryInsights = useCallback(async () => {
+  // Also add this helper function to check if assistantService.deleteConversation exists
+  const checkApiMethod = useCallback(() => {
+    console.log('🔍 Checking assistantService.deleteConversation method:', {
+      exists: typeof assistantService.deleteConversation === 'function',
+      assistantService: Object.keys(assistantService)
+    });
+  }, []);
+
+  // Call this once when the component mounts to verify the API method exists
+  useEffect(() => {
+    if (isAuthenticated) {
+      checkApiMethod();
+    }
+  }, [isAuthenticated, checkApiMethod]);
+
+  // 🆕 RAG: Search functionality for @-mentions
+  const searchMentionItems = useCallback(async (query) => {
     try {
-      setMemoriesLoading(true);
-      const response = await assistantService.getMemoryInsights();
-      setMemoryInsights(response.insights || []);
-      setUserMemories(response.analytics || {});
+      const results = await assistantService.getMentionSuggestions(query);
+      return results;
     } catch (error) {
-      console.error('Failed to load memory insights:', error);
-    } finally {
-      setMemoriesLoading(false);
+      console.error('Search mention items failed:', error);
+      return { resumes: [], jobs: [] };
     }
   }, []);
 
-  /**
-   * Search across conversations and memories
-   */
+  // 🔥 SIMPLIFIED: Basic search
   const searchEverything = useCallback(async (query) => {
     try {
-      const results = await assistantService.search(query);
+      const results = await assistantService.search(query, { limit: 10 });
       return results;
     } catch (error) {
       console.error('Search failed:', error);
-      return { conversations: [], memories: [] };
+      return { conversations: [], results: [] };
     }
   }, []);
 
-  /**
-   * Get analytics
-   */
-  const loadAnalytics = useCallback(async (timeframe = '30d') => {
-    try {
-      const analyticsData = await assistantService.getAnalytics(timeframe);
-      setAnalytics(analyticsData);
-      return analyticsData;
-    } catch (error) {
-      console.error('Failed to load analytics:', error);
-      return null;
-    }
-  }, []);
-
-  /**
-   * Update context from current location
-   */
-  const updateContextFromLocation = useCallback(async () => {
-    if (!isAuthenticated || !currentUser) {
-      setCurrentContext({
-        page: 'auth',
-        resumeCount: 0,
-        jobCount: 0,
-        currentResume: null,
-        currentJob: null,
-        userProfile: null
-      });
-      return;
-    }
-
-    try {
-      console.log('🤖 AJ: Updating context for:', location.pathname);
-      
-      const pathSegments = location.pathname.split('/').filter(Boolean);
-      const page = pathSegments[0] || 'dashboard';
-      
-      let newContext = {
-        page,
-        resumeCount: 0,
-        jobCount: 0,
-        currentResume: null,
-        currentJob: null,
-        userProfile: {
-          name: `${currentUser.firstName} ${currentUser.lastName}`,
-          email: currentUser.email
-        }
-      };
-
-      // Get user's resumes and jobs count
-      try {
-        const [resumes, jobs] = await Promise.all([
-          resumeService.getUserResumes(),
-          jobService.getUserJobs()
-        ]);
-
-        newContext.resumeCount = resumes?.length || 0;
-        newContext.jobCount = jobs?.length || 0;
-
-        // Page-specific context
-        switch (page) {
-          case 'resumes':
-            if (pathSegments[1] && resumes) {
-              const currentResume = resumes.find(r => r._id === pathSegments[1]);
-              if (currentResume) {
-                newContext.currentResume = {
-                  id: currentResume._id,
-                  name: currentResume.name,
-                  analysis: currentResume.analysis,
-                  score: currentResume.analysis?.overallScore
-                };
-              }
-            }
-            break;
-
-          case 'jobs':
-            if (pathSegments[1] && pathSegments[1] !== 'ai-searches' && jobs) {
-              const currentJob = jobs.find(j => j._id === pathSegments[1]);
-              if (currentJob) {
-                newContext.currentJob = {
-                  id: currentJob._id,
-                  title: currentJob.title,
-                  company: currentJob.company,
-                  matchAnalysis: currentJob.matchAnalysis
-                };
-              }
-            }
-            
-            if (pathSegments[1] === 'ai-searches') {
-              newContext.page = 'ai-searches';
-            }
-            break;
-
-          default:
-            break;
-        }
-
-      } catch (error) {
-        console.warn('🤖 AJ: Error fetching user data for context:', error);
-      }
-
-      // Generate contextual suggestions
-      const suggestions = generateContextualSuggestions(newContext);
-      
-      setCurrentContext(newContext);
-      setContextualSuggestions(suggestions);
-      setSuggestionsCount(suggestions.length);
-
-      console.log('🤖 AJ: Context updated:', newContext);
-
-    } catch (error) {
-      console.error('🤖 AJ: Error updating context:', error);
-    }
-  }, [location.pathname, isAuthenticated, currentUser]);
-
-  /**
-   * Generate contextual suggestions
-   */
-  const generateContextualSuggestions = useCallback((context) => {
-    const suggestions = [];
-
-    switch (context.page) {
-      case 'dashboard':
-        if (context.resumeCount === 0) {
-          suggestions.push('Upload your first resume');
-        } else {
-          suggestions.push('Which resume needs the most work?');
-        }
-        
-        if (context.jobCount === 0) {
-          suggestions.push('Find job opportunities');
-        } else {
-          suggestions.push('Review my job matches');
-        }
-        
-        suggestions.push('Show my career progress');
-        suggestions.push('What should I focus on today?');
-        break;
-
-      case 'resumes':
-        if (context.currentResume) {
-          suggestions.push('Improve this resume');
-          suggestions.push('Check ATS compatibility');
-          if (context.currentResume.score && context.currentResume.score < 80) {
-            suggestions.push('What can I improve?');
-          }
-        } else {
-          suggestions.push('Which resume is best?');
-          suggestions.push('Compare my resumes');
-        }
-        suggestions.push('Create new resume');
-        break;
-
-      case 'jobs':
-        if (context.currentJob) {
-          suggestions.push('Match my resume to this job');
-          suggestions.push('How can I improve my match?');
-          suggestions.push('Write a cover letter');
-        } else {
-          suggestions.push('Find new job opportunities');
-          suggestions.push('Review my job matches');
-        }
-        suggestions.push('Help with applications');
-        break;
-
-      case 'ai-searches':
-        suggestions.push('Optimize search criteria');
-        suggestions.push('Review found opportunities');
-        suggestions.push('Adjust search parameters');
-        break;
-
-      default:
-        suggestions.push('Help with resume');
-        suggestions.push('Find job opportunities');
-        suggestions.push('Career guidance');
-        suggestions.push('Review my progress');
-        break;
-    }
-
-    return suggestions.slice(0, 4);
-  }, []);
-
-  /**
-   * Handle suggestion clicks
-   */
+  // 🔥 SIMPLIFIED: Suggestion handler
   const handleSuggestionClick = useCallback((suggestion) => {
     return sendMessage(suggestion);
   }, [sendMessage]);
 
-  /**
-   * Refresh all data
-   */
-  const refreshContext = useCallback(async () => {
-    await Promise.all([
-      updateContextFromLocation(),
-      loadConversations(),
-      loadMemoryInsights()
-    ]);
-  }, [updateContextFromLocation, loadConversations, loadMemoryInsights]);
+  // 🔥 Initialize on auth change
+  useEffect(() => {
+    if (isAuthenticated && currentUser && !isInitialized) {
+      if (initTimeoutRef.current) {
+        clearTimeout(initTimeoutRef.current);
+      }
+      
+      initTimeoutRef.current = setTimeout(() => {
+        initializeAiAssistant();
+      }, 100);
+    } else if (!isAuthenticated) {
+      // Reset state when user logs out
+      setConversations([]);
+      setCurrentConversationId(null);
+      setCurrentConversation(null);
+      setMessages([]);
+      setConversationContexts(new Map()); // Clear RAG contexts
+      setError(null);
+      setIsInitialized(false);
+      
+      // Clear stored state
+      Object.values(STORAGE_KEYS).forEach(key => {
+        try {
+          localStorage.removeItem(key);
+        } catch (e) {}
+      });
+    }
 
-// Context value
-const contextValue = {
-  // State
-  isOpen,
-  setIsOpen,
-  isMinimized,
-  setIsMinimized,
-  
-  // Conversations
-  conversations,
-  currentConversationId,
-  setCurrentConversationId,     // ADD THIS LINE
-  currentConversation,
-  setCurrentConversation,       // ADD THIS LINE
-  conversationsLoading,
-  conversationError,
-  
-  // Memory
-  userMemories,
-  memoryInsights,
-  memoriesLoading,
-  
-  // Context
-  currentContext,
-  setCurrentContext,  // ADD THIS LINE
-  contextualSuggestions,
-  suggestionsCount,
-  analytics,
-  
-  // Chat
-  messages,
-  isLoading,
-  error,
-  
-  // Actions
-  sendMessage,
-  createNewConversation,
-  switchConversation,
-  updateConversation,
-  deleteConversation,
-  handleSuggestionClick,
-  
-  // Data management
-  loadConversations,
-  loadMemoryInsights,
-  loadAnalytics,
-  searchEverything,
-  refreshContext,
-  updateContextFromLocation,  // ADD THIS LINE TOO
-  
-  // Utilities
-  setError,
-  setMessages
-};
+    return () => {
+      if (initTimeoutRef.current) {
+        clearTimeout(initTimeoutRef.current);
+      }
+    };
+  }, [isAuthenticated, currentUser, isInitialized, initializeAiAssistant, STORAGE_KEYS]);
+
+  // 🔥 Update context on location change (throttled)
+  useEffect(() => {
+    if (isAuthenticated && currentUser && isInitialized) {
+      const now = Date.now();
+      
+      if (now - lastUpdateRef.current > 500) {
+        updateBasicContext();
+        lastUpdateRef.current = now;
+      }
+    }
+  }, [location.pathname, isAuthenticated, currentUser, isInitialized, updateBasicContext]);
+
+  // 🔥 Save UI state changes (debounced)
+  useEffect(() => {
+    if (currentUser?._id) {
+      const timeout = setTimeout(() => {
+        try {
+          localStorage.setItem(STORAGE_KEYS.isOpen, isOpen.toString());
+        } catch (e) {}
+      }, 100);
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [isOpen, STORAGE_KEYS.isOpen, currentUser?._id]);
+
+  // 🔥 Save conversation ID changes (debounced)
+  useEffect(() => {
+    if (currentConversationId && currentUser?._id && 
+        !currentConversationId.startsWith('new-conversation-')) {
+      const timeout = setTimeout(() => {
+        try {
+          localStorage.setItem(STORAGE_KEYS.currentConversationId, currentConversationId);
+        } catch (e) {}
+      }, 100);
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [currentConversationId, STORAGE_KEYS.currentConversationId, currentUser?._id]);
+
+  // 🔥 SIMPLIFIED: Context value with RAG support, no memory system
+  const contextValue = {
+    // UI State
+    isOpen,
+    setIsOpen,
+    isMinimized,
+    setIsMinimized,
+    
+    // Conversation State
+    conversations,
+    currentConversationId,
+    setCurrentConversationId,
+    currentConversation,
+    setCurrentConversation,
+    conversationsLoading,
+    isInitialized,
+    
+    // 🆕 RAG Context State
+    getConversationContext,
+    setConversationContext,
+    conversationContexts,
+    
+    // Context & Suggestions
+    contextualSuggestions,
+    
+    // Chat
+    messages,
+    setMessages,
+    isLoading,
+    error,
+    setError,
+    
+    // Core Actions
+    sendMessage,
+    createNewConversation,
+    switchConversation,
+    updateConversation,
+    deleteConversation,
+    handleSuggestionClick,
+    searchEverything,
+    
+    // 🆕 RAG Actions
+    searchMentionItems,
+    
+    // Data Loading
+    loadConversations,
+    
+    // Utilities
+    refreshContext: updateBasicContext,
+    clearCache: () => {
+      try {
+        assistantService.clearCache();
+        // Clear local caches including conversation contexts
+        Object.keys(localStorage).forEach(key => {
+          if (key.includes('conversations_cache_') || 
+              key.includes('conversation_') ||
+              key.includes('ai_contexts_')) {
+            localStorage.removeItem(key);
+          }
+        });
+        console.log('🧹 AI Assistant cache cleared (RAG mode)');
+      } catch (error) {
+        console.warn('Failed to clear cache:', error);
+      }
+    }
+  };
 
   return (
     <AiAssistantContext.Provider value={contextValue}>
@@ -697,3 +785,104 @@ const contextValue = {
     </AiAssistantContext.Provider>
   );
 };
+
+// 🔥 SIMPLIFIED: Performance monitoring hook (no memory tracking)
+export const useAiAssistantPerformance = () => {
+  const [metrics, setMetrics] = useState(null);
+  
+  useEffect(() => {
+    const updateMetrics = () => {
+      try {
+        const perfData = assistantService.getPerformanceInsights?.() || null;
+        setMetrics(perfData);
+      } catch (error) {
+        console.warn('Failed to get performance metrics:', error);
+      }
+    };
+    
+    updateMetrics();
+    const interval = setInterval(updateMetrics, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  return metrics;
+};
+
+// 🔥 Connection quality hook (unchanged)
+export const useConnectionQuality = () => {
+  const [quality, setQuality] = useState('unknown');
+  const [lastCheck, setLastCheck] = useState(0);
+  
+  const checkQuality = useCallback(async () => {
+    const now = Date.now();
+    
+    if (now - lastCheck < 60000) {
+      return quality;
+    }
+    
+    try {
+      const startTime = Date.now();
+      const healthy = await assistantService.isAvailable();
+      const duration = Date.now() - startTime;
+      
+      let newQuality;
+      if (!healthy) {
+        newQuality = 'poor';
+      } else if (duration < 1000) {
+        newQuality = 'excellent';
+      } else if (duration < 3000) {
+        newQuality = 'good';
+      } else {
+        newQuality = 'fair';
+      }
+      
+      setQuality(newQuality);
+      setLastCheck(now);
+      
+      return newQuality;
+    } catch (error) {
+      setQuality('poor');
+      setLastCheck(now);
+      return 'poor';
+    }
+  }, [quality, lastCheck]);
+  
+  return { quality, checkQuality };
+};
+
+// 🔥 Smart retry hook (unchanged)
+export const useSmartRetry = () => {
+  const [retryCount, setRetryCount] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
+  
+  const retry = useCallback(async (operation, maxRetries = 2) => {
+    if (isRetrying) return;
+    
+    setIsRetrying(true);
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        setRetryCount(attempt);
+        const result = await operation();
+        setRetryCount(0);
+        setIsRetrying(false);
+        return result;
+      } catch (error) {
+        console.log(`Retry attempt ${attempt} failed:`, error.message);
+        
+        if (attempt === maxRetries) {
+          setIsRetrying(false);
+          throw error;
+        }
+        
+        const delay = Math.pow(2, attempt) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }, [isRetrying]);
+  
+  return { retry, retryCount, isRetrying };
+};
+
+export default AiAssistantContext;

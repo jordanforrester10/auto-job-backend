@@ -1,45 +1,45 @@
-// backend/routes/assistant.routes.js - COMPLETE WITH RESUME EDITING ROUTES
+// backend/routes/assistant.routes.js - RAG VERSION WITH NO MEMORY SYSTEM
 const express = require('express');
 const router = express.Router();
 const assistantController = require('../controllers/assistant.controller');
-const { protect } = require('../middleware/auth.middleware'); // FIXED: Proper import
+const { protect } = require('../middleware/auth.middleware');
 const rateLimit = require('express-rate-limit');
 
 // All assistant routes require authentication
 router.use(protect);
 
 // ===================================================================
-// RATE LIMITING SETUP
+// RATE LIMITING SETUP (updated for RAG)
 // ===================================================================
 
-// Rate limiting for AI operations (more restrictive due to cost)
-const aiLimiter = rateLimit({
+// Rate limiting for AI operations with RAG context (more restrictive due to cost)
+const ragAiLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 50, // limit each IP to 50 AI operations per windowMs
+  max: 30, // Reduced limit for RAG operations
   message: {
     success: false,
-    error: 'AI operation rate limit exceeded. Please wait before making more requests.'
+    error: 'RAG AI operation rate limit exceeded. Please wait before making more requests.'
   },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-// Rate limiting for memory operations
-const memoryLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 memory operations per windowMs
-  message: {
-    success: false,
-    error: 'Memory operation rate limit exceeded. Please wait before making more requests.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Rate limiting for resume operations (moderate)
-const resumeLimiter = rateLimit({
+// Rate limiting for mention suggestions (moderate)
+const mentionLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 20, // limit each IP to 20 resume operations per windowMs
+  max: 60, // Allow frequent @-mention lookups
+  message: {
+    success: false,
+    error: 'Mention lookup rate limit exceeded. Please wait before trying again.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiting for resume operations with context (moderate)
+const resumeContextLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 15, // Reduced for context-aware operations
   message: {
     success: false,
     error: 'Resume operation rate limit exceeded. Please wait before making more requests.'
@@ -48,123 +48,70 @@ const resumeLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// ===================================================================
-// ENHANCED CHAT & CONVERSATION MANAGEMENT
-// ===================================================================
-
-// Enhanced main chat endpoint with conversation management
-router.post('/chat', aiLimiter, assistantController.chat);
-
-// Conversation management
-router.get('/conversations', assistantController.getConversations);
-router.get('/conversations/:conversationId', assistantController.getConversation);
-router.put('/conversations/:conversationId', assistantController.updateConversation);
-router.delete('/conversations/:conversationId', assistantController.deleteConversation);
-
-// Conversation utilities (placeholders - implement if needed)
-router.post('/conversations/:conversationId/summary', assistantController.generateSummary);
-router.get('/conversations/:conversationId/insights', assistantController.getConversationInsights);
-router.get('/conversations/:conversationId/export', assistantController.exportConversation);
-
-// Bulk operations
-router.post('/conversations/bulk-update', assistantController.bulkUpdateConversations);
-
-// ===================================================================
-// MEMORY MANAGEMENT (with rate limiting)
-// ===================================================================
-
-// Memory CRUD operations
-router.get('/memories', memoryLimiter, assistantController.getMemories);
-router.post('/memories', memoryLimiter, assistantController.updateMemory);
-router.delete('/memories/:memoryId', memoryLimiter, assistantController.deleteMemory);
-
-// Memory insights and analytics
-router.get('/memory-insights', memoryLimiter, assistantController.getMemoryInsights);
-router.post('/memory-maintenance', memoryLimiter, assistantController.performMemoryMaintenance);
-
-// ===================================================================
-// ENHANCED RESUME OPERATIONS - FULL IMPLEMENTATION
-// ===================================================================
-
-// Core resume editing operations (with rate limiting) - THESE EXIST
-router.post('/apply-resume-changes', resumeLimiter, assistantController.applyResumeChanges);
-router.post('/optimize-ats', resumeLimiter, assistantController.optimizeForATS);
-router.post('/analyze-resume', resumeLimiter, assistantController.analyzeResume);
-
-// Real-time resume editing (PLACEHOLDER IMPLEMENTATIONS)
-router.post('/resume/quick-edit', resumeLimiter, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Quick edit feature coming soon',
-    suggestion: 'Use the apply-resume-changes endpoint for now'
-  });
-});
-
-router.post('/resume/bulk-update', resumeLimiter, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Bulk update feature coming soon',
-    suggestion: 'Use multiple apply-resume-changes calls for now'
-  });
-});
-
-router.post('/resume/improvements', resumeLimiter, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Improvement suggestions feature coming soon',
-    suggestion: 'Use the analyze-resume endpoint for detailed analysis'
-  });
-});
-
-// Resume-specific AI operations (PLACEHOLDERS)
-router.post('/resume/tailor-for-job', resumeLimiter, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Resume tailoring feature coming soon',
-    suggestion: 'Use the apply-resume-changes endpoint for now'
-  });
-});
-
-router.post('/resume/version-compare', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Version comparison feature coming soon',
-    suggestion: 'Check the versions array in your resume data'
-  });
+// Standard rate limiter for basic operations
+const standardLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
+  message: {
+    success: false,
+    error: 'Rate limit exceeded. Please wait before making more requests.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 // ===================================================================
-// UNIVERSAL SEARCH
+// 🆕 RAG: @-MENTION ENDPOINTS
 // ===================================================================
 
-// Search across conversations and memories
-router.get('/search', assistantController.search);
+// Get mention suggestions for @-functionality
+router.get('/mention-suggestions', mentionLimiter, assistantController.getMentionSuggestions);
+
+// Get full context data for mentioned item
+router.get('/context-data/:type/:id', standardLimiter, assistantController.getContextData);
 
 // ===================================================================
-// ANALYTICS & INSIGHTS
+// ENHANCED CHAT & CONVERSATION MANAGEMENT (with RAG)
 // ===================================================================
 
-// User analytics
-router.get('/analytics', assistantController.getAnalytics);
+// Enhanced main chat endpoint with RAG context support
+router.post('/chat', ragAiLimiter, assistantController.chat);
+
+// Conversation management (unchanged)
+router.get('/conversations', standardLimiter, assistantController.getConversations);
+router.get('/conversations/:conversationId', standardLimiter, assistantController.getConversation);
+router.put('/conversations/:conversationId', standardLimiter, assistantController.updateConversation);
+router.delete('/conversations/:conversationId', standardLimiter, assistantController.deleteConversation);
 
 // ===================================================================
-// JOB MATCHING & CAREER GUIDANCE
+// ENHANCED RESUME OPERATIONS WITH RAG CONTEXT
 // ===================================================================
 
-// Job matching with memory context
-router.post('/analyze-job-match', aiLimiter, assistantController.analyzeJobMatch);
-router.post('/generate-cover-letter', aiLimiter, assistantController.generateCoverLetter);
+// Core resume editing operations with context awareness
+router.post('/apply-resume-changes', resumeContextLimiter, assistantController.applyResumeChanges);
+router.post('/optimize-ats', resumeContextLimiter, assistantController.optimizeForATS);
+router.post('/analyze-resume', resumeContextLimiter, assistantController.analyzeResume);
 
-// Career guidance with memory context
-router.post('/career-advice', aiLimiter, assistantController.getCareerAdvice);
-router.post('/contextual-suggestions', assistantController.getContextualSuggestions);
-router.post('/personalized-tips', assistantController.getPersonalizedTips);
+// ===================================================================
+// JOB ANALYSIS WITH RAG CONTEXT
+// ===================================================================
+
+// Job matching with resume context
+router.post('/analyze-job-match', ragAiLimiter, assistantController.analyzeJobMatch);
+router.post('/generate-cover-letter', ragAiLimiter, assistantController.generateCoverLetter);
+
+// ===================================================================
+// SIMPLIFIED SEARCH (NO MEMORY SYSTEM)
+// ===================================================================
+
+// Search conversations only (memory system removed)
+router.get('/search', standardLimiter, assistantController.search);
 
 // ===================================================================
 // SYSTEM & HEALTH
 // ===================================================================
 
-// Enhanced system endpoints
+// System endpoints with RAG information
 router.get('/capabilities', assistantController.getCapabilities);
 router.get('/health', assistantController.healthCheck);
 router.get('/usage-stats', assistantController.getUsageStats);
@@ -172,14 +119,52 @@ router.post('/track-interaction', assistantController.trackInteraction);
 router.post('/reset-context', assistantController.resetContext);
 
 // ===================================================================
-// PLACEHOLDER ROUTES REMOVED - ALREADY DEFINED ABOVE
+// CAREER GUIDANCE WITH RAG CONTEXT
 // ===================================================================
 
+// Career guidance endpoints (simplified, context-aware)
+router.post('/career-advice', ragAiLimiter, assistantController.getCareerAdvice);
+router.post('/contextual-suggestions', standardLimiter, assistantController.getContextualSuggestions);
+router.post('/personalized-tips', standardLimiter, assistantController.getPersonalizedTips);
+
 // ===================================================================
-// ERROR HANDLING MIDDLEWARE
+// ANALYTICS (simplified, no memory analytics)
 // ===================================================================
 
-// Enhanced error handling for all operations
+router.get('/analytics', standardLimiter, assistantController.getAnalytics);
+
+// ===================================================================
+// REMOVED: MEMORY SYSTEM ENDPOINTS
+// ===================================================================
+// The following endpoints have been removed as we've eliminated the memory system:
+// - /memories (GET, POST, DELETE)
+// - /memory-insights
+// - /memory-maintenance
+//
+// These are replaced by conversation-scoped RAG context
+
+// ===================================================================
+// LEGACY COMPATIBILITY ENDPOINTS (return simplified responses)
+// ===================================================================
+
+// Memory endpoints (return empty/disabled responses for compatibility)
+router.get('/memories', assistantController.getMemories);
+router.post('/memories', assistantController.updateMemory);
+router.delete('/memories/:memoryId', assistantController.deleteMemory);
+router.get('/memory-insights', assistantController.getMemoryInsights);
+router.post('/memory-maintenance', assistantController.performMemoryMaintenance);
+
+// Conversation utilities (simplified implementations)
+router.post('/conversations/:conversationId/summary', assistantController.generateSummary);
+router.get('/conversations/:conversationId/insights', assistantController.getConversationInsights);
+router.get('/conversations/:conversationId/export', assistantController.exportConversation);
+router.post('/conversations/bulk-update', assistantController.bulkUpdateConversations);
+
+// ===================================================================
+// ERROR HANDLING MIDDLEWARE (enhanced for RAG)
+// ===================================================================
+
+// Enhanced error handling for RAG operations
 router.use((error, req, res, next) => {
   console.error('Assistant route error:', {
     error: error.message,
@@ -187,26 +172,54 @@ router.use((error, req, res, next) => {
     route: req.route?.path,
     method: req.method,
     userId: req.user?._id,
+ragContext: req.body?.context ? {
+      hasAttachedResumes: req.body.context.attachedResumes?.length > 0,
+      hasAttachedJobs: req.body.context.attachedJobs?.length > 0
+    } : null,
     timestamp: new Date().toISOString()
   });
 
-  // Resume-specific errors
+  // RAG-specific errors
+  if (error.message.includes('context') || error.message.includes('RAG')) {
+    return res.status(500).json({
+      success: false,
+      error: 'RAG context processing error',
+      details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
+      suggestion: 'Try removing attached context or using a simpler query',
+      ragEnabled: true
+    });
+  }
+
+  // Resume context errors
   if (error.message.includes('resume') || error.message.includes('Resume')) {
     return res.status(500).json({
       success: false,
       error: 'Resume processing error',
       details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
-      suggestion: 'Try refreshing the page or uploading the resume again'
+      suggestion: 'Try refreshing the page or re-attaching the resume context',
+      ragEnabled: true
     });
   }
 
-  // Memory-specific errors
-  if (error.message.includes('memory') || error.message.includes('Memory')) {
+  // Job context errors
+  if (error.message.includes('job') || error.message.includes('Job')) {
     return res.status(500).json({
       success: false,
-      error: 'Memory system error',
+      error: 'Job analysis error',
       details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
-      suggestion: 'Try refreshing the page or contact support if the issue persists'
+      suggestion: 'Try refreshing the page or re-attaching the job context',
+      ragEnabled: true
+    });
+  }
+
+  // Mention/context lookup errors
+  if (error.message.includes('mention') || error.message.includes('lookup')) {
+    return res.status(500).json({
+      success: false,
+      error: 'Context lookup error',
+      details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
+      suggestion: 'Try typing @ again to reload suggestions',
+      ragEnabled: true
     });
   }
 
@@ -216,28 +229,40 @@ router.use((error, req, res, next) => {
       success: false,
       error: 'Conversation system error',
       details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
-      suggestion: 'Try starting a new conversation or contact support'
+      suggestion: 'Try starting a new conversation or contact support',
+      ragEnabled: true
     });
   }
 
-  // OpenAI API errors
+  // OpenAI API errors (enhanced for RAG)
   if (error.message.includes('OpenAI') || error.status === 429) {
     return res.status(503).json({
       success: false,
       error: 'AI service temporarily unavailable',
       details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
-      suggestion: 'Please try again in a few moments'
+      suggestion: 'RAG operations require more processing time. Please try again in a few moments.',
+      ragEnabled: true
     });
   }
 
-  // Rate limiting errors
+  // Rate limiting errors (enhanced for RAG)
   if (error.status === 429 || error.message.includes('rate limit')) {
+    const isRagOperation = req.route?.path?.includes('chat') || 
+                          req.route?.path?.includes('context') ||
+                          req.body?.context?.attachedResumes?.length > 0 ||
+                          req.body?.context?.attachedJobs?.length > 0;
+
     return res.status(429).json({
       success: false,
       error: 'Too many requests',
-      details: 'Rate limit exceeded for AI operations',
-      suggestion: 'Please wait a few minutes before trying again',
-      retryAfter: error.retryAfter || 300
+      details: isRagOperation ? 
+        'RAG operations have lower rate limits due to processing complexity' : 
+        'Rate limit exceeded for AI operations',
+      suggestion: isRagOperation ?
+        'RAG context processing is resource-intensive. Please wait a few minutes before trying again.' :
+        'Please wait a few minutes before trying again',
+      retryAfter: error.retryAfter || (isRagOperation ? 600 : 300), // Longer retry for RAG
+      ragEnabled: true
     });
   }
 
@@ -246,7 +271,8 @@ router.use((error, req, res, next) => {
     return res.status(413).json({
       success: false,
       error: 'File too large',
-      suggestion: 'Please upload a file smaller than 10MB'
+      suggestion: 'Please upload a file smaller than 10MB',
+      ragEnabled: true
     });
   }
 
@@ -255,19 +281,48 @@ router.use((error, req, res, next) => {
     return res.status(401).json({
       success: false,
       error: 'Authentication required',
-      suggestion: 'Please log in again'
+      suggestion: 'Please log in again',
+      ragEnabled: true
     });
   }
 
-  // Default error response
+  // Context validation errors
+  if (error.message.includes('validation') || error.message.includes('invalid')) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid request data',
+      details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
+      suggestion: 'Check your attached context and try again',
+      ragEnabled: true
+    });
+  }
+
+  // Database connection errors
+  if (error.message.includes('database') || error.message.includes('connection')) {
+    return res.status(503).json({
+      success: false,
+      error: 'Database connection error',
+      suggestion: 'Our servers are experiencing issues. Please try again shortly.',
+      ragEnabled: true
+    });
+  }
+
+  // Default error response (enhanced for RAG)
   res.status(error.status || 500).json({
     success: false,
     error: process.env.NODE_ENV === 'production' 
       ? 'Internal server error' 
       : error.message,
+    suggestion: 'If you have attached context (@-mentions), try removing them and asking again.',
+    ragEnabled: true,
     ...(process.env.NODE_ENV !== 'production' && { 
       stack: error.stack,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      ragContext: req.body?.context ? {
+        hasAttachedResumes: req.body.context.attachedResumes?.length > 0,
+        hasAttachedJobs: req.body.context.attachedJobs?.length > 0,
+        page: req.body.context.page
+      } : null
     })
   });
 });
