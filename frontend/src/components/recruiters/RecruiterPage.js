@@ -1,4 +1,4 @@
-// src/components/recruiters/RecruiterPage.js - UPDATED WITH PAGINATION AND BADGE COUNT
+// src/components/recruiters/RecruiterPage.js - UPDATED WITH ANALYTICS TAB REMOVED
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
@@ -14,8 +14,6 @@ import {
 import {
   Search as SearchIcon,
   Message as MessageIcon,
-  Analytics as AnalyticsIcon,
-  TrendingUp as TrendingUpIcon,
   People as PeopleIcon
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
@@ -64,7 +62,6 @@ const RecruiterPage = () => {
   // Outreach state - Load immediately for badge count
   const [outreachCampaigns, setOutreachCampaigns] = useState([]);
   const [outreachLoading, setOutreachLoading] = useState(false);
-  const [analytics, setAnalytics] = useState(null);
   
   // Notification state
   const [notification, setNotification] = useState({
@@ -81,13 +78,6 @@ const RecruiterPage = () => {
     // Always load outreach campaigns for badge count
     loadOutreachCampaigns();
   }, []);
-
-  // Load additional data when tab changes
-  useEffect(() => {
-    if (activeTab === 2) {
-      loadAnalytics();
-    }
-  }, [activeTab]);
 
   // Search handlers
   const handleSearchResults = (results, searchParams = null) => {
@@ -237,17 +227,6 @@ const RecruiterPage = () => {
     }
   };
 
-  // Load analytics
-  const loadAnalytics = async () => {
-    try {
-      const response = await recruiterService.getAnalytics('30d');
-      setAnalytics(response.analytics);
-    } catch (error) {
-      console.error('Failed to load analytics:', error);
-      showNotification('Failed to load analytics', 'error');
-    }
-  };
-
   // Notification helper
   const showNotification = (message, severity = 'success') => {
     setNotification({
@@ -284,7 +263,7 @@ const RecruiterPage = () => {
           icon={<PeopleIcon />}
         />
 
-        {/* Main Tabs - Match ResumeDetail style */}
+        {/* Main Tabs - Analytics Tab Removed */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
           <Tabs
             value={activeTab}
@@ -343,16 +322,6 @@ const RecruiterPage = () => {
                 </Box>
               }
             />
-            <Tab
-              label="Analytics"
-              icon={<AnalyticsIcon />}
-              iconPosition="start"
-              sx={{ 
-                display: 'flex',
-                flexDirection: 'row',
-                gap: 1
-              }}
-            />
           </Tabs>
         </Box>
 
@@ -394,105 +363,6 @@ const RecruiterPage = () => {
               setShowOutreachComposer(true);
             }}
           />
-        </TabPanel>
-
-        <TabPanel value={activeTab} index={2}>
-          {/* Analytics Tab */}
-          <Box>
-            {analytics ? (
-              <Box>
-                {/* Analytics Dashboard */}
-                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-                  <TrendingUpIcon color="primary" />
-                  Outreach Performance (Last 30 Days)
-                </Typography>
-                
-                <Box sx={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
-                  gap: 3, 
-                  mb: 4 
-                }}>
-                  <Box sx={{ 
-                    p: 3, 
-                    borderRadius: 2, 
-                    bgcolor: 'background.paper',
-                    border: `1px solid ${theme.palette.divider}`,
-                    textAlign: 'center'
-                  }}>
-                    <Typography variant="h3" color="primary.main" fontWeight="bold">
-                      {analytics.totalOutreach || 0}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Total Outreach
-                    </Typography>
-                  </Box>
-                  
-                  <Box sx={{ 
-                    p: 3, 
-                    borderRadius: 2, 
-                    bgcolor: 'background.paper',
-                    border: `1px solid ${theme.palette.divider}`,
-                    textAlign: 'center'
-                  }}>
-                    <Typography variant="h3" color="success.main" fontWeight="bold">
-                      {analytics.sent || 0}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Messages Sent
-                    </Typography>
-                  </Box>
-                  
-                  <Box sx={{ 
-                    p: 3, 
-                    borderRadius: 2, 
-                    bgcolor: 'background.paper',
-                    border: `1px solid ${theme.palette.divider}`,
-                    textAlign: 'center'
-                  }}>
-                    <Typography variant="h3" color="warning.main" fontWeight="bold">
-                      {analytics.replied || 0}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Replies Received
-                    </Typography>
-                  </Box>
-                  
-                  <Box sx={{ 
-                    p: 3, 
-                    borderRadius: 2, 
-                    bgcolor: 'background.paper',
-                    border: `1px solid ${theme.palette.divider}`,
-                    textAlign: 'center'
-                  }}>
-                    <Typography variant="h3" color="info.main" fontWeight="bold">
-                      {analytics.responseRate || 0}%
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Response Rate
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Alert severity="info" sx={{ borderRadius: 2 }}>
-                  <Typography variant="body2">
-                    💡 <strong>Pro Tip:</strong> Response rates typically improve with personalized messages. 
-                    Try using our AI message generator with your resume and target job information for better results.
-                  </Typography>
-                </Alert>
-              </Box>
-            ) : (
-              <Box sx={{ textAlign: 'center', py: 8 }}>
-                <AnalyticsIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-                <Typography variant="h6" gutterBottom>
-                  No analytics data yet
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Start reaching out to recruiters to see your performance metrics here.
-                </Typography>
-              </Box>
-            )}
-          </Box>
         </TabPanel>
 
         {/* Dialogs */}

@@ -1,4 +1,4 @@
-// src/components/recruiters/OutreachComposer.js - ENHANCED WITH IMPROVED UI
+// src/components/recruiters/OutreachComposer.js - FIXED DATA HANDLING AND ERROR RESOLUTION
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -73,7 +73,7 @@ const OutreachComposer = ({
   onSend, 
   onSave,
   defaultMessage = '',
-  mode = 'create' // 'create' or 'edit'
+  mode = 'create'
 }) => {
   const theme = useTheme();
   const { currentUser } = useAuth();
@@ -82,7 +82,7 @@ const OutreachComposer = ({
   const [messageContent, setMessageContent] = useState(defaultMessage);
   const [messageType, setMessageType] = useState('introduction');
   const [tone, setTone] = useState('professional');
-  const [sentVia, setSentVia] = useState('email'); // Default to email
+  const [sentVia, setSentVia] = useState('email');
   const [selectedResume, setSelectedResume] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [customRequirements, setCustomRequirements] = useState('');
@@ -218,7 +218,7 @@ ${userFirstName}`;
         message: response.message,
         params: messageParams,
         timestamp: new Date()
-      }, ...prev.slice(0, 4)]); // Keep last 5 generations
+      }, ...prev.slice(0, 4)]);
       
       setMessageContent(response.message);
       
@@ -257,7 +257,11 @@ ${formattedEmailBody}`;
       
       await navigator.clipboard.writeText(fullEmailContent);
       setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 3000);
+      setTimeout(() => {
+        setCopySuccess(false);
+        setShowEmailPreview(false);
+        setShowStatusDialog(true);
+      }, 1500);
     } catch (error) {
       console.error('Failed to copy to clipboard:', error);
       // Fallback for older browsers
@@ -273,37 +277,101 @@ ${formattedEmailBody}`;
       document.execCommand('copy');
       document.body.removeChild(textArea);
       setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 3000);
+      setTimeout(() => {
+        setCopySuccess(false);
+        setShowEmailPreview(false);
+        setShowStatusDialog(true);
+      }, 1500);
     }
   };
 
+  // FIXED: Proper data structure for status update
   const handleStatusUpdate = async () => {
     try {
+      // Validate required fields
+      if (!recruiter?.id) {
+        setError('Recruiter information is missing. Please try again.');
+        return;
+      }
+
+      if (!messageContent?.trim()) {
+        setError('Message content cannot be empty.');
+        return;
+      }
+
+      console.log('📋 Status update - Recruiter:', recruiter);
+      console.log('📋 Status update - Message length:', messageContent.length);
+      console.log('📋 Status update - Selected status:', manualStatus);
+
+      // FIXED: Create proper outreach data structure matching the backend expectations
       const outreachData = {
-        recruiterId: recruiter.id,
-        messageContent,
+        recruiterId: recruiter.id, // Ensure this is set
+        messageContent: messageContent.trim(), // Ensure this is set and trimmed
         messageTemplate: messageType,
-        sentVia: 'email',
-        jobId: selectedJob?._id,
+        sentVia: 'email', // Always email for this flow
+        jobId: selectedJob?._id || null,
         customizations: [],
-        status: manualStatus === 'sent' ? 'sent' : 'drafted'
+        // Add additional fields that might be expected
+        subject: emailSubject || generateSubjectLine(recruiter, messageType, selectedJob?.title),
+        formattedContent: formattedEmailBody || messageContent.trim()
       };
 
+      console.log('📤 Sending outreach data:', outreachData);
+
+      // FIXED: Validate the data before sending
+      const validation = recruiterService.validateOutreachData(outreachData);
+      if (!validation.isValid) {
+        console.error('❌ Validation failed:', validation.errors);
+        setError(`Validation failed: ${validation.errors.join(', ')}`);
+        return;
+      }
+
+      // FIXED: Handle different status outcomes
       if (manualStatus === 'sent') {
+        console.log('📧 Marking as sent...');
         await onSend(outreachData);
-      } else {
+      } else if (manualStatus === 'drafted') {
+        console.log('📝 Saving as draft...');
         await onSave(outreachData);
+      } else {
+        // For 'cancelled' status, we still save it but mark it appropriately
+        console.log('❌ Marking as cancelled...');
+        const cancelledData = { ...outreachData, status: 'cancelled' };
+        await onSave(cancelledData);
       }
       
+      console.log('✅ Status update successful');
       setShowStatusDialog(false);
       handleClose();
       
     } catch (error) {
-      console.error('Status update failed:', error);
-      setError('Failed to update status. Please try again.');
+      console.error('❌ Status update failed:', error);
+      
+      // FIXED: Better error handling with specific messages
+      let errorMessage = 'Failed to update status. Please try again.';
+      
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      // Show specific error based on status
+      if (error.response?.status === 400) {
+        errorMessage = 'Invalid data provided. Please check your message content and try again.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Recruiter not found. Please refresh the page and try again.';
+      }
+      
+      setError(errorMessage);
+      
+      // Don't close the dialog on error, let user try again
+      setShowStatusDialog(false);
+      setShowEmailPreview(true); // Go back to email preview
     }
   };
 
+  // FIXED: Improved send handler with better error handling
   const handleSend = async () => {
     if (sentVia === 'email') {
       handleSendViaEmail();
@@ -315,14 +383,27 @@ ${formattedEmailBody}`;
       setIsSending(true);
       setError('');
       
+      // FIXED: Ensure recruiter ID is present
+      if (!recruiter?.id) {
+        setError('Recruiter information is missing. Please refresh and try again.');
+        return;
+      }
+
+      if (!messageContent?.trim()) {
+        setError('Message content cannot be empty.');
+        return;
+      }
+      
       const outreachData = {
         recruiterId: recruiter.id,
-        messageContent,
+        messageContent: messageContent.trim(),
         messageTemplate: messageType,
         sentVia,
-        jobId: selectedJob?._id,
+        jobId: selectedJob?._id || null,
         customizations: []
       };
+
+      console.log('📤 Direct send - outreach data:', outreachData);
 
       // Validate the outreach data
       const validation = recruiterService.validateOutreachData(outreachData);
@@ -335,30 +416,67 @@ ${formattedEmailBody}`;
       handleClose();
       
     } catch (error) {
-      console.error('Send failed:', error);
-      setError('Failed to send message. Please try again.');
+      console.error('❌ Send failed:', error);
+      
+      let errorMessage = 'Failed to send message. Please try again.';
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setIsSending(false);
     }
   };
 
+  // FIXED: Improved save handler
   const handleSave = async () => {
     try {
+      // FIXED: Validate required fields
+      if (!recruiter?.id) {
+        setError('Recruiter information is missing. Please refresh and try again.');
+        return;
+      }
+
+      if (!messageContent?.trim()) {
+        setError('Message content cannot be empty.');
+        return;
+      }
+
       const outreachData = {
         recruiterId: recruiter.id,
-        messageContent,
+        messageContent: messageContent.trim(),
         messageTemplate: messageType,
         sentVia,
-        jobId: selectedJob?._id,
+        jobId: selectedJob?._id || null,
         customizations: []
       };
+
+      console.log('💾 Save draft - outreach data:', outreachData);
+
+      // Validate the outreach data
+      const validation = recruiterService.validateOutreachData(outreachData);
+      if (!validation.isValid) {
+        setError(validation.errors.join(', '));
+        return;
+      }
 
       await onSave(outreachData);
       handleClose();
       
     } catch (error) {
-      console.error('Save failed:', error);
-      setError('Failed to save draft. Please try again.');
+      console.error('❌ Save failed:', error);
+      
+      let errorMessage = 'Failed to save draft. Please try again.';
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
     }
   };
 
@@ -414,17 +532,36 @@ ${formattedEmailBody}`;
     }
   };
 
-  if (!recruiter) return null;
+  // FIXED: Add debug info for troubleshooting
+  console.log('🔍 OutreachComposer Debug Info:', {
+    recruiterPresent: !!recruiter,
+    recruiterId: recruiter?.id,
+    messageContentLength: messageContent?.length || 0,
+    hasOnSend: typeof onSend === 'function',
+    hasOnSave: typeof onSave === 'function'
+  });
+
+  if (!recruiter) {
+    console.warn('⚠️ OutreachComposer: No recruiter provided');
+    return null;
+  }
 
   return (
     <>
       <Dialog
         open={open && !showStatusDialog}
         onClose={handleClose}
-        maxWidth="lg"
+        maxWidth={false}
         fullWidth
         PaperProps={{
-          sx: { borderRadius: 3, minHeight: '700px' }
+          sx: { 
+            borderRadius: 2,
+            minHeight: '600px',
+            maxHeight: '85vh',
+            width: '92vw',
+            maxWidth: '1200px',
+            margin: 'auto'
+          }
         }}
       >
         {/* Enhanced Header */}
@@ -433,22 +570,22 @@ ${formattedEmailBody}`;
           background: `linear-gradient(135deg, ${theme.palette.primary.main}15, ${theme.palette.secondary.main}15)`,
           borderBottom: `1px solid ${theme.palette.divider}`
         }}>
-          <Box sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ p: 2.5 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                 <Avatar
                   sx={{
                     bgcolor: theme.palette.primary.main,
-                    width: 48,
-                    height: 48,
-                    fontSize: '1.2rem',
+                    width: 40,
+                    height: 40,
+                    fontSize: '1rem',
                     fontWeight: 'bold'
                   }}
                 >
                   {recruiter.firstName?.[0]}{recruiter.lastName?.[0]}
                 </Avatar>
                 <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
+                  <Typography variant="h6" sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
                     Compose Message
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
@@ -458,6 +595,7 @@ ${formattedEmailBody}`;
               </Box>
               <IconButton 
                 onClick={handleClose}
+                size="small"
                 sx={{ 
                   bgcolor: 'background.paper',
                   '&:hover': { bgcolor: 'grey.100' }
@@ -468,9 +606,9 @@ ${formattedEmailBody}`;
             </Box>
 
             {/* Status Chips */}
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
               <Chip
-                icon={<WorkIcon />}
+                icon={<WorkIcon sx={{ fontSize: '0.875rem' }} />}
                 label={recruiter.title}
                 size="small"
                 variant="outlined"
@@ -478,7 +616,7 @@ ${formattedEmailBody}`;
                 sx={{ borderRadius: 1 }}
               />
               <Chip
-                icon={<BusinessIcon />}
+                icon={<BusinessIcon sx={{ fontSize: '0.875rem' }} />}
                 label={recruiter.company?.name}
                 size="small"
                 variant="outlined"
@@ -498,7 +636,7 @@ ${formattedEmailBody}`;
           </Box>
         </DialogTitle>
 
-        <DialogContent sx={{ p: 0 }}>
+        <DialogContent sx={{ p: 0, overflow: 'hidden' }}>
           {loadingData && (
             <Box sx={{ p: 2 }}>
               <LinearProgress sx={{ borderRadius: 1 }} />
@@ -509,30 +647,30 @@ ${formattedEmailBody}`;
           )}
 
           {error && (
-            <Box sx={{ p: 3 }}>
+            <Box sx={{ p: 2.5 }}>
               <Alert severity="error" sx={{ borderRadius: 2 }} onClose={() => setError('')}>
                 {error}
               </Alert>
             </Box>
           )}
 
-          <Box sx={{ p: 3 }}>
+          <Box sx={{ p: 3, height: 'calc(85vh - 180px)', overflow: 'auto' }}>
             <Grid container spacing={3}>
               {/* Left Column - AI Generation */}
-              <Grid item xs={12} lg={8}>
+              <Grid item xs={12} lg={7.5}>
                 {/* Enhanced AI Generation Controls */}
                 <Card 
                   elevation={0} 
                   sx={{ 
-                    mb: 3, 
+                    mb: 3,
                     border: `1px solid ${theme.palette.primary.light}`,
                     borderRadius: 2,
                     background: `linear-gradient(135deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}05)`
                   }}
                 >
-                  <CardContent sx={{ p: 3 }}>
+                  <CardContent sx={{ p: 2.5 }}>
                     <Typography 
-                      variant="h6" 
+                      variant="subtitle1"
                       gutterBottom 
                       sx={{ 
                         display: 'flex', 
@@ -540,17 +678,16 @@ ${formattedEmailBody}`;
                         gap: 1, 
                         color: theme.palette.primary.main,
                         fontWeight: 600,
-                        mb: 3
+                        mb: 2
                       }}
                     >
-                      <PsychologyIcon />
+                      <PsychologyIcon sx={{ fontSize: '1.25rem' }} />
                       AI Message Generator
                     </Typography>
 
-                    <Grid container spacing={3}>
-                      {/* IMPROVED: Adjusted grid sizes for better width distribution */}
-                      <Grid item xs={12} md={7}>
-                        <FormControl fullWidth>
+                    <Grid container spacing={2.5}>
+                      <Grid item xs={12} md={6}>
+                        <FormControl fullWidth size="small">
                           <InputLabel sx={{ color: theme.palette.primary.main }}>Message Type</InputLabel>
                           <Select
                             value={messageType}
@@ -559,7 +696,7 @@ ${formattedEmailBody}`;
                             sx={{ borderRadius: 2 }}
                           >
                             {Object.entries(messageTemplates).map(([key, template]) => (
-                              <MenuItem key={key} value={key} sx={{ py: 1.5 }}>
+                              <MenuItem key={key} value={key} sx={{ py: 1 }}>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                   {getTemplateIcon(key)}
                                   <Box>
@@ -577,9 +714,8 @@ ${formattedEmailBody}`;
                         </FormControl>
                       </Grid>
 
-                      {/* IMPROVED: Adjusted grid size for better width distribution */}
-                      <Grid item xs={12} md={5}>
-                        <FormControl fullWidth>
+                      <Grid item xs={12} md={6}>
+                        <FormControl fullWidth size="small">
                           <InputLabel sx={{ color: theme.palette.secondary.main }}>Tone</InputLabel>
                           <Select
                             value={tone}
@@ -588,7 +724,7 @@ ${formattedEmailBody}`;
                             sx={{ borderRadius: 2 }}
                           >
                             {toneOptions.map((option) => (
-                              <MenuItem key={option.value} value={option.value} sx={{ py: 1.5 }}>
+                              <MenuItem key={option.value} value={option.value} sx={{ py: 1 }}>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                   {getToneIcon(option.value)}
                                   <Box>
@@ -613,16 +749,15 @@ ${formattedEmailBody}`;
                             <AutoJobLogo 
                               variant="icon-only" 
                               size="small" 
-                              sx={{ width: 24, height: 24 }} 
+                              sx={{ width: 20, height: 20 }} 
                             />
                           }
                           onClick={handleGenerateMessage}
                           disabled={isGenerating}
                           fullWidth
-                          size="large"
                           sx={{ 
                             borderRadius: 2,
-                            py: 1.5,
+                            py: 1.25,
                             background: `linear-gradient(45deg, ${theme.palette.secondary.main}, ${theme.palette.secondary.light})`,
                             '&:hover': {
                               background: `linear-gradient(45deg, ${theme.palette.secondary.dark}, ${theme.palette.secondary.main})`
@@ -638,9 +773,10 @@ ${formattedEmailBody}`;
                     </Grid>
 
                     {/* Advanced Options */}
-                    <Box sx={{ mt: 3 }}>
+                    <Box sx={{ mt: 2.5 }}>
                       <Button
                         variant="text"
+                        size="small"
                         onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
                         endIcon={showAdvancedOptions ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                         sx={{ color: theme.palette.primary.main }}
@@ -666,7 +802,7 @@ ${formattedEmailBody}`;
                                     size="small"
                                     InputProps={{
                                       ...params.InputProps,
-                                      startAdornment: <DescriptionIcon sx={{ mr: 1, color: theme.palette.success.main }} />
+                                      startAdornment: <DescriptionIcon sx={{ mr: 1, color: theme.palette.success.main, fontSize: '1rem' }} />
                                     }}
                                   />
                                 )}
@@ -688,7 +824,7 @@ ${formattedEmailBody}`;
                                     size="small"
                                     InputProps={{
                                       ...params.InputProps,
-                                      startAdornment: <WorkIcon sx={{ mr: 1, color: theme.palette.warning.main }} />
+                                      startAdornment: <WorkIcon sx={{ mr: 1, color: theme.palette.warning.main, fontSize: '1rem' }} />
                                     }}
                                   />
                                 )}
@@ -706,7 +842,7 @@ ${formattedEmailBody}`;
                                 onChange={(e) => setCustomRequirements(e.target.value)}
                                 size="small"
                                 InputProps={{
-                                  startAdornment: <LightbulbIcon sx={{ mr: 1, color: theme.palette.info.main, alignSelf: 'flex-start', mt: 1 }} />
+                                  startAdornment: <LightbulbIcon sx={{ mr: 1, color: theme.palette.info.main, alignSelf: 'flex-start', mt: 1, fontSize: '1rem' }} />
                                 }}
                               />
                             </Grid>
@@ -720,12 +856,12 @@ ${formattedEmailBody}`;
                 {/* Enhanced Message Content */}
                 <Paper elevation={0} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                   <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
-                    <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <DescriptionIcon sx={{ color: theme.palette.primary.main }} />
+                    <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <DescriptionIcon sx={{ color: theme.palette.primary.main, fontSize: '1.125rem' }} />
                       Message Content
                     </Typography>
                   </Box>
-                  <Box sx={{ p: 3 }}>
+                  <Box sx={{ p: 2.5 }}>
                     <TextField
                       fullWidth
                       multiline
@@ -749,7 +885,7 @@ ${formattedEmailBody}`;
                       sx={{
                         '& .MuiOutlinedInput-root': {
                           borderRadius: 2,
-                          fontSize: '0.95rem',
+                          fontSize: '0.9rem',
                           lineHeight: 1.6
                         }
                       }}
@@ -760,10 +896,10 @@ ${formattedEmailBody}`;
                 {/* Generation History */}
                 {generationHistory.length > 0 && (
                   <Box sx={{ mt: 2 }}>
-                    <Typography variant="subtitle2" gutterBottom sx={{ color: theme.palette.primary.main }}>
+                    <Typography variant="caption" gutterBottom sx={{ color: theme.palette.primary.main, fontWeight: 600 }}>
                       Recent Generations
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                       {generationHistory.map((generation, index) => (
                         <Chip
                           key={index}
@@ -774,6 +910,7 @@ ${formattedEmailBody}`;
                           sx={{ 
                             cursor: 'pointer',
                             borderRadius: 1,
+                            fontSize: '0.75rem',
                             '&:hover': {
                               backgroundColor: theme.palette.primary.main + '10'
                             }
@@ -786,26 +923,26 @@ ${formattedEmailBody}`;
               </Grid>
 
               {/* Right Column - Settings and Preview */}
-              <Grid item xs={12} lg={4}>
+              <Grid item xs={12} lg={4.5}>
                 {/* Enhanced Communication Method */}
                 <Card elevation={0} sx={{ mb: 3, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                   <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
-                    <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <SendIcon sx={{ color: theme.palette.success.main }} />
+                    <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <SendIcon sx={{ color: theme.palette.success.main, fontSize: '1.125rem' }} />
                       Send Via
                     </Typography>
                   </Box>
-                  <CardContent>
+                  <CardContent sx={{ p: 2.5 }}>
                     <RadioGroup
                       value={sentVia}
                       onChange={(e) => setSentVia(e.target.value)}
                     >
                       <FormControlLabel
                         value="email"
-                        control={<Radio />}
+                        control={<Radio size="small" />}
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
-                            <EmailIcon sx={{ color: theme.palette.primary.main }} />
+                            <EmailIcon sx={{ color: theme.palette.primary.main, fontSize: '1rem' }} />
                             <Box>
                               <Typography variant="body2" sx={{ fontWeight: 500 }}>
                                 Email (Recommended)
@@ -820,10 +957,10 @@ ${formattedEmailBody}`;
                       />
                       <FormControlLabel
                         value="phone"
-                        control={<Radio />}
+                        control={<Radio size="small" />}
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
-                            <PhoneIcon sx={{ color: theme.palette.success.main }} />
+                            <PhoneIcon sx={{ color: theme.palette.success.main, fontSize: '1rem' }} />
                             <Box>
                               <Typography variant="body2" sx={{ fontWeight: 500 }}>
                                 Phone Call
@@ -843,18 +980,18 @@ ${formattedEmailBody}`;
                 {/* Enhanced Recruiter Info */}
                 <Card elevation={0} sx={{ mb: 3, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                   <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
-                    <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <PersonIcon sx={{ color: theme.palette.secondary.main }} />
+                    <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <PersonIcon sx={{ color: theme.palette.secondary.main, fontSize: '1.125rem' }} />
                       Recruiter Details
                     </Typography>
                   </Box>
-                  <CardContent>
+                  <CardContent sx={{ p: 2.5 }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <Box>
                         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                           TITLE
                         </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
                           {recruiter.title}
                         </Typography>
                       </Box>
@@ -862,7 +999,7 @@ ${formattedEmailBody}`;
                         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                           COMPANY
                         </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
                           {recruiter.company?.name}
                         </Typography>
                       </Box>
@@ -870,7 +1007,7 @@ ${formattedEmailBody}`;
                         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                           EMAIL
                         </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
                           {recruiter.email || 'Not available'}
                         </Typography>
                       </Box>
@@ -878,7 +1015,7 @@ ${formattedEmailBody}`;
                         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                           INDUSTRY
                         </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
                           {recruiter.industry}
                         </Typography>
                       </Box>
@@ -887,14 +1024,14 @@ ${formattedEmailBody}`;
                           <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                             EXPERIENCE
                           </Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
                             {recruiter.experienceYears} years
                           </Typography>
                         </Box>
                       )}
                       {recruiter.specializations && (
                         <Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 0.75, display: 'block' }}>
                             SPECIALIZATIONS
                           </Typography>
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
@@ -904,7 +1041,7 @@ ${formattedEmailBody}`;
                                 label={spec} 
                                 size="small" 
                                 variant="outlined"
-                                sx={{ borderRadius: 1, fontSize: '0.75rem' }}
+                                sx={{ borderRadius: 1, fontSize: '0.7rem' }}
                               />
                             ))}
                           </Box>
@@ -918,16 +1055,16 @@ ${formattedEmailBody}`;
                 {messageTemplates[messageType] && (
                   <Card elevation={0} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                     <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
-                      <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <LightbulbIcon sx={{ color: theme.palette.warning.main }} />
+                      <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <LightbulbIcon sx={{ color: theme.palette.warning.main, fontSize: '1.125rem' }} />
                         Template Guide
                       </Typography>
                     </Box>
-                    <CardContent>
-                      <Typography variant="body2" color="text.secondary" paragraph>
+                    <CardContent sx={{ p: 2.5 }}>
+                      <Typography variant="body2" color="text.secondary" paragraph sx={{ lineHeight: 1.6 }}>
                         {messageTemplates[messageType].description}
                       </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                           SUGGESTED LENGTH:
                         </Typography>
@@ -949,36 +1086,46 @@ ${formattedEmailBody}`;
 
         {/* Enhanced Footer Actions */}
         <DialogActions sx={{ 
-          p: 3, 
+          p: 2.5,
           borderTop: `1px solid ${theme.palette.divider}`,
-          background: `linear-gradient(135deg, ${theme.palette.grey[50]}, ${theme.palette.grey[25]})`
+          background: `linear-gradient(135deg, ${theme.palette.grey[50]}, ${theme.palette.grey[25]})`,
+          gap: 1.5
         }}>
           <Button 
             onClick={handleClose} 
             variant="outlined"
-            sx={{ borderRadius: 2 }}
+            sx={{ 
+              borderRadius: 2,
+              px: 2.5,
+              minWidth: 100
+            }}
           >
             Cancel
           </Button>
           <Button
             onClick={handleSave}
             variant="outlined"
-            startIcon={<SaveIcon />}
+            startIcon={<SaveIcon sx={{ fontSize: '1rem' }} />}
             disabled={!messageContent.trim()}
-            sx={{ borderRadius: 2 }}
+            sx={{ 
+              borderRadius: 2,
+              px: 2.5,
+              minWidth: 120
+            }}
           >
             Save Draft
           </Button>
-          {/* IMPROVED: Fixed Prepare Email button with proper text color */}
           <Button
             onClick={handleSend}
             variant="contained"
-            startIcon={isSending ? <LinearProgress sx={{ width: 20 }} /> : getSentViaIcon(sentVia)}
+            startIcon={isSending ? <LinearProgress sx={{ width: 16 }} /> : getSentViaIcon(sentVia)}
             disabled={!messageContent.trim() || isSending || characterCount > 2000}
             sx={{ 
               borderRadius: 2,
+              px: 3,
+              minWidth: 140,
               background: `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.dark})`,
-              color: '#ffffff !important', // Ensure white text
+              color: '#ffffff !important',
               fontWeight: 600,
               '&:hover': {
                 background: `linear-gradient(45deg, ${theme.palette.success.dark}, ${theme.palette.success.main})`
@@ -995,174 +1142,146 @@ ${formattedEmailBody}`;
         </DialogActions>
       </Dialog>
 
-      {/* IMPROVED: Enhanced Email Preview Dialog with Better Theme Integration */}
+      {/* REDESIGNED: Email Preview Dialog - Consistent with Compose Message Style */}
       <Dialog
         open={showEmailPreview}
         onClose={() => setShowEmailPreview(false)}
-        maxWidth="md"
+        maxWidth={false}
         fullWidth
         PaperProps={{
           sx: { 
-            borderRadius: 3, 
+            borderRadius: 2,
             overflow: 'hidden',
-            boxShadow: theme.shadows[8]
+            boxShadow: theme.shadows[6],
+            width: '85vw',
+            maxWidth: '900px'
           }
         }}
       >
+        {/* REDESIGNED: Header matching compose style */}
         <DialogTitle sx={{ 
           p: 0,
-          background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-          color: 'white',
-          position: 'relative'
+          background: `linear-gradient(135deg, ${theme.palette.primary.main}15, ${theme.palette.secondary.main}15)`,
+          borderBottom: `1px solid ${theme.palette.divider}`
         }}>
-          <Box sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+          <Box sx={{ p: 2.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
               <Avatar sx={{ 
-                bgcolor: 'rgba(255,255,255,0.2)', 
-                color: 'white', 
-                width: 56, 
-                height: 56,
-                border: '2px solid rgba(255,255,255,0.3)'
+                bgcolor: theme.palette.primary.main,
+                width: 40,
+                height: 40
               }}>
-                <EmailIcon sx={{ fontSize: '1.8rem' }} />
+                <EmailIcon sx={{ fontSize: '1.25rem' }} />
               </Avatar>
               <Box>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: 'white', mb: 0.5 }}>
+                <Typography variant="h6" sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
                   📧 Email Preview
                 </Typography>
-                <Typography variant="body2" sx={{ 
-                  color: 'rgba(255,255,255,0.9)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1
-                }}>
-                  <PreviewIcon sx={{ fontSize: '1rem' }} />
+                <Typography variant="body2" color="text.secondary">
                   Review your email before copying to your email client
                 </Typography>
               </Box>
+              <Box sx={{ ml: 'auto' }}>
+                <IconButton
+                  onClick={() => setShowEmailPreview(false)}
+                  size="small"
+                  sx={{
+                    bgcolor: 'background.paper',
+                    '&:hover': { bgcolor: 'grey.100' }
+                  }}
+                >
+                  <CloseIcon />
+                </IconButton>
+              </Box>
             </Box>
             
-            {/* IMPROVED: Email client mockup header with better styling */}
-            <Paper sx={{ 
-              bgcolor: 'rgba(255,255,255,0.15)', 
-              borderRadius: 2, 
-              p: 2.5,
-              border: '1px solid rgba(255,255,255,0.3)',
-              backdropFilter: 'blur(10px)'
+            {/* REDESIGNED: Email details in consistent card style */}
+            <Card elevation={0} sx={{ 
+              border: `1px solid ${theme.palette.divider}`,
+              borderRadius: 2,
+              background: 'rgba(255,255,255,0.8)'
             }}>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <PersonIcon sx={{ color: 'rgba(255,255,255,0.9)', fontSize: '1.1rem' }} />
-                    <Typography variant="caption" sx={{ 
-                      color: 'rgba(255,255,255,0.9)', 
-                      fontWeight: 700,
-                      letterSpacing: '0.5px'
+              <CardContent sx={{ p: 2 }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <PersonIcon sx={{ color: theme.palette.primary.main, fontSize: '1rem' }} />
+                      <Typography variant="caption" sx={{ 
+                        color: theme.palette.text.secondary, 
+                        fontWeight: 600,
+                        textTransform: 'uppercase'
+                      }}>
+                        To
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" sx={{ 
+                      fontWeight: 500,
+                      color: theme.palette.text.primary
                     }}>
-                      TO
+                      {recruiter.email}
                     </Typography>
-                  </Box>
-                  <Typography variant="body2" sx={{ 
-                    color: 'white', 
-                    fontWeight: 600,
-                    fontSize: '0.95rem'
-                  }}>
-                    {recruiter.email}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <DescriptionIcon sx={{ color: 'rgba(255,255,255,0.9)', fontSize: '1.1rem' }} />
-                    <Typography variant="caption" sx={{ 
-                      color: 'rgba(255,255,255,0.9)', 
-                      fontWeight: 700,
-                      letterSpacing: '0.5px'
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <DescriptionIcon sx={{ color: theme.palette.primary.main, fontSize: '1rem' }} />
+                      <Typography variant="caption" sx={{ 
+                        color: theme.palette.text.secondary, 
+                        fontWeight: 600,
+                        textTransform: 'uppercase'
+                      }}>
+                        Subject
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" sx={{ 
+                      fontWeight: 500,
+                      color: theme.palette.text.primary,
+                      lineHeight: 1.3
                     }}>
-                      SUBJECT
+                      {emailSubject}
                     </Typography>
-                  </Box>
-                  <Typography variant="body2" sx={{ 
-                    color: 'white', 
-                    fontWeight: 600,
-                    fontSize: '0.95rem',
-                    lineHeight: 1.3
-                  }}>
-                    {emailSubject}
-                  </Typography>
+                  </Grid>
                 </Grid>
-              </Grid>
-            </Paper>
-
-            {/* Close button */}
-            <IconButton
-              onClick={() => setShowEmailPreview(false)}
-              sx={{
-                position: 'absolute',
-                top: 16,
-                right: 16,
-                color: 'white',
-                bgcolor: 'rgba(255,255,255,0.1)',
-                '&:hover': {
-                  bgcolor: 'rgba(255,255,255,0.2)'
-                }
-              }}
-            >
-              <CloseIcon />
-            </IconButton>
+              </CardContent>
+            </Card>
           </Box>
         </DialogTitle>
 
         <DialogContent sx={{ p: 0 }}>
-          {/* IMPROVED: Email body mockup with better styling */}
-          <Box sx={{ 
-            p: 4, 
-            bgcolor: `linear-gradient(135deg, ${theme.palette.grey[50]}, ${theme.palette.grey[25]})`,
-            minHeight: 300
-          }}>
-            <Paper 
-              elevation={4}
-              sx={{ 
-                p: 4, 
-                borderRadius: 3,
-                background: 'linear-gradient(135deg, #ffffff, #fafafa)',
-                border: `2px solid ${theme.palette.primary.light}`,
-                position: 'relative',
-                boxShadow: theme.shadows[6],
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 6,
-                  background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-                  borderTopLeftRadius: 3,
-                  borderTopRightRadius: 3
-                }
-              }}
-            >
-              {/* Email content with better typography */}
-              <Typography 
-                variant="body1" 
-                sx={{ 
-                  whiteSpace: 'pre-wrap',
-                  lineHeight: 1.8,
-                  fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-                  color: theme.palette.text.primary,
-                  fontSize: '1.05rem',
-                  letterSpacing: '0.02em'
-                }}
-              >
-                {formattedEmailBody}
-              </Typography>
+          {/* REDESIGNED: Email content matching message content style */}
+          <Box sx={{ p: 3 }}>
+            <Paper elevation={0} sx={{ 
+              border: `1px solid ${theme.palette.divider}`, 
+              borderRadius: 2,
+              minHeight: 300
+            }}>
+              <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
+                <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <EmailIcon sx={{ color: theme.palette.primary.main, fontSize: '1.125rem' }} />
+                  Email Content
+                </Typography>
+              </Box>
+              <Box sx={{ p: 2.5 }}>
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    whiteSpace: 'pre-wrap',
+                    lineHeight: 1.7,
+                    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+                    color: theme.palette.text.primary,
+                    fontSize: '0.9rem'
+                  }}
+                >
+                  {formattedEmailBody}
+                </Typography>
+              </Box>
             </Paper>
           </Box>
 
-          {/* IMPROVED: Enhanced info section with theme colors */}
+          {/* REDESIGNED: Info section matching component style */}
           <Box sx={{ 
             p: 3, 
-            bgcolor: `linear-gradient(135deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}05)`,
-            borderTop: `1px solid ${theme.palette.divider}`
+            pt: 0,
+            bgcolor: `linear-gradient(135deg, ${theme.palette.primary.main}05, ${theme.palette.secondary.main}03)`
           }}>
             <Alert 
               severity="info" 
@@ -1170,54 +1289,44 @@ ${formattedEmailBody}`;
               sx={{ 
                 borderRadius: 2,
                 border: `1px solid ${theme.palette.primary.light}`,
-                bgcolor: 'rgba(255,255,255,0.9)',
-                '& .MuiAlert-icon': {
-                  color: theme.palette.primary.main
-                }
+                bgcolor: 'rgba(255,255,255,0.9)'
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="body2" sx={{ 
-                    fontWeight: 700, 
-                    color: theme.palette.primary.main, 
-                    mb: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1
-                  }}>
-                    <CheckCircleIcon sx={{ fontSize: '1.1rem' }} />
-                    What happens next:
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                    Copy the email content using the button below, then paste it into your preferred email client. 
-                    This approach maintains your professional reputation while leveraging AI-generated content.
-                  </Typography>
-                </Box>
-              </Box>
+              <Typography variant="body2" sx={{ 
+                fontWeight: 600, 
+                color: theme.palette.primary.main, 
+                mb: 0.5
+              }}>
+                📋 What happens next:
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.5, fontSize: '0.875rem' }}>
+                Copy the email content below, then paste it into your preferred email client. 
+                This maintains your professional reputation while leveraging AI-generated content.
+              </Typography>
             </Alert>
           </Box>
         </DialogContent>
 
-        {/* IMPROVED: Enhanced dialog actions with better button styling */}
+        {/* REDESIGNED: Dialog actions matching main dialog style */}
         <DialogActions sx={{ 
-          p: 3, 
+          p: 2.5,
           background: `linear-gradient(135deg, ${theme.palette.grey[50]}, white)`,
           borderTop: `1px solid ${theme.palette.divider}`,
-          gap: 2
+          gap: 1.5
         }}>
           <Button 
             onClick={() => setShowEmailPreview(false)}
             variant="outlined"
-            startIcon={<EditIcon />}
+            startIcon={<EditIcon sx={{ fontSize: '1rem' }} />}
             sx={{ 
               borderRadius: 2,
               borderColor: theme.palette.primary.main,
               color: theme.palette.primary.main,
-              fontWeight: 600,
-              px: 3,
+              fontWeight: 500,
+              px: 2.5,
+              minWidth: 140,
               '&:hover': {
-                bgcolor: theme.palette.primary.main + '10',
+                bgcolor: theme.palette.primary.main + '08',
                 borderColor: theme.palette.primary.dark
               }
             }}
@@ -1227,22 +1336,20 @@ ${formattedEmailBody}`;
           <Button
             onClick={copyToClipboard}
             variant="contained"
-            startIcon={copySuccess ? <CheckCircleIcon /> : <ContentCopyIcon />}
-            size="large"
+            startIcon={copySuccess ? <CheckCircleIcon sx={{ fontSize: '1rem' }} /> : <ContentCopyIcon sx={{ fontSize: '1rem' }} />}
             sx={{ 
               borderRadius: 2,
-              px: 4,
-              fontWeight: 700,
+              px: 3,
+              fontWeight: 600,
+              minWidth: 160,
               background: copySuccess 
                 ? `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.dark})`
                 : `linear-gradient(45deg, ${theme.palette.secondary.main}, ${theme.palette.secondary.dark})`,
               color: '#ffffff !important',
-              boxShadow: theme.shadows[4],
               '&:hover': {
                 background: copySuccess
                   ? `linear-gradient(45deg, ${theme.palette.success.dark}, ${theme.palette.success.main})`
                   : `linear-gradient(45deg, ${theme.palette.secondary.dark}, ${theme.palette.secondary.main})`,
-                boxShadow: theme.shadows[6],
                 transform: 'translateY(-1px)'
               }
             }}
@@ -1252,7 +1359,7 @@ ${formattedEmailBody}`;
         </DialogActions>
       </Dialog>
 
-      {/* IMPROVED: Enhanced Status Update Dialog */}
+      {/* FIXED: Status Update Dialog with Better Error Handling */}
       <Dialog
         open={showStatusDialog}
         onClose={() => setShowStatusDialog(false)}
@@ -1260,41 +1367,50 @@ ${formattedEmailBody}`;
         fullWidth
         PaperProps={{
           sx: { 
-            borderRadius: 3,
-            boxShadow: theme.shadows[8]
+            borderRadius: 2,
+            boxShadow: theme.shadows[6],
+            minWidth: 500
           }
         }}
       >
         <DialogTitle sx={{ 
-          p: 3,
-          borderBottom: `1px solid ${theme.palette.divider}`,
-          background: `linear-gradient(135deg, ${theme.palette.success.main}15, ${theme.palette.primary.main}15)`
+          p: 0,
+          background: `linear-gradient(135deg, ${theme.palette.success.main}15, ${theme.palette.primary.main}15)`,
+          borderBottom: `1px solid ${theme.palette.divider}`
         }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar sx={{ 
-              bgcolor: theme.palette.success.main,
-              width: 56,
-              height: 56
-            }}>
-              <CheckCircleIcon sx={{ fontSize: '1.5rem' }} />
-            </Avatar>
-            <Box>
-              <Typography variant="h6" sx={{ 
-                fontWeight: 700, 
-                color: theme.palette.success.main,
-                mb: 0.5
+          <Box sx={{ p: 2.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Avatar sx={{ 
+                bgcolor: theme.palette.success.main,
+                width: 40,
+                height: 40
               }}>
-                Update Email Status
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Let us know what happened with your email
-              </Typography>
+                <CheckCircleIcon sx={{ fontSize: '1.25rem' }} />
+              </Avatar>
+              <Box>
+                <Typography variant="h6" sx={{ 
+                  fontWeight: 600, 
+                  color: theme.palette.success.main
+                }}>
+                  Update Email Status
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Let us know what happened with your email
+                </Typography>
+              </Box>
             </Box>
           </Box>
         </DialogTitle>
 
-        <DialogContent sx={{ p: 3 }}>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
+        <DialogContent sx={{ p: 2.5 }}>
+          {/* FIXED: Show error if there's an issue */}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
+          )}
+
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5, lineHeight: 1.6 }}>
             After copying the email content for <strong>{recruiter.firstName} {recruiter.lastName}</strong>, 
             please update the status below to help us track your outreach effectiveness:
           </Typography>
@@ -1302,15 +1418,16 @@ ${formattedEmailBody}`;
           <RadioGroup
             value={manualStatus}
             onChange={(e) => setManualStatus(e.target.value)}
+            sx={{ gap: 0.75 }}
           >
             <FormControlLabel
               value="sent"
-              control={<Radio sx={{ color: theme.palette.success.main }} />}
+              control={<Radio size="small" sx={{ color: theme.palette.success.main }} />}
               label={
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1 }}>
-                  <CheckCircleIcon sx={{ color: theme.palette.success.main }} />
+                  <CheckCircleIcon sx={{ color: theme.palette.success.main, fontSize: '1.125rem' }} />
                   <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
                       Email sent successfully
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -1319,15 +1436,24 @@ ${formattedEmailBody}`;
                   </Box>
                 </Box>
               }
+              sx={{ 
+                border: `1px solid ${theme.palette.success.light}`,
+                borderRadius: 1.5,
+                p: 1,
+                m: 0.25,
+                '&:hover': {
+                  bgcolor: theme.palette.success.main + '05'
+                }
+              }}
             />
             <FormControlLabel
               value="drafted"
-              control={<Radio sx={{ color: theme.palette.warning.main }} />}
+              control={<Radio size="small" sx={{ color: theme.palette.warning.main }} />}
               label={
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1 }}>
-                  <DraftsIcon sx={{ color: theme.palette.warning.main }} />
+                  <DraftsIcon sx={{ color: theme.palette.warning.main, fontSize: '1.125rem' }} />
                   <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
                       Saved as draft for later
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -1336,15 +1462,24 @@ ${formattedEmailBody}`;
                   </Box>
                 </Box>
               }
+              sx={{ 
+                border: `1px solid ${theme.palette.warning.light}`,
+                borderRadius: 1.5,
+                p: 1,
+                m: 0.25,
+                '&:hover': {
+                  bgcolor: theme.palette.warning.main + '05'
+                }
+              }}
             />
             <FormControlLabel
               value="cancelled"
-              control={<Radio sx={{ color: theme.palette.error.main }} />}
+              control={<Radio size="small" sx={{ color: theme.palette.error.main }} />}
               label={
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1 }}>
-                  <CancelIcon sx={{ color: theme.palette.error.main }} />
+                  <CancelIcon sx={{ color: theme.palette.error.main, fontSize: '1.125rem' }} />
                   <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
                       Decided not to send
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -1353,21 +1488,33 @@ ${formattedEmailBody}`;
                   </Box>
                 </Box>
               }
+              sx={{ 
+                border: `1px solid ${theme.palette.error.light}`,
+                borderRadius: 1.5,
+                p: 1,
+                m: 0.25,
+                '&:hover': {
+                  bgcolor: theme.palette.error.main + '05'
+                }
+              }}
             />
           </RadioGroup>
         </DialogContent>
 
         <DialogActions sx={{ 
-          p: 3, 
+          p: 2.5,
           borderTop: `1px solid ${theme.palette.divider}`,
-          background: `linear-gradient(135deg, ${theme.palette.grey[50]}, white)`
+          background: `linear-gradient(135deg, ${theme.palette.grey[50]}, white)`,
+          gap: 1.5
         }}>
           <Button 
             onClick={() => setShowStatusDialog(false)}
             variant="outlined"
             sx={{ 
               borderRadius: 2,
-              fontWeight: 600
+              fontWeight: 500,
+              px: 2.5,
+              minWidth: 100
             }}
           >
             Cancel
@@ -1375,18 +1522,24 @@ ${formattedEmailBody}`;
           <Button
             onClick={handleStatusUpdate}
             variant="contained"
+            disabled={isSending} // FIXED: Prevent double submission
             sx={{ 
               borderRadius: 2,
-              fontWeight: 700,
+              fontWeight: 600,
               px: 3,
+              minWidth: 140,
               background: `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.dark})`,
               color: '#ffffff !important',
               '&:hover': {
                 background: `linear-gradient(45deg, ${theme.palette.success.dark}, ${theme.palette.success.main})`
+              },
+              '&:disabled': {
+                background: theme.palette.grey[300],
+                color: theme.palette.grey[500] + ' !important'
               }
             }}
           >
-            Update Status
+            {isSending ? 'Updating...' : 'Update Status'}
           </Button>
         </DialogActions>
       </Dialog>
