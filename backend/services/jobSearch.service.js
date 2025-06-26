@@ -427,34 +427,51 @@ const discoveredJobs = await extractJobContentFromUrls(jobUrls, search, careerPr
  * Step 1: Find Job URLs using Claude Web Search - FIXED URL EXTRACTION
  * Mimics the approach from your general chat example
  */
+/**
+ * Step 1: Find Job URLs using Claude Web Search - FIXED WITH EARLY LIMIT ENFORCEMENT
+ */
 async function findJobUrlsWithWebSearch(careerProfile, search) {
   try {
+    const maxJobsToFind = 10; // FIXED: Enforce limit early
+    let jobUrls = [];
+    let searchAttempts = 0;
+    const maxSearchAttempts = 3; // Maximum number of Claude searches to try
+    
     await search.addReasoningLog(
       'web_search_discovery',
-      'Starting job URL discovery using Claude web search API with FIXED URL extraction',
+      `Starting job URL discovery with early limit enforcement (target: ${maxJobsToFind} jobs)`,
       { 
         targetTitles: careerProfile.targetJobTitles,
-        searchApproach: 'Claude web search like general chat',
-        webSearchMethod: 'claude_web_search_api',
-        urlExtractionFix: 'Enhanced patterns for URLs with and without protocols'
+        maxJobsToFind: maxJobsToFind,
+        searchApproach: 'Claude web search with early stopping',
+        efficiency: 'Stop searching once target reached'
       }
     );
     
-    console.log('🎯 DETAILED DEBUG: Starting Claude web search with FIXED URL extraction:', {
-      targetJobTitles: careerProfile.targetJobTitles,
-      experienceLevel: careerProfile.experienceLevel,
-      targetKeywords: careerProfile.targetKeywords,
-      environment: process.env.NODE_ENV
-    });
-    
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 4000,
-      temperature: 0.2,
-      messages: [
-        {
-          role: "user",
-          content: `I am looking for ${careerProfile.experienceLevel || 'mid-level'} ${careerProfile.targetJobTitles?.[0] || 'Software Engineer'} jobs at companies that are hiring. 
+    while (jobUrls.length < maxJobsToFind && searchAttempts < maxSearchAttempts) {
+      searchAttempts++;
+      const jobsStillNeeded = maxJobsToFind - jobUrls.length;
+      
+      console.log(`🎯 Search attempt ${searchAttempts}/${maxSearchAttempts}: Looking for ${jobsStillNeeded} more jobs (current: ${jobUrls.length}/${maxJobsToFind})`);
+      
+      await search.addReasoningLog(
+        'web_search_discovery',
+        `Search attempt ${searchAttempts}: Looking for ${jobsStillNeeded} more jobs`,
+        { 
+          currentJobsFound: jobUrls.length,
+          jobsStillNeeded: jobsStillNeeded,
+          searchAttempt: searchAttempts
+        }
+      );
+      
+      const response = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 4000,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "user",
+            content: `I am looking for ${careerProfile.experienceLevel || 'mid-level'} ${careerProfile.targetJobTitles?.[0] || 'Software Engineer'} jobs at companies that are hiring. 
 
 TARGET PROFILE:
 - Job Titles: ${careerProfile.targetJobTitles?.join(', ')}
@@ -463,19 +480,14 @@ TARGET PROFILE:
 - Work Arrangement: ${careerProfile.workArrangement || 'remote/hybrid'}
 - Salary Range: $${careerProfile.salaryExpectation?.min || 100000}-${careerProfile.salaryExpectation?.max || 150000}
 
-Please find 8-12 current job openings that match this profile. For each job, I need:
-1. The company name and job title
-2. The direct job application URL (include full URLs with https:// when possible)
-3. Brief description of why it's a good match
-
-Focus on:
+I need exactly ${jobsStillNeeded} high-quality job openings that match this profile. Focus on:
 - Direct company postings (not recruiters)
-- Jobs posted in the last 30 days
+- Jobs posted in the last 30 days  
 - Companies with good reputations
 - Remote/hybrid opportunities when possible
 - Jobs from well-known ATS systems (Greenhouse, Lever, etc.)
 
-IMPORTANT: Please provide COMPLETE URLs including https:// protocol. If you find URLs without https://, I can add the protocol later.
+IMPORTANT: Please provide COMPLETE URLs including https:// protocol.
 
 Return the results in this exact format:
 JOB 1: [Job Title] at [Company Name]
@@ -486,174 +498,182 @@ JOB 2: [Job Title] at [Company Name]
 URL: [Complete job application URL with https://]
 Match Reason: [Why this is a good fit]
 
-etc.`
-        }
-      ],
-      tools: [
-        {
-          type: "web_search_20250305",
-          name: "web_search"
-        }
-      ],
-      tool_choice: { type: "any" }
-    });
+Continue until you find ${jobsStillNeeded} quality jobs.`
+          }
+        ],
+        tools: [
+          {
+            type: "web_search_20250305",
+            name: "web_search"
+          }
+        ],
+        tool_choice: { type: "any" }
+      });
 
-    console.log('🎯 DETAILED DEBUG: Claude API Response received');
-    console.log('🎯 Response content array length:', response.content?.length || 0);
-
-    const jobUrls = [];
-    
-    // ENHANCED: More comprehensive URL extraction with FIXED patterns
-    for (let i = 0; i < response.content.length; i++) {
-      const content = response.content[i];
-      console.log(`🎯 DETAILED DEBUG: Content[${i}] type: ${content.type}`);
+      console.log(`🎯 Claude API Response received for attempt ${searchAttempts}`);
       
-      if (content.type === 'text') {
-        const text = content.text;
-        console.log(`🎯 DETAILED DEBUG: Text content length: ${text.length}`);
-        console.log(`🎯 DETAILED DEBUG: Text preview (first 500 chars): "${text.substring(0, 500)}"`);
+      // Process response and extract URLs (same logic as before)
+      const newJobUrls = [];
+      
+      for (let i = 0; i < response.content.length; i++) {
+        const content = response.content[i];
         
-        // FIXED: Enhanced URL extraction patterns
-        const urlPatterns = [
-          // Standard URL patterns with protocol
-          /URL:\s*(https?:\/\/[^\s\n\)]+)/gi,
-          /url:\s*(https?:\/\/[^\s\n\)]+)/gi,
-          /(https?:\/\/[^\s\n\)]+)/gi,
+        if (content.type === 'text') {
+          const text = content.text;
           
-          // FIXED: Patterns for URLs without protocol
-          /URL:\s*([a-zA-Z0-9][a-zA-Z0-9-._]*\.[a-zA-Z]{2,}(?:\/[^\s\n\)]*)?)/gi,
-          /url:\s*([a-zA-Z0-9][a-zA-Z0-9-._]*\.[a-zA-Z]{2,}(?:\/[^\s\n\)]*)?)/gi,
+          // FIXED: Enhanced URL extraction patterns (same as before)
+          const urlPatterns = [
+            /URL:\s*(https?:\/\/[^\s\n\)]+)/gi,
+            /url:\s*(https?:\/\/[^\s\n\)]+)/gi,
+            /(https?:\/\/[^\s\n\)]+)/gi,
+            /URL:\s*([a-zA-Z0-9][a-zA-Z0-9-._]*\.[a-zA-Z]{2,}(?:\/[^\s\n\)]*)?)/gi,
+            /url:\s*([a-zA-Z0-9][a-zA-Z0-9-._]*\.[a-zA-Z]{2,}(?:\/[^\s\n\)]*)?)/gi,
+            /([a-zA-Z0-9][a-zA-Z0-9-._]*\.(?:com|org|net|io|co|ai)(?:\/[^\s\n\)]*)?)/gi,
+            /(greenhouse\.io\/[^\s\n\)]+)/gi,
+            /(lever\.co\/[^\s\n\)]+)/gi,
+            /(indeed\.com\/[^\s\n\)]+)/gi,
+            /(linkedin\.com\/jobs\/[^\s\n\)]+)/gi,
+            /([a-zA-Z0-9-]+\.(?:com|org|net|io|co|ai)\/careers[^\s\n\)]*)/gi,
+            /([a-zA-Z0-9-]+\.(?:com|org|net|io|co|ai)\/jobs[^\s\n\)]*)/gi
+          ];
           
-          // FIXED: Domain patterns for company career pages
-          /([a-zA-Z0-9][a-zA-Z0-9-._]*\.(?:com|org|net|io|co|ai)(?:\/[^\s\n\)]*)?)/gi,
+          let foundUrls = [];
+          urlPatterns.forEach((pattern) => {
+            const matches = text.match(pattern);
+            if (matches) {
+              foundUrls = foundUrls.concat(matches);
+            }
+          });
           
-          // FIXED: Specific job board patterns
-          /(greenhouse\.io\/[^\s\n\)]+)/gi,
-          /(lever\.co\/[^\s\n\)]+)/gi,
-          /(indeed\.com\/[^\s\n\)]+)/gi,
-          /(linkedin\.com\/jobs\/[^\s\n\)]+)/gi,
-          
-          // FIXED: Career page patterns
-          /([a-zA-Z0-9-]+\.(?:com|org|net|io|co|ai)\/careers[^\s\n\)]*)/gi,
-          /([a-zA-Z0-9-]+\.(?:com|org|net|io|co|ai)\/jobs[^\s\n\)]*)/gi
-        ];
-        
-        let foundUrls = [];
-        
-        urlPatterns.forEach((pattern, patternIndex) => {
-          const matches = text.match(pattern);
-          if (matches) {
-            console.log(`🎯 DETAILED DEBUG: Pattern ${patternIndex} found ${matches.length} matches`);
-            foundUrls = foundUrls.concat(matches);
-          }
-        });
-        
-        console.log(`🎯 DETAILED DEBUG: Total URLs found with all patterns: ${foundUrls.length}`);
-        console.log(`🎯 DETAILED DEBUG: Found URLs:`, foundUrls);
-        
-        // Process found URLs with FIXED validation
-        foundUrls.forEach((match, matchIndex) => {
-          let url = cleanExtractedUrl(match);
-          
-          console.log(`🎯 DETAILED DEBUG: Processing URL ${matchIndex}: ${url}`);
-          
-          if (isValidJobUrlFixed(url)) {
-            // Ensure URL has protocol
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-              url = 'https://' + url;
+          // Process found URLs
+          foundUrls.forEach((match) => {
+            // EARLY STOPPING: Check if we already have enough jobs
+            if (jobUrls.length + newJobUrls.length >= maxJobsToFind) {
+              console.log(`🛑 EARLY STOP: Reached target of ${maxJobsToFind} jobs, stopping URL extraction`);
+              return;
             }
             
-            // Extract job info from the surrounding text
-            const lines = text.split('\n');
-            const urlLineIndex = lines.findIndex(line => line.includes(match));
+            let url = cleanExtractedUrl(match);
             
-            let title = 'Unknown Title';
-            let company = 'Unknown Company';
-            let matchReason = 'Found via Claude web search';
-            
-            if (urlLineIndex > 0) {
-              const jobLine = lines[urlLineIndex - 1] || '';
-              const matchReasonLine = lines[urlLineIndex + 1] || '';
+            if (isValidJobUrlFixed(url)) {
+              // Ensure URL has protocol
+              if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+              }
               
-              // Enhanced job title and company extraction
-              const jobPatterns = [
-                /JOB\s+\d+:\s*(.+?)\s+at\s+(.+?)$/i,
-                /(\w+.*?)\s+at\s+(.+?)$/i,
-                /(.+?)\s+-\s+(.+?)$/i
-              ];
+              // Check for duplicates within current batch and existing jobs
+              const isDuplicate = [...jobUrls, ...newJobUrls].some(existingJob => 
+                existingJob.url === url || 
+                (existingJob.company === extractCompanyFromUrl(url) && 
+                 existingJob.title.toLowerCase().includes(extractTitleFromText(text, url).toLowerCase()))
+              );
               
-              for (const pattern of jobPatterns) {
-                const jobMatch = jobLine.match(pattern);
-                if (jobMatch) {
-                  title = jobMatch[1].trim();
-                  company = jobMatch[2].trim();
-                  break;
+              if (!isDuplicate) {
+                // Extract job info from surrounding text (same logic as before)
+                const lines = text.split('\n');
+                const urlLineIndex = lines.findIndex(line => line.includes(match));
+                
+                let title = 'Unknown Title';
+                let company = 'Unknown Company';
+                let matchReason = 'Found via Claude web search';
+                
+                if (urlLineIndex > 0) {
+                  const jobLine = lines[urlLineIndex - 1] || '';
+                  const matchReasonLine = lines[urlLineIndex + 1] || '';
+                  
+                  const jobPatterns = [
+                    /JOB\s+\d+:\s*(.+?)\s+at\s+(.+?)$/i,
+                    /(\w+.*?)\s+at\s+(.+?)$/i,
+                    /(.+?)\s+-\s+(.+?)$/i
+                  ];
+                  
+                  for (const pattern of jobPatterns) {
+                    const jobMatch = jobLine.match(pattern);
+                    if (jobMatch) {
+                      title = jobMatch[1].trim();
+                      company = jobMatch[2].trim();
+                      break;
+                    }
+                  }
+                  
+                  if (matchReasonLine.includes('Match Reason:')) {
+                    matchReason = matchReasonLine.replace(/^Match Reason:\s*/i, '').trim();
+                  }
                 }
-              }
-              
-              // Extract match reason
-              if (matchReasonLine.includes('Match Reason:')) {
-                matchReason = matchReasonLine.replace(/^Match Reason:\s*/i, '').trim();
+                
+                const sourcePlatform = determineSourcePlatform(url);
+                
+                const jobUrlObj = {
+                  url: url,
+                  title: title,
+                  company: company,
+                  matchReason: matchReason,
+                  sourcePlatform: sourcePlatform,
+                  foundAt: new Date(),
+                  extractionMethod: 'enhanced_url_extraction_early_stop'
+                };
+                
+                newJobUrls.push(jobUrlObj);
+                console.log(`✅ Added job ${jobUrls.length + newJobUrls.length}/${maxJobsToFind}: ${title} at ${company}`);
               }
             }
-            
-            // Determine source platform from URL
-            const sourcePlatform = determineSourcePlatform(url);
-            
-            const jobUrlObj = {
-              url: url,
-              title: title,
-              company: company,
-              matchReason: matchReason,
-              sourcePlatform: sourcePlatform,
-              foundAt: new Date(),
-              extractionMethod: 'enhanced_url_extraction_fixed'
-            };
-            
-            jobUrls.push(jobUrlObj);
-            console.log(`🎯 DETAILED DEBUG: Added job URL:`, jobUrlObj);
-          } else {
-            console.log(`🎯 DETAILED DEBUG: Invalid job URL rejected: ${url}`);
+          });
+        }
+      }
+      
+      // Add new jobs to main array
+      jobUrls = jobUrls.concat(newJobUrls);
+      
+      console.log(`📊 Search attempt ${searchAttempts} results: Found ${newJobUrls.length} new jobs, total: ${jobUrls.length}/${maxJobsToFind}`);
+      
+      // EARLY STOPPING: Check if we have enough jobs
+      if (jobUrls.length >= maxJobsToFind) {
+        console.log(`🎉 SUCCESS: Reached target of ${maxJobsToFind} jobs after ${searchAttempts} search attempts`);
+        
+        await search.addReasoningLog(
+          'web_search_discovery',
+          `Target reached! Found ${jobUrls.length} jobs after ${searchAttempts} search attempts`,
+          {
+            finalJobCount: jobUrls.length,
+            searchAttemptsUsed: searchAttempts,
+            efficiency: 'Early stopping successful',
+            platforms: [...new Set(jobUrls.map(job => job.sourcePlatform))],
+            companies: [...new Set(jobUrls.map(job => job.company))]
           }
-        });
-      } else if (content.type === 'tool_use') {
-        console.log(`🎯 DETAILED DEBUG: Tool use detected:`, content.name);
-      } else if (content.type === 'tool_result') {
-        console.log(`🎯 DETAILED DEBUG: Tool result detected`);
-      } else {
-        console.log(`🎯 DETAILED DEBUG: Other content type: ${content.type}`);
+        );
+        break;
+      }
+      
+      // Small delay between search attempts if we need more jobs
+      if (jobUrls.length < maxJobsToFind && searchAttempts < maxSearchAttempts) {
+        console.log(`⏱️ Need ${maxJobsToFind - jobUrls.length} more jobs, waiting 2s before next search attempt...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
     
-    console.log(`🎯 FINAL DEBUG SUMMARY:`);
-    console.log(`🎯 Total content blocks processed: ${response.content.length}`);
-    console.log(`🎯 Total job URLs extracted: ${jobUrls.length}`);
-    console.log(`🎯 Environment: ${process.env.NODE_ENV}`);
+    // Final summary
+    const finalCount = Math.min(jobUrls.length, maxJobsToFind);
+    const finalJobs = jobUrls.slice(0, maxJobsToFind); // Ensure we don't exceed limit
     
     await search.addReasoningLog(
       'web_search_discovery',
-      `Found ${jobUrls.length} job URLs using Claude web search API with FIXED extraction`,
+      `Job URL discovery completed: ${finalCount} jobs found with early limit enforcement`,
       {
-        totalUrls: jobUrls.length,
-        platforms: [...new Set(jobUrls.map(job => job.sourcePlatform))],
-        companies: [...new Set(jobUrls.map(job => job.company))],
-        searchMethod: 'claude_web_search_api',
-        urlExtractionMethod: 'enhanced_patterns_fixed',
-        debugInfo: {
-          contentBlocks: response.content.length,
-          hasTextContent: response.content.some(c => c.type === 'text'),
-          hasToolResults: response.content.some(c => c.type === 'tool_use' || c.type === 'tool_result'),
-          environment: process.env.NODE_ENV
-        }
+        totalUrls: finalCount,
+        searchAttemptsUsed: searchAttempts,
+        platforms: [...new Set(finalJobs.map(job => job.sourcePlatform))],
+        companies: [...new Set(finalJobs.map(job => job.company))],
+        efficiency: `Found ${finalCount} jobs in ${searchAttempts} attempts`,
+        earlyStoppingEnabled: true
       }
     );
     
-    console.log(`✅ Found ${jobUrls.length} job URLs using Claude web search API with FIXED extraction`);
-    return jobUrls;
+    console.log(`🎯 FINAL RESULT: Found ${finalCount} job URLs with early limit enforcement`);
+    return finalJobs;
     
   } catch (error) {
-    console.error('🎯 DETAILED DEBUG: Error finding job URLs with web search:', error);
-    await search.addError('web_search_failed', error.message, 'web_search_discovery', 'URL discovery failed');
+    console.error('🎯 Error in job URL discovery with early stopping:', error);
+    await search.addError('web_search_failed', error.message, 'web_search_discovery', 'Early stopping URL discovery failed');
     throw error;
   }
 }
@@ -908,6 +928,35 @@ function determineSourcePlatform(url) {
   return 'Other';
 }
 
+/**
+ * Helper function to extract company from URL
+ */
+function extractCompanyFromUrl(url) {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname.replace('www.', '').split('.')[0];
+  } catch {
+    return 'Unknown';
+  }
+}
+
+/**
+ * Helper function to extract title from text context
+ */
+function extractTitleFromText(text, url) {
+  const lines = text.split('\n');
+  const urlLineIndex = lines.findIndex(line => line.includes(url));
+  
+  if (urlLineIndex > 0) {
+    const jobLine = lines[urlLineIndex - 1] || '';
+    const jobMatch = jobLine.match(/JOB\s+\d+:\s*(.+?)\s+at\s+/i);
+    if (jobMatch) {
+      return jobMatch[1].trim();
+    }
+  }
+  return 'Unknown';
+}
+
 function isValidJobUrlFixed(url) {
   if (!url || typeof url !== 'string') return false;
   
@@ -1020,6 +1069,13 @@ function parseJobContent(content, jobUrl, careerProfile) {
       }
     }
     
+    // FIXED: Handle invalid work arrangement values
+    const validWorkArrangements = ['remote', 'hybrid', 'onsite'];
+    if (!validWorkArrangements.includes(data.workArrangement)) {
+      console.log(`⚠️ Invalid work arrangement "${data.workArrangement}", defaulting to remote`);
+      data.workArrangement = 'remote';
+    }
+    
     // Extract experience level with proper enum values
     const expPatterns = [
       { pattern: /senior|sr\.|lead/i, level: 'senior' },
@@ -1063,16 +1119,15 @@ function parseJobContent(content, jobUrl, careerProfile) {
     );
     console.log(`🎁 Found ${data.benefits.length} benefits`);
     
-    // FIXED: Extract location from content with better patterns and validation
+    // Extract location from content with better patterns and validation
     const locationPatterns = [
       /(?:location|located|based|headquarters?):\s*([A-Za-z\s,]+(?:CA|NY|TX|FL|WA|IL|MA|PA|OH|GA|NC|NJ|VA|MI|AZ|CO|TN|IN|SC|MO|MD|WI|MN|AL|UT|NV|KS|LA|AR|NE|IA|MS|OK|CT|OR|DE|NH|VT|ME|RI|MT|ND|SD|WY|AK|HI|DC))/i,
       /(?:office|headquarters|hq)(?:\s+(?:in|at|located))?\s*([A-Za-z\s,]+(?:CA|NY|TX|FL|WA|IL|MA|PA|OH|GA|NC|NJ|VA|MI|AZ|CO|TN|IN|SC|MO|MD|WI|MN|AL|UT|NV|KS|LA|AR|NE|IA|MS|OK|CT|OR|DE|NH|VT|ME|RI|MT|ND|SD|WY|AK|HI|DC))/i,
-      /(?:remote|anywhere|distributed|global)/i,
-      /(?:san francisco|new york|los angeles|chicago|boston|seattle|austin|denver|atlanta|miami|dallas|houston|philadelphia|washington|portland|san diego|phoenix|detroit|minneapolis|tampa|orlando|charlotte|nashville|baltimore|milwaukee|kansas city|cleveland|columbus|indianapolis|jacksonville|memphis|louisville|oklahoma city|las vegas|albuquerque|tucson|fresno|sacramento|long beach|mesa|virginia beach|colorado springs|omaha|raleigh|tulsa|wichita|arlington|bakersfield|new orleans|honolulu|anaheim|santa ana|riverside|corpus christi|lexington|stockton|henderson|saint paul|pittsburgh|cincinnati|anchorage|toledo|newark|greensboro|lincoln|buffalo|fort wayne|jersey city|chula vista|madison|norfolk|chandler|laredo|baton rouge|lubbock|scottsdale|garland|glendale|reno|hialeah|chesapeake|irving|north las vegas|fremont|gilbert|san bernardino|boise|birmingham)/i
+      /(?:remote|anywhere|distributed|global)/i
     ];
     
     // Default location
-    data.location = 'Not specified';
+    data.location = 'Remote';
     
     for (const pattern of locationPatterns) {
       const locationMatch = content.match(pattern);
@@ -1080,17 +1135,18 @@ function parseJobContent(content, jobUrl, careerProfile) {
         let location = locationMatch[1] ? locationMatch[1].trim() : locationMatch[0].trim();
         
         // Clean up location string
-        location = location.replace(/[:;,\.]$/, ''); // Remove trailing punctuation
-        location = location.replace(/^[\s,]+|[\s,]+$/g, ''); // Remove leading/trailing spaces and commas
+        location = location.replace(/[:;,\.]$/, '');
+        location = location.replace(/^[\s,]+|[\s,]+$/g, '');
         
-        // Validate location - should not contain job-related terms or company names
+        // FIXED: Handle "global" and other invalid location values
+        if (location.toLowerCase() === 'global' || location.toLowerCase() === 'worldwide') {
+          location = 'Remote';
+        }
+        
+        // Validate location - should not contain job-related terms
         const invalidLocationTerms = [
           'job level', 'assessed', 'interviews', 'application', 'process', 'details',
-          'arrangements', 'not available', 'posting', 'content', 'provided',
-          'experience', 'requirements', 'qualifications', 'responsibilities',
-          'benefits', 'salary', 'compensation', 'title', 'role', 'position',
-          'thirty madison', 'temporal technologies', 'company', 'organization',
-          'employer', 'team', 'startup', 'corporation', 'inc', 'llc', 'ltd'
+          'arrangements', 'not available', 'posting', 'content', 'provided'
         ];
         
         const isValidLocation = !invalidLocationTerms.some(term => 
@@ -1101,17 +1157,7 @@ function parseJobContent(content, jobUrl, careerProfile) {
           data.location = location;
           console.log(`📍 Found valid location: ${data.location}`);
           break;
-        } else {
-          console.log(`📍 Rejected invalid location: ${location}`);
         }
-      }
-    }
-    
-    // If no specific location found, check for remote work indicators
-    if (data.location === 'Not specified') {
-      if (/remote|distributed|anywhere|work from home|wfh/i.test(content)) {
-        data.location = 'Remote';
-        console.log(`📍 Set location to Remote based on content`);
       }
     }
     
@@ -1207,18 +1253,32 @@ function assessContentQuality(content) {
  */
 async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, search) {
   let savedCount = 0;
+  const maxJobsPerSearch = 10; // FIXED: Enforce daily limit
   
-  for (const jobData of analyzedJobs) {
+  console.log(`💾 Starting to save ${Math.min(analyzedJobs.length, maxJobsPerSearch)} jobs (limited to ${maxJobsPerSearch})...`);
+  
+  // FIXED: Only process up to the daily limit
+  const jobsToProcess = analyzedJobs.slice(0, maxJobsPerSearch);
+  
+  for (const jobData of jobsToProcess) {
     try {
-      // Enhanced duplicate checking
+      // ENHANCED: More comprehensive duplicate checking
       const existing = await Job.findOne({
         userId,
         $or: [
+          // Check by source URL
           { sourceUrl: jobData.jobUrl },
+          
+          // Check by title and company combination (case insensitive)
           { 
-            title: jobData.title, 
-            company: jobData.company,
-            sourcePlatform: { $regex: jobData.sourcePlatform, $options: 'i' }
+            title: { $regex: new RegExp(`^${jobData.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+            company: { $regex: new RegExp(`^${jobData.company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          },
+          
+          // Check by similar title at same company (fuzzy matching)
+          {
+            company: { $regex: new RegExp(`^${jobData.company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+            title: { $regex: new RegExp(jobData.title.split(' ').slice(0, 3).join('|'), 'i') }
           }
         ]
       });
@@ -1226,39 +1286,54 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
       if (existing) {
         await search.addReasoningLog(
           'job_saving',
-          `Skipped duplicate: "${jobData.title}" at ${jobData.company} (${jobData.sourcePlatform})`,
+          `Skipped duplicate: "${jobData.title}" at ${jobData.company} (already exists: ${existing.title})`,
           { 
-            reason: 'duplicate_prevention',
-            originalPlatform: jobData.sourcePlatform 
+            reason: 'enhanced_duplicate_prevention',
+            originalPlatform: jobData.sourcePlatform,
+            existingJobId: existing._id,
+            duplicateCheckMethod: 'title_company_url_fuzzy'
           }
         );
         continue;
       }
       
+      // FIXED: Check if we've reached the daily limit during processing
+      if (savedCount >= maxJobsPerSearch) {
+        await search.addReasoningLog(
+          'job_saving',
+          `Reached daily limit of ${maxJobsPerSearch} jobs. Stopping job saving.`,
+          { 
+            reason: 'daily_limit_enforced',
+            jobsSaved: savedCount,
+            jobsSkipped: analyzedJobs.length - savedCount
+          }
+        );
+        break;
+      }
+      
       // Fix the sourcePlatform enum issue
       let sourcePlatform = `AI_FOUND_INTELLIGENT`;
-      if (jobData.sourcePlatform && jobData.sourcePlatform.toLowerCase().includes('greenhouse')) {
-        sourcePlatform = 'AI_FOUND_INTELLIGENT';
-      } else if (jobData.sourcePlatform && jobData.sourcePlatform.toLowerCase().includes('lever')) {
-        sourcePlatform = 'AI_FOUND_INTELLIGENT';
-      } else if (jobData.sourcePlatform && jobData.sourcePlatform.toLowerCase().includes('indeed')) {
-        sourcePlatform = 'AI_FOUND_INTELLIGENT';
-      } else {
-        sourcePlatform = 'AI_FOUND_INTELLIGENT';
-      }
       
       // Use your existing parseLocationEnhanced function
       const enhancedLocation = parseLocationEnhanced(jobData.location);
       
-      // ENHANCED: Extract technical requirements for AI jobs to match manual job quality
+      // Extract technical requirements with FIXED regex
       const technicalRequirements = extractTechnicalRequirements(jobData);
+      
+      // FIXED: Validate workArrangement before saving
+      let workArrangement = jobData.analysis?.workArrangement || jobData.workArrangement || 'remote';
+      const validWorkArrangements = ['remote', 'hybrid', 'onsite'];
+      if (!validWorkArrangements.includes(workArrangement)) {
+        console.log(`⚠️ Invalid work arrangement "${workArrangement}" for ${jobData.title}, defaulting to remote`);
+        workArrangement = 'remote';
+      }
       
       // Create enhanced job record with Claude web search data
       const job = new Job({
         userId,
         title: jobData.title,
         company: jobData.company,
-        location: enhancedLocation, // Using your enhanced location parsing
+        location: enhancedLocation,
         description: jobData.fullContent,
         sourceUrl: jobData.jobUrl,
         sourcePlatform: sourcePlatform,
@@ -1268,7 +1343,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
         salary: jobData.salary || {},
         jobType: jobData.jobType || 'FULL_TIME',
         
-        // FIXED: Add proper analysis status to prevent infinite analysis loop
+        // FIXED: Add proper analysis status
         analysisStatus: {
           status: 'completed',
           progress: 100,
@@ -1284,7 +1359,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
           qualityLevel: 'premium'
         },
         
-        // Enhanced parsed data (premium quality) - FIXED to match manual job analysis
+        // Enhanced parsed data with FIXED workArrangement
         parsedData: {
           requirements: jobData.analysis?.requirements || [],
           responsibilities: jobData.analysis?.responsibilities || [],
@@ -1294,7 +1369,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
           experienceLevel: jobData.analysis?.experienceLevel || jobData.experienceLevel || 'Mid',
           yearsOfExperience: jobData.analysis?.yearsOfExperience || { minimum: 3, preferred: 5 },
           educationRequirements: jobData.analysis?.educationRequirements || [],
-          workArrangement: jobData.analysis?.workArrangement || jobData.workArrangement || 'remote',
+          workArrangement: workArrangement, // FIXED: Use validated work arrangement
           industryContext: jobData.analysis?.industryContext || jobData.industry || 'technology',
           roleCategory: jobData.analysis?.roleCategory || 'general',
           technicalComplexity: jobData.analysis?.technicalComplexity || 'medium',
@@ -1303,7 +1378,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
           extractedAt: new Date(),
           extractionMethod: 'claude_web_search_premium',
           
-          // FIXED: Add the technical requirements that were missing
+          // FIXED: Add the technical requirements
           technicalRequirements: jobData.analysis?.technicalRequirements || technicalRequirements,
           
           // Enhanced Claude web search specific data
@@ -1319,7 +1394,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
           },
           analysisMetadata: jobData.analysis?.analysisMetadata || {
             analyzedAt: new Date(),
-            algorithmVersion: '3.2-claude-web-search-premium',
+            algorithmVersion: '3.3-claude-web-search-premium-fixed',
             model: 'gpt-4o',
             analysisType: 'claude_web_search_discovery_premium',
             qualityLevel: 'same_as_manual',
@@ -1328,7 +1403,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
           }
         },
         
-        // Enhanced AI search metadata for Claude web search
+        // Enhanced AI search metadata
         aiSearchMetadata: {
           searchScore: jobData.matchScore || 85,
           discoveryMethod: 'claude_web_search_discovery',
@@ -1337,10 +1412,10 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
           premiumAnalysis: jobData.premiumAnalysis || true,
           intelligentDiscovery: true,
           claudeWebSearchDiscovery: true,
-          phase: '3-phase-intelligent-claude-web-search',
+          phase: '3-phase-intelligent-claude-web-search-fixed',
           originalPlatform: jobData.sourcePlatform,
           postedDate: jobData.postedDate,
-          workArrangement: jobData.workArrangement,
+          workArrangement: workArrangement, // FIXED: Use validated value
           experienceLevel: jobData.experienceLevel,
           department: jobData.department,
           companySize: jobData.companySize,
@@ -1361,7 +1436,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
       await job.save();
       savedCount++;
       
-      // Update search progress with Claude web search info
+      // Update search progress
       await AiJobSearch.findByIdAndUpdate(searchId, {
         $inc: { jobsFoundToday: 1, totalJobsFound: 1 },
         $push: {
@@ -1380,8 +1455,8 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
         }
       });
       
-      console.log(`✅ Saved: ${job.title} at ${job.company} (${jobData.sourcePlatform} - Claude web search discovery)`);
-      console.log(`📍 Location: ${enhancedLocation.city || enhancedLocation.remote ? 'Remote' : 'Not specified'}`);
+      console.log(`✅ Saved: ${job.title} at ${job.company} (${jobData.sourcePlatform} - Claude web search discovery) [${savedCount}/${maxJobsPerSearch}]`);
+      console.log(`📍 Location: ${enhancedLocation.city || (enhancedLocation.remote ? 'Remote' : 'Not specified')}`);
       console.log(`🔧 Technical Requirements: ${technicalRequirements.length} extracted`);
       
     } catch (error) {
@@ -1389,6 +1464,7 @@ async function saveJobsWithEnhancedMetadata(analyzedJobs, userId, searchId, sear
     }
   }
   
+  console.log(`💾 Job saving completed: ${savedCount} jobs saved, enforced limit of ${maxJobsPerSearch}`);
   return savedCount;
 }
 
@@ -1400,16 +1476,21 @@ function extractTechnicalRequirements(jobData) {
   const technicalRequirements = [];
   
   try {
-    // Extract programming languages
+    // FIXED: Escape special regex characters in programming languages
     const languages = [
-      'JavaScript', 'Python', 'Java', 'TypeScript', 'Go', 'Rust', 'C++', 'C#', 'PHP', 
+      'JavaScript', 'Python', 'Java', 'TypeScript', 'Go', 'Rust', 'C\\+\\+', 'C#', 'PHP', 
       'Ruby', 'Swift', 'Kotlin', 'Scala', 'R', 'Dart', 'Elixir', 'Clojure', 'Haskell'
     ];
+    
     languages.forEach(lang => {
-      if (new RegExp(`\\b${lang}\\b`, 'i').test(content)) {
+      // FIXED: Properly escape the language name for regex
+      const escapedLang = lang.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`\\b${escapedLang}\\b`, 'i');
+      
+      if (regex.test(content)) {
         technicalRequirements.push({
           category: 'Programming Languages',
-          requirement: lang,
+          requirement: lang.replace(/\\+/g, '+'), // Convert back C\+\+ to C++
           importance: 'high'
         });
       }
@@ -1422,7 +1503,8 @@ function extractTechnicalRequirements(jobData) {
       'jQuery', 'Bootstrap', 'Tailwind', 'Material-UI', 'Ant Design'
     ];
     frameworks.forEach(framework => {
-      if (new RegExp(`\\b${framework}\\b`, 'i').test(content)) {
+      const escapedFramework = framework.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escapedFramework}\\b`, 'i').test(content)) {
         technicalRequirements.push({
           category: 'Frameworks & Technologies',
           requirement: framework,
@@ -1438,7 +1520,8 @@ function extractTechnicalRequirements(jobData) {
       'Heroku', 'Vercel', 'Netlify', 'DigitalOcean', 'Linode'
     ];
     cloudPlatforms.forEach(platform => {
-      if (new RegExp(`\\b${platform}\\b`, 'i').test(content)) {
+      const escapedPlatform = platform.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escapedPlatform}\\b`, 'i').test(content)) {
         technicalRequirements.push({
           category: 'Cloud & Infrastructure',
           requirement: platform,
@@ -1453,57 +1536,11 @@ function extractTechnicalRequirements(jobData) {
       'Oracle', 'SQL Server', 'SQLite', 'MariaDB', 'CouchDB', 'Neo4j', 'InfluxDB'
     ];
     databases.forEach(db => {
-      if (new RegExp(`\\b${db}\\b`, 'i').test(content)) {
+      const escapedDb = db.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escapedDb}\\b`, 'i').test(content)) {
         technicalRequirements.push({
           category: 'Databases',
           requirement: db,
-          importance: 'medium'
-        });
-      }
-    });
-    
-    // Extract AI/ML technologies
-    const aiMlTech = [
-      'TensorFlow', 'PyTorch', 'Scikit-learn', 'Pandas', 'NumPy', 'Jupyter', 'MLflow', 
-      'Airflow', 'Keras', 'OpenCV', 'NLTK', 'spaCy', 'Hugging Face', 'Transformers',
-      'LangChain', 'OpenAI', 'Anthropic', 'Claude', 'GPT', 'BERT', 'ResNet'
-    ];
-    aiMlTech.forEach(tech => {
-      if (new RegExp(`\\b${tech}\\b`, 'i').test(content)) {
-        technicalRequirements.push({
-          category: 'AI/ML Technologies',
-          requirement: tech,
-          importance: 'high'
-        });
-      }
-    });
-    
-    // Extract development tools
-    const devTools = [
-      'Git', 'GitHub', 'GitLab', 'Bitbucket', 'Jira', 'Confluence', 'Slack', 'Teams',
-      'VS Code', 'IntelliJ', 'Eclipse', 'Vim', 'Emacs', 'Postman', 'Insomnia',
-      'Figma', 'Sketch', 'Adobe Creative Suite', 'Photoshop', 'Illustrator'
-    ];
-    devTools.forEach(tool => {
-      if (new RegExp(`\\b${tool}\\b`, 'i').test(content)) {
-        technicalRequirements.push({
-          category: 'Development Tools',
-          requirement: tool,
-          importance: 'low'
-        });
-      }
-    });
-    
-    // Extract testing frameworks
-    const testingFrameworks = [
-      'Jest', 'Mocha', 'Jasmine', 'Cypress', 'Selenium', 'TestNG', 'JUnit', 'PyTest',
-      'RSpec', 'Cucumber', 'Playwright', 'Puppeteer'
-    ];
-    testingFrameworks.forEach(framework => {
-      if (new RegExp(`\\b${framework}\\b`, 'i').test(content)) {
-        technicalRequirements.push({
-          category: 'Testing Frameworks',
-          requirement: framework,
           importance: 'medium'
         });
       }
