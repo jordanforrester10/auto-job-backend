@@ -1,4 +1,4 @@
-// backend/models/postgresql/schema.js
+// backend/models/postgresql/schema.js - UPDATED WITH SUBSCRIPTION TABLES
 const db = require('../../config/postgresql');
 
 const createTables = async () => {
@@ -313,6 +313,120 @@ const createTables = async () => {
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `);
+
+    // ======================================
+    // NEW SUBSCRIPTION TABLES START HERE
+    // ======================================
+
+    // Subscription Plans Table - Defines available plans with features and limits
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS subscription_plans (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        display_name VARCHAR(255) NOT NULL,
+        description TEXT,
+        price_monthly DECIMAL(10,2) NOT NULL DEFAULT 0,
+        price_yearly DECIMAL(10,2) NOT NULL DEFAULT 0,
+        stripe_monthly_price_id VARCHAR(255),
+        stripe_yearly_price_id VARCHAR(255),
+        features JSONB NOT NULL DEFAULT '{}',
+        limits JSONB NOT NULL DEFAULT '{}',
+        is_active BOOLEAN DEFAULT TRUE,
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // User Subscriptions Table - Tracks user subscription status
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS user_subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(24) NOT NULL UNIQUE,
+        subscription_plan_id INTEGER REFERENCES subscription_plans(id),
+        stripe_customer_id VARCHAR(255),
+        stripe_subscription_id VARCHAR(255),
+        status VARCHAR(50) NOT NULL DEFAULT 'active',
+        billing_cycle VARCHAR(20) NOT NULL DEFAULT 'monthly',
+        current_period_start TIMESTAMP,
+        current_period_end TIMESTAMP,
+        cancel_at_period_end BOOLEAN DEFAULT FALSE,
+        canceled_at TIMESTAMP,
+        trial_start TIMESTAMP,
+        trial_end TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // User Usage Tracking Table - Monthly usage tracking per feature
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS user_usage (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(24) NOT NULL,
+        usage_period DATE NOT NULL,
+        resume_uploads INTEGER DEFAULT 0,
+        resume_analysis INTEGER DEFAULT 0,
+        job_imports INTEGER DEFAULT 0,
+        resume_tailoring INTEGER DEFAULT 0,
+        recruiter_unlocks INTEGER DEFAULT 0,
+        ai_job_discovery INTEGER DEFAULT 0,
+        ai_conversations INTEGER DEFAULT 0,
+        ai_messages_total INTEGER DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, usage_period)
+      );
+    `);
+
+    // AI Assistant Usage Table - Detailed AI conversation tracking
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ai_assistant_usage (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(24) NOT NULL,
+        conversation_id VARCHAR(24),
+        message_count INTEGER DEFAULT 1,
+        tokens_used INTEGER DEFAULT 0,
+        cost_usd DECIMAL(10,4) DEFAULT 0,
+        feature_type VARCHAR(100),
+        usage_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Payment History Table - Transaction records
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS payment_history (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(24) NOT NULL,
+        stripe_payment_intent_id VARCHAR(255) UNIQUE,
+        stripe_invoice_id VARCHAR(255),
+        amount DECIMAL(10,2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'usd',
+        status VARCHAR(50) NOT NULL,
+        payment_method VARCHAR(100),
+        billing_reason VARCHAR(100),
+        description TEXT,
+        invoice_url TEXT,
+        receipt_url TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Webhook Events Table - Track Stripe webhook events for debugging
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS webhook_events (
+        id SERIAL PRIMARY KEY,
+        stripe_event_id VARCHAR(255) UNIQUE NOT NULL,
+        event_type VARCHAR(100) NOT NULL,
+        processed BOOLEAN DEFAULT FALSE,
+        data JSONB,
+        error_message TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        processed_at TIMESTAMP
+      );
+    `);
     
     console.log('✅ Tables created successfully');
     
@@ -351,7 +465,19 @@ const createTables = async () => {
       'CREATE INDEX IF NOT EXISTS idx_outreach_mongodb_ids ON outreach_history(mongodb_outreach_id, mongodb_user_id)',
       'CREATE INDEX IF NOT EXISTS idx_outreach_messages_user ON outreach_messages(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_outreach_messages_recruiter ON outreach_messages(recruiter_id)',
-      'CREATE INDEX IF NOT EXISTS idx_outreach_messages_status ON outreach_messages(status)'
+      'CREATE INDEX IF NOT EXISTS idx_outreach_messages_status ON outreach_messages(status)',
+      
+      // NEW: Subscription-related indexes
+      'CREATE INDEX IF NOT EXISTS idx_user_subscriptions_user_id ON user_subscriptions(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_user_subscriptions_stripe_customer ON user_subscriptions(stripe_customer_id)',
+      'CREATE INDEX IF NOT EXISTS idx_user_subscriptions_status ON user_subscriptions(status)',
+      'CREATE INDEX IF NOT EXISTS idx_user_usage_user_period ON user_usage(user_id, usage_period)',
+      'CREATE INDEX IF NOT EXISTS idx_ai_usage_user_date ON ai_assistant_usage(user_id, usage_date)',
+      'CREATE INDEX IF NOT EXISTS idx_payment_history_user ON payment_history(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_payment_history_stripe_payment ON payment_history(stripe_payment_intent_id)',
+      'CREATE INDEX IF NOT EXISTS idx_webhook_events_stripe_id ON webhook_events(stripe_event_id)',
+      'CREATE INDEX IF NOT EXISTS idx_webhook_events_processed ON webhook_events(processed)',
+      'CREATE INDEX IF NOT EXISTS idx_subscription_plans_active ON subscription_plans(is_active, sort_order)'
     ];
 
     for (const indexQuery of basicIndexes) {
@@ -457,6 +583,59 @@ const seedInitialData = async () => {
       `);
       
       console.log('Initial skill data seeded successfully');
+    }
+
+    // NEW: Seed subscription plans
+    const planCount = await db.query('SELECT COUNT(*) FROM subscription_plans');
+    
+    if (parseInt(planCount.rows[0].count) === 0) {
+      console.log('Seeding initial subscription plans...');
+      
+      await db.query(`
+        INSERT INTO subscription_plans (
+          name, 
+          display_name, 
+          description, 
+          price_monthly, 
+          price_yearly,
+          features,
+          limits,
+          sort_order
+        ) VALUES
+        (
+          'free',
+          'Free',
+          'Perfect for getting started with job searching',
+          0.00,
+          0.00,
+          '{"resumeUploads": true, "resumeAnalysis": true, "jobImports": true, "resumeTailoring": true, "recruiterAccess": false, "aiJobDiscovery": false, "aiAssistant": false}',
+          '{"resumeUploads": 1, "resumeAnalysis": 1, "jobImports": 3, "resumeTailoring": 1, "recruiterUnlocks": 0, "aiJobDiscovery": 0, "aiAssistant": false, "aiConversations": 0, "aiMessagesPerConversation": 0}',
+          1
+        ),
+        (
+          'casual',
+          'Casual',
+          'For active job seekers who want more tools',
+          19.99,
+          199.99,
+          '{"resumeUploads": true, "resumeAnalysis": true, "jobImports": true, "resumeTailoring": true, "recruiterAccess": true, "recruiterUnlocks": true, "aiJobDiscovery": true, "aiAssistant": false}',
+          '{"resumeUploads": 5, "resumeAnalysis": 5, "jobImports": 25, "resumeTailoring": 25, "recruiterUnlocks": 25, "aiJobDiscovery": 1, "aiAssistant": false, "aiConversations": 0, "aiMessagesPerConversation": 0}',
+          2
+        ),
+        (
+          'hunter',
+          'Hunter',
+          'For serious job hunters who want unlimited access',
+          49.99,
+          499.99,
+          '{"resumeUploads": true, "resumeAnalysis": true, "jobImports": true, "resumeTailoring": true, "recruiterAccess": true, "recruiterUnlocks": true, "aiJobDiscovery": true, "aiAssistant": true}',
+          '{"resumeUploads": -1, "resumeAnalysis": -1, "jobImports": -1, "resumeTailoring": 50, "recruiterUnlocks": -1, "aiJobDiscovery": -1, "aiAssistant": true, "aiConversations": 5, "aiMessagesPerConversation": 20}',
+          3
+        )
+        ON CONFLICT (name) DO NOTHING;
+      `);
+      
+      console.log('Initial subscription plans seeded successfully');
     }
     
     console.log('Basic initial data seeded successfully');
