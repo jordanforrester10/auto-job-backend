@@ -1,4 +1,4 @@
-// models/mongodb/job.model.js - ENHANCED FOR REAL JOB BOARD INTEGRATION
+// models/mongodb/job.model.js - FIXED SCHEMA WITH PROPER ENUM VALUES
 const mongoose = require('mongoose');
 
 const jobSchema = new mongoose.Schema({
@@ -37,16 +37,22 @@ const jobSchema = new mongoose.Schema({
     type: String,
     enum: [
       'MANUAL',
-      'AI_FOUND',
+      'AI_FOUND', 
       'AI_FOUND_OPTIMIZED', 
       'AI_FOUND_INTELLIGENT',
-      // NEW: Real job board platforms
-      'AI_FOUND_GREENHOUSE',
-      'AI_FOUND_LEVER', 
-      'AI_FOUND_INDEED'
+      // Adzuna API platform support
+      'AI_FOUND_ADZUNA_INDEED',
+      'AI_FOUND_ADZUNA_LINKEDIN', 
+      'AI_FOUND_ADZUNA_MONSTER',
+      'AI_FOUND_ADZUNA_CAREERBUILDER',
+      'AI_FOUND_ADZUNA_GLASSDOOR',
+      'AI_FOUND_ADZUNA_ZIPRECRUITER',
+      'AI_FOUND_ADZUNA_DICE',
+      'AI_FOUND_ADZUNA_PARTNER',
+      'AI_FOUND_ADZUNA_DIRECT',
+      'AI_FOUND_ADZUNA_OTHER'
     ],
-    default: 'MANUAL',
-    index: true
+    required: true
   },
   salary: {
     min: Number,
@@ -80,7 +86,7 @@ const jobSchema = new mongoose.Schema({
     index: true
   },
   
-  // Enhanced parsed data with real job board support
+  // Enhanced parsed data with FIXED skill categories
   parsedData: {
     requirements: [String],
     responsibilities: [String],
@@ -96,11 +102,15 @@ const jobSchema = new mongoose.Schema({
         min: 1,
         max: 10
       },
+      // FIXED: Updated enum to match what the validation functions produce
       category: {
         type: String,
-        enum: ['technical', 'soft', 'domain', 'certification']
+        enum: ['technical', 'soft', 'business'] // ADDED 'business', REMOVED 'domain' and 'certification' as they're not used
       },
-      skillType: String
+      skillType: {
+        type: String,
+        enum: ['programming', 'management', 'analytical', 'communication', 'design', 'general']
+      }
     }],
     experienceLevel: {
       type: String,
@@ -131,37 +141,18 @@ const jobSchema = new mongoose.Schema({
     extractedAt: Date,
     extractionMethod: String,
     
-    // NEW: Enhanced real job board specific data
-    realJobBoardData: {
-      platform: {
-        type: String,
-        enum: ['Greenhouse', 'Lever', 'Indeed']
-      },
+    // Adzuna API specific data
+    adzunaApiData: {
+      platform: String,
       originalUrl: String,
       postedDate: Date,
-      applicationDeadline: Date,
-      hiringManager: String,
-      teamSize: String,
-      techStack: [String],
-      department: String,
-      directCompanyPosting: {
-        type: Boolean,
-        default: false
-      },
-      atsSystem: String,
-      jobBoardSpecificData: {
-        // Greenhouse specific
-        greenhouseJobId: String,
-        greenhouseOfficeId: String,
-        
-        // Lever specific
-        leverPostingId: String,
-        leverTeam: String,
-        
-        // Indeed specific
-        indeedJobKey: String,
-        indeedCompanyId: String
-      }
+      adzunaId: String,
+      category: String,
+      contractType: String,
+      contractTime: String,
+      salaryPredicted: Boolean,
+      directCompanyPosting: Boolean,
+      discoveryMethod: String
     },
     
     analysisMetadata: {
@@ -175,11 +166,11 @@ const jobSchema = new mongoose.Schema({
       estimatedCost: String,
       qualityLevel: String,
       sourceJobBoard: String,
-      realJobBoardPosting: Boolean
+      completeValidationApplied: Boolean
     }
   },
   
-  // Enhanced AI search metadata for real job boards
+  // Enhanced AI search metadata for Adzuna API
   aiSearchMetadata: {
     searchScore: Number,
     discoveryMethod: String,
@@ -190,9 +181,9 @@ const jobSchema = new mongoose.Schema({
     },
     premiumAnalysis: Boolean,
     intelligentDiscovery: Boolean,
-    realJobBoardDiscovery: Boolean,
+    adzunaApiDiscovery: Boolean,
     phase: String,
-    originalJobBoard: String,
+    originalPlatform: String,
     postedDate: Date,
     workArrangement: String,
     experienceLevel: String,
@@ -203,21 +194,17 @@ const jobSchema = new mongoose.Schema({
     matchReason: String,
     benefits: [String],
     techStack: [String],
-    teamInfo: {
-      hiringManager: String,
-      teamSize: String,
-      department: String
-    },
+    relevanceScore: Number,
     
-    // NEW: Real job board quality metrics
-    jobBoardQualityMetrics: {
-      urlValidated: Boolean,
-      contentLength: Number,
-      hasComprehensiveDetails: Boolean,
-      hasTechStack: Boolean,
-      hasTeamInfo: Boolean,
-      hasApplicationDeadline: Boolean,
-      verifiedCompanyPosting: Boolean
+    // Adzuna API specific metadata
+    adzunaApiMetadata: {
+      discoveryMethod: String,
+      apiProvider: String,
+      jobBoardsCovered: String,
+      apiHealth: String,
+      costEfficient: Boolean,
+      reliability: String,
+      completeValidationApplied: Boolean
     }
   },
   
@@ -247,7 +234,9 @@ const jobSchema = new mongoose.Schema({
     modelUsed: String,
     analysisType: String,
     error: String,
-    estimatedCompletion: Date
+    estimatedCompletion: Date,
+    searchApproach: String,
+    qualityLevel: String
   },
   
   // Match analysis results
@@ -336,42 +325,42 @@ jobSchema.index({ 'parsedData.keySkills.name': 1 });
 jobSchema.index({ aiSearchId: 1 });
 jobSchema.index({ sourceUrl: 1 });
 
-// NEW: Indexes for real job board queries
-jobSchema.index({ 'parsedData.realJobBoardData.platform': 1 });
-jobSchema.index({ 'parsedData.realJobBoardData.directCompanyPosting': 1 });
-jobSchema.index({ 'aiSearchMetadata.realJobBoardDiscovery': 1 });
-jobSchema.index({ 'aiSearchMetadata.originalJobBoard': 1 });
+// Adzuna API specific indexes
+jobSchema.index({ 'aiSearchMetadata.adzunaApiDiscovery': 1 });
+jobSchema.index({ 'aiSearchMetadata.originalPlatform': 1 });
+jobSchema.index({ 'aiSearchMetadata.relevanceScore': -1 });
 
 // Compound indexes for common queries
 jobSchema.index({ userId: 1, sourcePlatform: 1, createdAt: -1 });
 jobSchema.index({ userId: 1, applicationStatus: 1, createdAt: -1 });
 jobSchema.index({ userId: 1, 'matchAnalysis.overallScore': -1 });
 
-// Virtual for checking if job is from real job boards
-jobSchema.virtual('isFromRealJobBoard').get(function() {
-  return this.sourcePlatform && (
-    this.sourcePlatform.includes('AI_FOUND_GREENHOUSE') ||
-    this.sourcePlatform.includes('AI_FOUND_LEVER') ||
-    this.sourcePlatform.includes('AI_FOUND_INDEED')
-  );
+// Virtual for checking if job is from Adzuna API
+jobSchema.virtual('isFromAdzunaApi').get(function() {
+  return this.sourcePlatform && this.sourcePlatform.includes('AI_FOUND_ADZUNA');
 });
 
-// Virtual for getting source job board name
+// Virtual for getting source platform name
 jobSchema.virtual('sourceJobBoardName').get(function() {
-  if (!this.isFromRealJobBoard) return null;
+  if (!this.isFromAdzunaApi) return null;
   
-  if (this.sourcePlatform.includes('GREENHOUSE')) return 'Greenhouse';
-  if (this.sourcePlatform.includes('LEVER')) return 'Lever';
   if (this.sourcePlatform.includes('INDEED')) return 'Indeed';
-  return null;
+  if (this.sourcePlatform.includes('LINKEDIN')) return 'LinkedIn';
+  if (this.sourcePlatform.includes('MONSTER')) return 'Monster';
+  if (this.sourcePlatform.includes('CAREERBUILDER')) return 'CareerBuilder';
+  if (this.sourcePlatform.includes('GLASSDOOR')) return 'Glassdoor';
+  if (this.sourcePlatform.includes('ZIPRECRUITER')) return 'ZipRecruiter';
+  if (this.sourcePlatform.includes('DICE')) return 'Dice';
+  
+  return 'Adzuna Partner';
 });
 
 // Virtual for enhanced job quality score
 jobSchema.virtual('qualityScore').get(function() {
   let score = 50; // Base score
   
-  // Real job board bonus
-  if (this.isFromRealJobBoard) score += 20;
+  // Adzuna API bonus
+  if (this.isFromAdzunaApi) score += 20;
   
   // Content quality
   if (this.aiSearchMetadata?.contentQuality === 'high') score += 15;
@@ -380,8 +369,8 @@ jobSchema.virtual('qualityScore').get(function() {
   // Premium analysis bonus
   if (this.aiSearchMetadata?.premiumAnalysis) score += 10;
   
-  // Comprehensive details bonus
-  if (this.aiSearchMetadata?.jobBoardQualityMetrics?.hasComprehensiveDetails) score += 5;
+  // Relevance score bonus
+  if (this.aiSearchMetadata?.relevanceScore > 80) score += 5;
   
   return Math.min(score, 100);
 });
@@ -394,20 +383,18 @@ jobSchema.methods.isAnalysisComplete = function() {
          !this.parsedData.analysisError;
 };
 
-// Method to get real job board specific data
-jobSchema.methods.getRealJobBoardData = function() {
-  if (!this.isFromRealJobBoard) return null;
+// Method to get Adzuna API specific data
+jobSchema.methods.getAdzunaApiData = function() {
+  if (!this.isFromAdzunaApi) return null;
   
   return {
     platform: this.sourceJobBoardName,
-    originalUrl: this.parsedData?.realJobBoardData?.originalUrl,
-    postedDate: this.parsedData?.realJobBoardData?.postedDate,
-    techStack: this.parsedData?.realJobBoardData?.techStack || [],
-    hiringManager: this.parsedData?.realJobBoardData?.hiringManager,
-    teamSize: this.parsedData?.realJobBoardData?.teamSize,
-    department: this.parsedData?.realJobBoardData?.department,
-    directCompanyPosting: this.parsedData?.realJobBoardData?.directCompanyPosting || false,
-    qualityMetrics: this.aiSearchMetadata?.jobBoardQualityMetrics || {}
+    originalUrl: this.parsedData?.adzunaApiData?.originalUrl,
+    postedDate: this.parsedData?.adzunaApiData?.postedDate,
+    adzunaId: this.parsedData?.adzunaApiData?.adzunaId,
+    category: this.parsedData?.adzunaApiData?.category,
+    directCompanyPosting: this.parsedData?.adzunaApiData?.directCompanyPosting || false,
+    discoveryMethod: this.parsedData?.adzunaApiData?.discoveryMethod || 'adzuna_api_aggregation'
   };
 };
 
@@ -445,17 +432,17 @@ jobSchema.methods.recordUserInteraction = function(interactionType, data = {}) {
   return this.save();
 };
 
-// Static method to find jobs from real job boards
-jobSchema.statics.findRealJobBoardJobs = function(userId, options = {}) {
+// Static method to find jobs from Adzuna API
+jobSchema.statics.findAdzunaApiJobs = function(userId, options = {}) {
   const query = {
     userId,
     sourcePlatform: {
-      $in: ['AI_FOUND_GREENHOUSE', 'AI_FOUND_LEVER', 'AI_FOUND_INDEED']
+      $regex: /^AI_FOUND_ADZUNA/
     }
   };
   
   if (options.jobBoard) {
-    query.sourcePlatform = `AI_FOUND_${options.jobBoard.toUpperCase()}`;
+    query.sourcePlatform = `AI_FOUND_ADZUNA_${options.jobBoard.toUpperCase()}`;
   }
   
   if (options.dateRange) {
@@ -468,15 +455,13 @@ jobSchema.statics.findRealJobBoardJobs = function(userId, options = {}) {
   return this.find(query).sort({ createdAt: -1 });
 };
 
-// Static method to get real job board statistics
-jobSchema.statics.getRealJobBoardStats = function(userId) {
+// Static method to get Adzuna API statistics
+jobSchema.statics.getAdzunaApiStats = function(userId) {
   return this.aggregate([
     {
       $match: {
         userId: mongoose.Types.ObjectId(userId),
-        sourcePlatform: {
-          $in: ['AI_FOUND_GREENHOUSE', 'AI_FOUND_LEVER', 'AI_FOUND_INDEED']
-        }
+        sourcePlatform: { $regex: /^AI_FOUND_ADZUNA/ }
       }
     },
     {
@@ -484,6 +469,7 @@ jobSchema.statics.getRealJobBoardStats = function(userId) {
         _id: '$sourcePlatform',
         count: { $sum: 1 },
         avgQualityScore: { $avg: '$aiSearchMetadata.searchScore' },
+        avgRelevanceScore: { $avg: '$aiSearchMetadata.relevanceScore' },
         totalViews: { $sum: '$userInteractions.viewCount' },
         appliedJobs: {
           $sum: {
@@ -497,15 +483,18 @@ jobSchema.statics.getRealJobBoardStats = function(userId) {
         jobBoard: {
           $switch: {
             branches: [
-              { case: { $eq: ['$_id', 'AI_FOUND_GREENHOUSE'] }, then: 'Greenhouse' },
-              { case: { $eq: ['$_id', 'AI_FOUND_LEVER'] }, then: 'Lever' },
-              { case: { $eq: ['$_id', 'AI_FOUND_INDEED'] }, then: 'Indeed' }
+              { case: { $regex: ['$_id', /INDEED/] }, then: 'Indeed' },
+              { case: { $regex: ['$_id', /LINKEDIN/] }, then: 'LinkedIn' },
+              { case: { $regex: ['$_id', /MONSTER/] }, then: 'Monster' },
+              { case: { $regex: ['$_id', /CAREERBUILDER/] }, then: 'CareerBuilder' },
+              { case: { $regex: ['$_id', /GLASSDOOR/] }, then: 'Glassdoor' }
             ],
-            default: 'Unknown'
+            default: 'Adzuna Partner'
           }
         },
         count: 1,
         avgQualityScore: { $round: ['$avgQualityScore', 1] },
+        avgRelevanceScore: { $round: ['$avgRelevanceScore', 1] },
         totalViews: 1,
         appliedJobs: 1,
         applicationRate: {
@@ -518,17 +507,16 @@ jobSchema.statics.getRealJobBoardStats = function(userId) {
 
 // Pre-save middleware
 jobSchema.pre('save', function(next) {
-  // Auto-detect real job board from source platform
-  if (this.isModified('sourcePlatform') && this.isFromRealJobBoard) {
+  // Auto-detect Adzuna API from source platform
+  if (this.isModified('sourcePlatform') && this.isFromAdzunaApi) {
     if (!this.aiSearchMetadata) this.aiSearchMetadata = {};
-    this.aiSearchMetadata.realJobBoardDiscovery = true;
-    this.aiSearchMetadata.originalJobBoard = this.sourceJobBoardName;
+    this.aiSearchMetadata.adzunaApiDiscovery = true;
+    this.aiSearchMetadata.originalPlatform = this.sourceJobBoardName;
   }
   
-  // Ensure real job board data consistency
-  if (this.isFromRealJobBoard && this.parsedData?.realJobBoardData) {
-    this.parsedData.realJobBoardData.platform = this.sourceJobBoardName;
-    this.parsedData.realJobBoardData.directCompanyPosting = true;
+  // Ensure Adzuna API data consistency
+  if (this.isFromAdzunaApi && this.parsedData?.adzunaApiData) {
+    this.parsedData.adzunaApiData.platform = this.sourceJobBoardName;
   }
   
   next();
@@ -536,9 +524,9 @@ jobSchema.pre('save', function(next) {
 
 // Post-save middleware for analytics
 jobSchema.post('save', function(doc) {
-  // Could trigger analytics events here for real job board tracking
-  if (doc.isFromRealJobBoard && doc.isNew) {
-    console.log(`📊 New real job board job saved: ${doc.title} from ${doc.sourceJobBoardName}`);
+  // Analytics events for Adzuna API tracking
+  if (doc.isFromAdzunaApi && doc.isNew) {
+    console.log(`📊 New Adzuna API job saved: ${doc.title} from ${doc.sourceJobBoardName} (Relevance: ${doc.aiSearchMetadata?.relevanceScore || 'N/A'}%)`);
   }
 });
 

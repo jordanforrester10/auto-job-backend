@@ -1,8 +1,8 @@
-// services/jobAnalysis.service.js - HYBRID APPROACH WITH BATCH ANALYSIS
+// services/jobAnalysis.service.js - FIXED FOR EXPERIENCE LEVEL VALIDATION AND RELEVANCE
 const { openai } = require('../config/openai');
 
 /**
- * Enhanced job analysis with hybrid model selection + NEW BATCH ANALYSIS
+ * Enhanced job analysis with FIXED experience level validation and better relevance filtering
  * - GPT-4o for manual jobs (quality-critical, low volume)
  * - GPT-4o for AI discovery (now same quality as manual!)
  * - Batch processing for efficiency
@@ -78,7 +78,7 @@ exports.analyzeJob = async (jobDescription, jobMetadata = {}, options = {}) => {
 
       parsedData = JSON.parse(jsonStr);
       
-      // Validate and enhance the parsed data
+      // FIXED: Validate and enhance the parsed data with proper experience level normalization
       parsedData = validateAndEnhanceJobData(parsedData, jobDescription, false); // Always use premium validation
       
       console.log(`Job analysis completed successfully with ${model}. Found ${parsedData.keySkills?.length || 0} skills.`);
@@ -113,7 +113,7 @@ exports.analyzeJob = async (jobDescription, jobMetadata = {}, options = {}) => {
 };
 
 /**
- * NEW: Batch job analysis for AI discovery efficiency
+ * FIXED: Batch job analysis for AI discovery efficiency
  * Analyzes multiple jobs in a single API call for cost efficiency
  * 
  * @param {Array} jobBatch - Array of job objects with title, company, fullContent
@@ -157,7 +157,18 @@ Content: ${(job.fullContent || job.description || '').substring(0, 2500)}
       messages: [
         {
           role: "system",
-          content: `You are an expert job analyst providing premium batch analysis. Analyze multiple job postings and return detailed structured data for each. Focus on extracting comprehensive requirements, responsibilities, and skills with high accuracy. Return valid JSON array with exactly ${jobBatch.length} objects.`
+          content: `You are an expert job analyst providing premium batch analysis. Analyze multiple job postings and return detailed structured data for each. Focus on extracting comprehensive requirements, responsibilities, and skills with high accuracy. Return valid JSON array with exactly ${jobBatch.length} objects.
+
+CRITICAL: For experienceLevel field, use ONLY these exact single values:
+- "entry" (0-2 years)
+- "junior" (1-3 years) 
+- "mid" (3-6 years)
+- "senior" (5-10 years)
+- "lead" (7-12 years)
+- "principal" (10+ years)
+- "executive" (12+ years)
+
+NEVER use compound values like "mid/senior" or "senior/lead". Pick the SINGLE most appropriate level.`
         },
         {
           role: "user",
@@ -188,7 +199,7 @@ Return JSON array with exactly ${jobBatch.length} objects in this EXACT format:
         "skillType": "management"
       }
     ],
-    "experienceLevel": "mid/senior/lead",
+    "experienceLevel": "mid",
     "yearsOfExperience": {
       "minimum": 3,
       "preferred": 5
@@ -200,21 +211,22 @@ Return JSON array with exactly ${jobBatch.length} objects in this EXACT format:
       "max": 150000,
       "currency": "USD"
     },
-    "workArrangement": "remote/hybrid/onsite",
-    "industryContext": "technology/finance/healthcare",
-    "roleCategory": "software-engineering/product-management",
-    "technicalComplexity": "high/medium/low",
-    "leadershipRequired": true/false,
-    "companyStage": "startup/growth/enterprise"
+    "workArrangement": "remote",
+    "industryContext": "technology",
+    "roleCategory": "software-engineering",
+    "technicalComplexity": "high",
+    "leadershipRequired": true,
+    "companyStage": "startup"
   }
 ]
 
 CRITICAL REQUIREMENTS:
 - Skills importance: 9-10=critical, 7-8=very important, 5-6=important, 3-4=nice to have
+- experienceLevel: Use ONLY single values: "entry", "junior", "mid", "senior", "lead", "principal", "executive"
+- workArrangement: Use ONLY "remote", "hybrid", "onsite", or "unknown"
 - Extract comprehensive information from each job posting
 - Maintain high accuracy and detail level
-- Return exactly ${jobBatch.length} analysis objects in the same order
-- Each analysis must be complete and detailed`
+- Return exactly ${jobBatch.length} analysis objects in the same order`
         }
       ]
     });
@@ -251,19 +263,24 @@ CRITICAL REQUIREMENTS:
       }
     }
     
-    // Enhance analyses with metadata
-    const enhancedAnalyses = analyses.map((analysis, index) => ({
-      ...analysis,
-      analysisMetadata: {
-        analyzedAt: new Date(),
-        algorithmVersion: '3.0-batch-premium',
-        model: 'gpt-4o',
-        analysisType: 'ai_discovery_batch_premium',
-        qualityLevel: 'premium',
-        batchIndex: index,
-        batchSize: jobBatch.length
-      }
-    }));
+    // FIXED: Enhance analyses with metadata and proper validation
+    const enhancedAnalyses = analyses.map((analysis, index) => {
+      // Normalize experience level to ensure it's valid
+      analysis.experienceLevel = normalizeExperienceLevel(analysis.experienceLevel);
+      
+      return {
+        ...analysis,
+        analysisMetadata: {
+          analyzedAt: new Date(),
+          algorithmVersion: '3.0-batch-premium',
+          model: 'gpt-4o',
+          analysisType: 'ai_discovery_batch_premium',
+          qualityLevel: 'premium',
+          batchIndex: index,
+          batchSize: jobBatch.length
+        }
+      };
+    });
     
     console.log(`✅ Batch analysis completed: ${enhancedAnalyses.length} jobs analyzed with GPT-4o`);
     return enhancedAnalyses;
@@ -286,6 +303,136 @@ CRITICAL REQUIREMENTS:
     }));
   }
 };
+
+/**
+ * FIXED: Experience level normalization function
+ */
+function normalizeExperienceLevel(experienceLevel) {
+  if (!experienceLevel || typeof experienceLevel !== 'string') {
+    return 'mid'; // Default fallback
+  }
+  
+  const level = experienceLevel.toLowerCase().trim();
+  
+  // Handle compound experience levels by picking the higher one
+  if (level.includes('/') || level.includes('-')) {
+    const parts = level.split(/[\/\-]/).map(p => p.trim());
+    
+    // Mapping for priority (higher number = more senior)
+    const levelPriority = {
+      'entry': 1,
+      'junior': 2,
+      'mid': 3,
+      'senior': 4,
+      'lead': 5,
+      'principal': 6,
+      'executive': 7
+    };
+    
+    let highestLevel = 'mid';
+    let highestPriority = 0;
+    
+    for (const part of parts) {
+      const normalizedPart = normalizeSingleLevel(part);
+      const priority = levelPriority[normalizedPart] || 0;
+      
+      if (priority > highestPriority) {
+        highestLevel = normalizedPart;
+        highestPriority = priority;
+      }
+    }
+    
+    return highestLevel;
+  }
+  
+  return normalizeSingleLevel(level);
+}
+
+function normalizeSingleLevel(level) {
+  const levelMappings = {
+    'entry': 'entry',
+    'entry-level': 'entry',
+    'entry level': 'entry',
+    'graduate': 'entry',
+    'new grad': 'entry',
+    'intern': 'entry',
+    'associate': 'entry',
+    
+    'junior': 'junior',
+    'jr': 'junior',
+    'junior-level': 'junior',
+    
+    'mid': 'mid',
+    'middle': 'mid',
+    'mid-level': 'mid',
+    'intermediate': 'mid',
+    
+    'senior': 'senior',
+    'sr': 'senior',
+    'senior-level': 'senior',
+    
+    'lead': 'lead',
+    'team lead': 'lead',
+    'tech lead': 'lead',
+    'technical lead': 'lead',
+    
+    'principal': 'principal',
+    'staff': 'principal',
+    'architect': 'principal',
+    
+    'executive': 'executive',
+    'director': 'executive',
+    'vp': 'executive',
+    'vice president': 'executive',
+    'c-level': 'executive',
+    'chief': 'executive'
+  };
+  
+  // Direct mapping
+  if (levelMappings[level]) {
+    return levelMappings[level];
+  }
+  
+  // Partial matching
+  for (const [key, value] of Object.entries(levelMappings)) {
+    if (level.includes(key)) {
+      return value;
+    }
+  }
+  
+  return 'mid'; // Default fallback
+}
+
+/**
+ * NEW: Check if a job is relevant to the target career profile
+ */
+function isJobRelevantToCareerProfile(job, targetJobTitles = []) {
+  if (!job || !job.title) return true; // Allow if we can't determine
+  
+  const jobTitle = job.title.toLowerCase();
+  const jobDescription = (job.description || job.fullContent || '').toLowerCase();
+  
+  // If no target titles specified, allow all jobs
+  if (!targetJobTitles || targetJobTitles.length === 0) {
+    return true;
+  }
+  
+  // Extract key role words from target titles
+  const targetWords = targetJobTitles
+    .flatMap(title => title.toLowerCase().split(' '))
+    .filter(word => word.length > 3 && !['senior', 'junior', 'lead', 'principal'].includes(word));
+  
+  // Check if job title contains any target words
+  const titleMatch = targetWords.some(word => jobTitle.includes(word));
+  
+  // Check if job description contains multiple target words (for broader relevance)
+  const descriptionMatches = targetWords.filter(word => jobDescription.includes(word)).length;
+  
+  // Consider relevant if:
+  // 1. Title contains target words, OR
+  // 2. Description contains 2+ target words (for related roles)
+  return titleMatch || descriptionMatches >= 2;
+}
 
 /**
  * Content analysis with premium quality
@@ -339,6 +486,11 @@ exports.analyzeJobContent = async (jobContent, jobInfo, isAiDiscovery = false) =
     // Validate work arrangement
     if (analysis.workArrangement) {
       analysis.workArrangement = normalizeWorkArrangement(analysis.workArrangement);
+    }
+    
+    // FIXED: Normalize experience level
+    if (analysis.experienceLevel) {
+      analysis.experienceLevel = normalizeExperienceLevel(analysis.experienceLevel);
     }
     
     // Add metadata
@@ -413,7 +565,7 @@ function createPromptForModel(jobDescription, jobMetadata, useMinimModel) {
           "skillType": "management"
         }
       ],
-      "experienceLevel": "mid-senior",
+      "experienceLevel": "mid",
       "yearsOfExperience": {
         "minimum": 3,
         "preferred": 5
@@ -464,7 +616,7 @@ function createPromptForModel(jobDescription, jobMetadata, useMinimModel) {
        - 3-4: Nice to have (preferred qualifications)
        - 1-2: Bonus (mentioned casually)
 
-    2. **Experience Level Mapping:**
+    2. **Experience Level Mapping (use ONLY single values):**
        - "entry": 0-2 years
        - "junior": 1-3 years
        - "mid": 3-6 years
@@ -472,6 +624,8 @@ function createPromptForModel(jobDescription, jobMetadata, useMinimModel) {
        - "lead": 7-12 years
        - "principal": 10+ years
        - "executive": 12+ years
+
+    CRITICAL: Never use compound values like "mid-senior" or "senior/lead". Always pick the single most appropriate level.
 
     3. **Work Arrangement (use exact values):**
        - "remote": Fully remote work
@@ -489,7 +643,7 @@ function createPromptForModel(jobDescription, jobMetadata, useMinimModel) {
  * Create model-specific system prompts (now always premium)
  */
 function createSystemPromptForModel(useMinimModel) {
-  return "You are an expert HR technology analyst specializing in job posting analysis. You extract precise, detailed information from job descriptions without adding assumptions. You return only valid JSON without markdown formatting. For workArrangement field, use ONLY these exact values: 'remote', 'hybrid', 'onsite', or 'unknown'.";
+  return "You are an expert HR technology analyst specializing in job posting analysis. You extract precise, detailed information from job descriptions without adding assumptions. You return only valid JSON without markdown formatting. For experienceLevel field, use ONLY these exact single values: 'entry', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive'. For workArrangement field, use ONLY these exact values: 'remote', 'hybrid', 'onsite', or 'unknown'.";
 }
 
 /**
@@ -521,18 +675,26 @@ function createContentAnalysisPrompt(jobContent, jobInfo, isAiDiscovery) {
       },
       "benefits": ["Benefit 1", "Benefit 2"],
       "jobType": "FULL_TIME",
-      "experienceLevel": "mid/senior/lead",
-      "workArrangement": "remote/hybrid/onsite/unknown"
+      "experienceLevel": "mid",
+      "workArrangement": "remote"
     }
+
+    CRITICAL: For experienceLevel, use ONLY single values: "entry", "junior", "mid", "senior", "lead", "principal", "executive".
+    For workArrangement, use ONLY: "remote", "hybrid", "onsite", "unknown".
 
     Extract comprehensive information. Be thorough with requirements and qualifications.
     `;
 }
 
 /**
- * Enhanced validation for premium quality
+ * FIXED: Enhanced validation for premium quality
  */
 function validateAndEnhanceJobData(parsedData, originalDescription, useMinimModel) {
+  // FIXED: Normalize experience level first
+  if (parsedData.experienceLevel) {
+    parsedData.experienceLevel = normalizeExperienceLevel(parsedData.experienceLevel);
+  }
+  
   // Ensure required fields exist
   if (!parsedData.requirements) parsedData.requirements = [];
   if (!parsedData.responsibilities) parsedData.responsibilities = [];
@@ -676,7 +838,7 @@ function generateJobAnalysisFallback(jobDescription, jobMetadata, error, options
       educationRequirements: [],
       benefits: [],
       industryContext: inferIndustryContext(jobDescription),
-      roleCategory: inferRoleCategory(jobDescription, extractedSkills),
+roleCategory: inferRoleCategory(jobDescription, extractedSkills),
       seniorityLevel: experienceLevel,
       technicalComplexity: 'medium',
       leadershipRequired: jobDescription.toLowerCase().includes('lead'),
