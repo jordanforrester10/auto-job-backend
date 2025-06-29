@@ -1,4 +1,4 @@
-// backend/services/stripe.service.js
+// backend/services/stripe.service.js - FIXED TO HANDLE MISSING USER METADATA
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const User = require('../models/mongodb/user.model');
 const db = require('../config/postgresql');
@@ -46,7 +46,64 @@ class StripeService {
   }
 
   /**
-   * Create a checkout session for subscription
+   * Find user by Stripe customer ID
+   * @param {string} stripeCustomerId - Stripe customer ID
+   * @returns {Object|null} User object or null
+   */
+  async findUserByStripeCustomerId(stripeCustomerId) {
+    try {
+      const user = await User.findOne({ stripeCustomerId });
+      return user;
+    } catch (error) {
+      console.error('Error finding user by Stripe customer ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get user ID from subscription or customer
+   * @param {Object} subscription - Stripe subscription object
+   * @returns {string|null} User ID or null
+   */
+  async getUserIdFromSubscription(subscription) {
+    try {
+      // First try to get userId from subscription metadata
+      if (subscription.metadata?.userId) {
+        return subscription.metadata.userId;
+      }
+
+      // If not in subscription metadata, try to get from customer
+      const customerId = subscription.customer;
+      if (customerId) {
+        // Try to find user by stripe customer ID in our database
+        const user = await this.findUserByStripeCustomerId(customerId);
+        if (user) {
+          console.log(`✅ Found user ${user._id} via Stripe customer ID: ${customerId}`);
+          return user._id.toString();
+        }
+
+        // If not found in our database, get customer from Stripe and check metadata
+        try {
+          const customer = await stripe.customers.retrieve(customerId);
+          if (customer.metadata?.userId) {
+            console.log(`✅ Found user ID in customer metadata: ${customer.metadata.userId}`);
+            return customer.metadata.userId;
+          }
+        } catch (customerError) {
+          console.error('Error retrieving customer from Stripe:', customerError);
+        }
+      }
+
+      console.warn(`⚠️ Could not find user ID for subscription ${subscription.id}`);
+      return null;
+    } catch (error) {
+      console.error('Error getting user ID from subscription:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Create a checkout session for subscription (Monthly only)
    * @param {Object} params - Checkout parameters
    * @returns {Object} Stripe checkout session
    */
@@ -55,8 +112,7 @@ class StripeService {
     priceId,
     successUrl,
     cancelUrl,
-    planName,
-    billingCycle = 'monthly'
+    planName
   }) {
     try {
       const user = await User.findById(userId);
@@ -81,20 +137,20 @@ class StripeService {
         metadata: {
           userId: userId,
           planName: planName,
-          billingCycle: billingCycle
+          billingCycle: 'monthly'
         },
         subscription_data: {
-          metadata: {
+        metadata: {
             userId: userId,
             planName: planName
-          },
-          trial_period_days: planName !== 'free' ? 7 : 0 // 7-day trial for paid plans
+        },
+        trial_period_days: 0 // CHANGED: Remove trial - set to 0 for all plans
         }
       };
 
       const session = await stripe.checkout.sessions.create(sessionParams);
 
-      console.log(`✅ Created checkout session: ${session.id} for plan: ${planName}`);
+      console.log(`✅ Created checkout session: ${session.id} for plan: ${planName} (monthly)`);
       return session;
     } catch (error) {
       console.error('Error creating checkout session:', error);
@@ -177,9 +233,9 @@ class StripeService {
   }
 
   /**
-   * Change subscription plan
+   * Change subscription plan (Monthly only)
    * @param {string} subscriptionId - Stripe subscription ID
-   * @param {string} newPriceId - New price ID
+   * @param {string} newPriceId - New monthly price ID
    * @returns {Object} Updated subscription object
    */
   async changeSubscriptionPlan(subscriptionId, newPriceId) {
@@ -196,7 +252,7 @@ class StripeService {
         proration_behavior: 'create_prorations',
       });
 
-      console.log(`✅ Subscription ${subscriptionId} plan changed to ${newPriceId}`);
+      console.log(`✅ Subscription ${subscriptionId} plan changed to ${newPriceId} (monthly)`);
       return updatedSubscription;
     } catch (error) {
       console.error('Error changing subscription plan:', error);
@@ -293,52 +349,52 @@ class StripeService {
   }
 
   /**
-   * Handle subscription created event
+   * Handle subscription created event - FIXED VERSION
    */
   async handleSubscriptionCreated(subscription) {
     try {
-      const userId = subscription.metadata.userId;
-      const planName = subscription.metadata.planName;
+      const userId = await this.getUserIdFromSubscription(subscription);
+      const planName = subscription.metadata?.planName || 'casual';
 
       if (!userId) {
-        console.error('No userId in subscription metadata');
+        console.error(`❌ Cannot process subscription ${subscription.id} - no user ID found`);
         return;
       }
 
-      // Update user subscription in MongoDB
+      console.log(`✅ Processing subscription created for user ${userId}`);
+
+      // Update user subscription in MongoDB (always monthly)
       await User.findByIdAndUpdate(userId, {
         subscriptionTier: planName,
         subscriptionStatus: subscription.status,
         subscriptionStartDate: new Date(subscription.created * 1000),
         subscriptionEndDate: new Date(subscription.current_period_end * 1000),
-        billingCycle: subscription.items.data[0].price.recurring.interval,
         cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        trialEndDate: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null
+        trialEndDate: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
+        stripeCustomerId: subscription.customer // Make sure we store the customer ID
       });
 
       // Create subscription record in PostgreSQL
       await db.query(`
         INSERT INTO user_subscriptions (
           user_id, stripe_customer_id, stripe_subscription_id, status, 
-          billing_cycle, current_period_start, current_period_end,
+          current_period_start, current_period_end,
           cancel_at_period_end, trial_start, trial_end
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (user_id) DO UPDATE SET
           stripe_subscription_id = $3,
           status = $4,
-          billing_cycle = $5,
-          current_period_start = $6,
-          current_period_end = $7,
-          cancel_at_period_end = $8,
-          trial_start = $9,
-          trial_end = $10,
+          current_period_start = $5,
+          current_period_end = $6,
+          cancel_at_period_end = $7,
+          trial_start = $8,
+          trial_end = $9,
           updated_at = NOW()
       `, [
         userId,
         subscription.customer,
         subscription.id,
         subscription.status,
-        subscription.items.data[0].price.recurring.interval,
         new Date(subscription.created * 1000),
         new Date(subscription.current_period_end * 1000),
         subscription.cancel_at_period_end,
@@ -346,7 +402,7 @@ class StripeService {
         subscription.trial_end ? new Date(subscription.trial_end * 1000) : null
       ]);
 
-      console.log(`✅ Subscription created for user ${userId}: ${subscription.id}`);
+      console.log(`✅ Monthly subscription created for user ${userId}: ${subscription.id}`);
     } catch (error) {
       console.error('Error handling subscription created:', error);
       throw error;
@@ -354,14 +410,14 @@ class StripeService {
   }
 
   /**
-   * Handle subscription updated event
+   * Handle subscription updated event - FIXED VERSION
    */
   async handleSubscriptionUpdated(subscription) {
     try {
-      const userId = subscription.metadata.userId;
+      const userId = await this.getUserIdFromSubscription(subscription);
 
       if (!userId) {
-        console.error('No userId in subscription metadata');
+        console.error(`❌ Cannot process subscription update ${subscription.id} - no user ID found`);
         return;
       }
 
@@ -369,8 +425,7 @@ class StripeService {
       await User.findByIdAndUpdate(userId, {
         subscriptionStatus: subscription.status,
         subscriptionEndDate: new Date(subscription.current_period_end * 1000),
-        cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        billingCycle: subscription.items.data[0].price.recurring.interval
+        cancelAtPeriodEnd: subscription.cancel_at_period_end
       });
 
       // Update subscription record in PostgreSQL
@@ -379,18 +434,16 @@ class StripeService {
           status = $1,
           current_period_end = $2,
           cancel_at_period_end = $3,
-          billing_cycle = $4,
           updated_at = NOW()
-        WHERE user_id = $5
+        WHERE user_id = $4
       `, [
         subscription.status,
         new Date(subscription.current_period_end * 1000),
         subscription.cancel_at_period_end,
-        subscription.items.data[0].price.recurring.interval,
         userId
       ]);
 
-      console.log(`✅ Subscription updated for user ${userId}: ${subscription.id}`);
+      console.log(`✅ Monthly subscription updated for user ${userId}: ${subscription.id}`);
     } catch (error) {
       console.error('Error handling subscription updated:', error);
       throw error;
@@ -398,14 +451,14 @@ class StripeService {
   }
 
   /**
-   * Handle subscription deleted event
+   * Handle subscription deleted event - FIXED VERSION
    */
   async handleSubscriptionDeleted(subscription) {
     try {
-      const userId = subscription.metadata.userId;
+      const userId = await this.getUserIdFromSubscription(subscription);
 
       if (!userId) {
-        console.error('No userId in subscription metadata');
+        console.error(`❌ Cannot process subscription deletion ${subscription.id} - no user ID found`);
         return;
       }
 
@@ -433,12 +486,44 @@ class StripeService {
   }
 
   /**
-   * Handle payment succeeded event
+   * Handle payment succeeded event - FIXED VERSION
    */
   async handlePaymentSucceeded(invoice) {
     try {
       const customerId = invoice.customer;
-      const subscriptionId = invoice.subscription;
+
+      // First try to find user by customer ID lookup
+      let userId = null;
+      
+      // Method 1: Direct lookup in user_subscriptions table
+      const userLookupQuery = await db.query(`
+        SELECT user_id FROM user_subscriptions 
+        WHERE stripe_customer_id = $1
+      `, [customerId]);
+
+      if (userLookupQuery.rows.length > 0) {
+        userId = userLookupQuery.rows[0].user_id;
+        console.log(`✅ Found user ${userId} via subscription lookup for customer ${customerId}`);
+      } else {
+        // Method 2: Lookup in MongoDB
+        const user = await this.findUserByStripeCustomerId(customerId);
+        if (user) {
+          userId = user._id.toString();
+          console.log(`✅ Found user ${userId} via MongoDB lookup for customer ${customerId}`);
+        }
+      }
+
+      if (!userId) {
+        console.warn(`⚠️ Cannot record payment - no user found for customer ${customerId}`);
+        // Still log the webhook but without user_id
+        await this.logWebhookEvent({
+          id: `payment_orphaned_${Date.now()}`,
+          type: 'payment_orphaned',
+          data: { object: invoice },
+          created: Math.floor(Date.now() / 1000)
+        });
+        return;
+      }
 
       // Record payment in PostgreSQL
       await db.query(`
@@ -446,25 +531,23 @@ class StripeService {
           user_id, stripe_payment_intent_id, stripe_invoice_id,
           amount, currency, status, payment_method, billing_reason,
           description, invoice_url, receipt_url
-        ) VALUES (
-          (SELECT user_id FROM user_subscriptions WHERE stripe_customer_id = $1),
-          $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-        )
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (stripe_payment_intent_id) DO NOTHING
       `, [
-        customerId,
+        userId,
         invoice.payment_intent,
         invoice.id,
         invoice.amount_paid / 100, // Convert from cents
         invoice.currency,
         'succeeded',
-        'card', // Default to card, could be enhanced
+        'card',
         invoice.billing_reason,
-        invoice.description || 'Subscription payment',
+        invoice.description || 'Monthly subscription payment',
         invoice.hosted_invoice_url,
         invoice.receipt_url
       ]);
 
-      console.log(`✅ Payment succeeded recorded: ${invoice.id}`);
+      console.log(`✅ Monthly payment succeeded recorded for user ${userId}: ${invoice.id}`);
     } catch (error) {
       console.error('Error handling payment succeeded:', error);
       throw error;
@@ -472,33 +555,50 @@ class StripeService {
   }
 
   /**
-   * Handle payment failed event
+   * Handle payment failed event - FIXED VERSION
    */
   async handlePaymentFailed(invoice) {
     try {
       const customerId = invoice.customer;
+
+      // Find user ID
+      let userId = null;
+      const userLookupQuery = await db.query(`
+        SELECT user_id FROM user_subscriptions 
+        WHERE stripe_customer_id = $1
+      `, [customerId]);
+
+      if (userLookupQuery.rows.length > 0) {
+        userId = userLookupQuery.rows[0].user_id;
+      } else {
+        const user = await this.findUserByStripeCustomerId(customerId);
+        if (user) {
+          userId = user._id.toString();
+        }
+      }
+
+      if (!userId) {
+        console.warn(`⚠️ Cannot record failed payment - no user found for customer ${customerId}`);
+        return;
+      }
 
       // Record failed payment in PostgreSQL
       await db.query(`
         INSERT INTO payment_history (
           user_id, stripe_invoice_id, amount, currency, status,
           billing_reason, description
-        ) VALUES (
-          (SELECT user_id FROM user_subscriptions WHERE stripe_customer_id = $1),
-          $2, $3, $4, $5, $6, $7
-        )
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
       `, [
-        customerId,
+        userId,
         invoice.id,
         invoice.amount_due / 100, // Convert from cents
         invoice.currency,
         'failed',
         invoice.billing_reason,
-        'Payment failed for subscription'
+        'Monthly payment failed for subscription'
       ]);
 
-      // Could send notification email here
-      console.log(`⚠️ Payment failed recorded: ${invoice.id}`);
+      console.log(`⚠️ Monthly payment failed recorded for user ${userId}: ${invoice.id}`);
     } catch (error) {
       console.error('Error handling payment failed:', error);
       throw error;
@@ -510,16 +610,15 @@ class StripeService {
    */
   async handleCheckoutCompleted(session) {
     try {
-      const userId = session.metadata.userId;
-      const planName = session.metadata.planName;
+      const userId = session.metadata?.userId;
+      const planName = session.metadata?.planName;
 
       if (!userId) {
         console.error('No userId in checkout session metadata');
         return;
       }
 
-      console.log(`✅ Checkout completed for user ${userId}: Plan ${planName}`);
-      // Additional logic can be added here if needed
+      console.log(`✅ Monthly checkout completed for user ${userId}: Plan ${planName}`);
     } catch (error) {
       console.error('Error handling checkout completed:', error);
       throw error;
@@ -573,7 +672,7 @@ class StripeService {
   }
 
   /**
-   * Get pricing information for plans
+   * Get pricing information for plans (Monthly only)
    */
   async getPricingInfo() {
     try {
@@ -582,15 +681,17 @@ class StripeService {
         expand: ['data.product']
       });
 
-      return prices.data.map(price => ({
-        id: price.id,
-        productId: price.product.id,
-        productName: price.product.name,
-        amount: price.unit_amount / 100,
-        currency: price.currency,
-        interval: price.recurring?.interval,
-        intervalCount: price.recurring?.interval_count
-      }));
+      return prices.data
+        .filter(price => price.recurring?.interval === 'month') // Only monthly prices
+        .map(price => ({
+          id: price.id,
+          productId: price.product.id,
+          productName: price.product.name,
+          amount: price.unit_amount / 100,
+          currency: price.currency,
+          interval: 'month',
+          intervalCount: 1
+        }));
     } catch (error) {
       console.error('Error getting pricing info:', error);
       throw new Error('Failed to get pricing info: ' + error.message);

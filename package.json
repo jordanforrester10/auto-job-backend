@@ -16,5 +16,10 @@
   "workspaces": [
     "backend",
     "frontend"
-  ]
+  ],
+  "dependencies": {
+    "cheerio": "^1.1.0",
+    "puppeteer": "^24.10.2",
+    "user-agents": "^1.1.582"
+  }
 }

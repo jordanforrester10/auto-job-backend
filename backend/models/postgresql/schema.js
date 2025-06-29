@@ -1,4 +1,4 @@
-// backend/models/postgresql/schema.js - UPDATED WITH SUBSCRIPTION TABLES
+// backend/models/postgresql/schema.js - COMPLETE MONTHLY ONLY VERSION
 const db = require('../../config/postgresql');
 
 const createTables = async () => {
@@ -315,10 +315,10 @@ const createTables = async () => {
     `);
 
     // ======================================
-    // NEW SUBSCRIPTION TABLES START HERE
+    // SUBSCRIPTION TABLES (MONTHLY ONLY)
     // ======================================
 
-    // Subscription Plans Table - Defines available plans with features and limits
+    // Subscription Plans Table - Monthly only pricing
     await db.query(`
       CREATE TABLE IF NOT EXISTS subscription_plans (
         id SERIAL PRIMARY KEY,
@@ -326,9 +326,7 @@ const createTables = async () => {
         display_name VARCHAR(255) NOT NULL,
         description TEXT,
         price_monthly DECIMAL(10,2) NOT NULL DEFAULT 0,
-        price_yearly DECIMAL(10,2) NOT NULL DEFAULT 0,
         stripe_monthly_price_id VARCHAR(255),
-        stripe_yearly_price_id VARCHAR(255),
         features JSONB NOT NULL DEFAULT '{}',
         limits JSONB NOT NULL DEFAULT '{}',
         is_active BOOLEAN DEFAULT TRUE,
@@ -338,7 +336,7 @@ const createTables = async () => {
       );
     `);
 
-    // User Subscriptions Table - Tracks user subscription status
+    // User Subscriptions Table - Monthly billing only
     await db.query(`
       CREATE TABLE IF NOT EXISTS user_subscriptions (
         id SERIAL PRIMARY KEY,
@@ -347,7 +345,6 @@ const createTables = async () => {
         stripe_customer_id VARCHAR(255),
         stripe_subscription_id VARCHAR(255),
         status VARCHAR(50) NOT NULL DEFAULT 'active',
-        billing_cycle VARCHAR(20) NOT NULL DEFAULT 'monthly',
         current_period_start TIMESTAMP,
         current_period_end TIMESTAMP,
         cancel_at_period_end BOOLEAN DEFAULT FALSE,
@@ -430,24 +427,9 @@ const createTables = async () => {
     
     console.log('✅ Tables created successfully');
     
-    // Create Indexes in a separate step to ensure all columns exist
+    // Create Indexes
     console.log('Creating indexes...');
     
-    // Helper function to check if column exists before creating index
-    const columnExists = async (tableName, columnName) => {
-      try {
-        const result = await db.query(`
-          SELECT column_name 
-          FROM information_schema.columns 
-          WHERE table_name = $1 AND column_name = $2
-        `, [tableName, columnName]);
-        return result.rows.length > 0;
-      } catch (error) {
-        return false;
-      }
-    };
-
-    // Basic indexes that should always work
     const basicIndexes = [
       'CREATE INDEX IF NOT EXISTS idx_recruiters_company ON recruiters(current_company_id)',
       'CREATE INDEX IF NOT EXISTS idx_recruiters_industry ON recruiters(industry_id)',
@@ -467,7 +449,7 @@ const createTables = async () => {
       'CREATE INDEX IF NOT EXISTS idx_outreach_messages_recruiter ON outreach_messages(recruiter_id)',
       'CREATE INDEX IF NOT EXISTS idx_outreach_messages_status ON outreach_messages(status)',
       
-      // NEW: Subscription-related indexes
+      // Subscription-related indexes
       'CREATE INDEX IF NOT EXISTS idx_user_subscriptions_user_id ON user_subscriptions(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_user_subscriptions_stripe_customer ON user_subscriptions(stripe_customer_id)',
       'CREATE INDEX IF NOT EXISTS idx_user_subscriptions_status ON user_subscriptions(status)',
@@ -487,41 +469,6 @@ const createTables = async () => {
         console.log(`Index creation failed (this is usually okay): ${error.message}`);
       }
     }
-
-    // Conditional indexes that depend on specific columns
-    if (await columnExists('recruiters', 'title')) {
-      try {
-        await db.query(`
-          CREATE INDEX IF NOT EXISTS idx_recruiters_title ON recruiters USING gin(to_tsvector('english', title));
-        `);
-      } catch (error) {
-        console.log('Title index creation failed (this is usually okay)');
-      }
-    }
-
-    if (await columnExists('recruiters', 'person_city') && await columnExists('recruiters', 'person_state')) {
-      try {
-        await db.query(`
-          CREATE INDEX IF NOT EXISTS idx_recruiters_city_state ON recruiters(person_city, person_state);
-        `);
-        console.log('✅ Created city/state index');
-      } catch (error) {
-        console.log('City/state index creation failed (this is usually okay)');
-      }
-    } else {
-      console.log('⚠️ Skipping city/state index - columns do not exist yet');
-    }
-
-    if (await columnExists('recruiters', 'is_active')) {
-      try {
-        await db.query(`
-          CREATE INDEX IF NOT EXISTS idx_recruiters_active ON recruiters(is_active);
-        `);
-        console.log('✅ Created is_active index');
-      } catch (error) {
-        console.log('is_active index creation failed (this is usually okay)');
-      }
-    }
     
     console.log('✅ Indexes created successfully');
     console.log('✅ PostgreSQL tables setup completed successfully');
@@ -535,7 +482,7 @@ const createTables = async () => {
 // Function to seed some initial data for testing
 const seedInitialData = async () => {
   try {
-    // Minimal seeding for now - we'll add the recruiter import utility later
+    // Seed industry data
     const industryCount = await db.query('SELECT COUNT(*) FROM industries');
     
     if (parseInt(industryCount.rows[0].count) === 0) {
@@ -557,7 +504,7 @@ const seedInitialData = async () => {
       console.log('Initial industry data seeded successfully');
     }
     
-    // Add skills data
+    // Seed skills data
     const skillCount = await db.query('SELECT COUNT(*) FROM skills');
     
     if (parseInt(skillCount.rows[0].count) === 0) {
@@ -585,19 +532,19 @@ const seedInitialData = async () => {
       console.log('Initial skill data seeded successfully');
     }
 
-    // NEW: Seed subscription plans
+    // Seed subscription plans (MONTHLY ONLY)
     const planCount = await db.query('SELECT COUNT(*) FROM subscription_plans');
     
     if (parseInt(planCount.rows[0].count) === 0) {
-      console.log('Seeding initial subscription plans...');
+      console.log('Seeding monthly subscription plans...');
       
       await db.query(`
         INSERT INTO subscription_plans (
           name, 
           display_name, 
           description, 
-          price_monthly, 
-          price_yearly,
+          price_monthly,
+          stripe_monthly_price_id,
           features,
           limits,
           sort_order
@@ -607,7 +554,7 @@ const seedInitialData = async () => {
           'Free',
           'Perfect for getting started with job searching',
           0.00,
-          0.00,
+          NULL,
           '{"resumeUploads": true, "resumeAnalysis": true, "jobImports": true, "resumeTailoring": true, "recruiterAccess": false, "aiJobDiscovery": false, "aiAssistant": false}',
           '{"resumeUploads": 1, "resumeAnalysis": 1, "jobImports": 3, "resumeTailoring": 1, "recruiterUnlocks": 0, "aiJobDiscovery": 0, "aiAssistant": false, "aiConversations": 0, "aiMessagesPerConversation": 0}',
           1
@@ -617,7 +564,7 @@ const seedInitialData = async () => {
           'Casual',
           'For active job seekers who want more tools',
           19.99,
-          199.99,
+          'price_casual_monthly_placeholder',
           '{"resumeUploads": true, "resumeAnalysis": true, "jobImports": true, "resumeTailoring": true, "recruiterAccess": true, "recruiterUnlocks": true, "aiJobDiscovery": true, "aiAssistant": false}',
           '{"resumeUploads": 5, "resumeAnalysis": 5, "jobImports": 25, "resumeTailoring": 25, "recruiterUnlocks": 25, "aiJobDiscovery": 1, "aiAssistant": false, "aiConversations": 0, "aiMessagesPerConversation": 0}',
           2
@@ -627,7 +574,7 @@ const seedInitialData = async () => {
           'Hunter',
           'For serious job hunters who want unlimited access',
           49.99,
-          499.99,
+          'price_hunter_monthly_placeholder',
           '{"resumeUploads": true, "resumeAnalysis": true, "jobImports": true, "resumeTailoring": true, "recruiterAccess": true, "recruiterUnlocks": true, "aiJobDiscovery": true, "aiAssistant": true}',
           '{"resumeUploads": -1, "resumeAnalysis": -1, "jobImports": -1, "resumeTailoring": 50, "recruiterUnlocks": -1, "aiJobDiscovery": -1, "aiAssistant": true, "aiConversations": 5, "aiMessagesPerConversation": 20}',
           3
@@ -635,7 +582,8 @@ const seedInitialData = async () => {
         ON CONFLICT (name) DO NOTHING;
       `);
       
-      console.log('Initial subscription plans seeded successfully');
+      console.log('Monthly subscription plans seeded successfully');
+      console.log('⚠️ Remember to update the stripe_monthly_price_id values with your actual Stripe price IDs!');
     }
     
     console.log('Basic initial data seeded successfully');

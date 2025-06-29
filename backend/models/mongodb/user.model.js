@@ -1,6 +1,6 @@
-// backend/models/mongodb/user.model.js - UPDATED WITH SUBSCRIPTION FIELDS
+// backend/models/mongodb/user.model.js - COMPLETE MONTHLY ONLY VERSION
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs'); // Changed from 'bcrypt' to 'bcryptjs'
+const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
 const userSchema = new mongoose.Schema({
@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Please provide a password'],
     minlength: [8, 'Password should be at least 8 characters'],
-    select: false // Don't return password by default
+    select: false
   },
   firstName: {
     type: String,
@@ -80,7 +80,7 @@ const userSchema = new mongoose.Schema({
   },
   
   // ======================================
-  // NEW SUBSCRIPTION FIELDS START HERE
+  // SUBSCRIPTION FIELDS (MONTHLY ONLY)
   // ======================================
   
   subscriptionTier: {
@@ -90,7 +90,7 @@ const userSchema = new mongoose.Schema({
   },
   stripeCustomerId: {
     type: String,
-    sparse: true // Allow multiple documents with null values
+    sparse: true
   },
   subscriptionStatus: {
     type: String,
@@ -110,11 +110,7 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  billingCycle: {
-    type: String,
-    enum: ['monthly', 'yearly'],
-    default: 'monthly'
-  },
+  // billingCycle removed since we only do monthly
   currentUsage: {
     resumeUploads: { type: Number, default: 0 },
     resumeAnalysis: { type: Number, default: 0 },
@@ -139,10 +135,6 @@ const userSchema = new mongoose.Schema({
       aiMessagesTotal: { type: Number, default: 0 }
     }
   }],
-  
-  // ======================================
-  // END OF NEW SUBSCRIPTION FIELDS
-  // ======================================
   
   role: {
     type: String,
@@ -173,7 +165,6 @@ const userSchema = new mongoose.Schema({
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
-  // Only hash the password if it's modified (or new)
   if (!this.isModified('password')) return next();
   
   try {
@@ -196,16 +187,13 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 
 // Generate email verification token
 userSchema.methods.generateEmailVerificationToken = function() {
-  // Create a token
   const token = crypto.randomBytes(32).toString('hex');
   
-  // Hash token and set to emailVerificationToken field
   this.emailVerificationToken = crypto
     .createHash('sha256')
     .update(token)
     .digest('hex');
   
-  // Set expiration (24 hours)
   this.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000;
   
   return token;
@@ -213,16 +201,13 @@ userSchema.methods.generateEmailVerificationToken = function() {
 
 // Generate password reset token
 userSchema.methods.generatePasswordResetToken = function() {
-  // Create a token
   const token = crypto.randomBytes(32).toString('hex');
   
-  // Hash token and set to passwordResetToken field
   this.passwordResetToken = crypto
     .createHash('sha256')
     .update(token)
     .digest('hex');
   
-  // Set expiration (10 minutes)
   this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
   
   return token;
@@ -235,7 +220,6 @@ userSchema.methods.isLocked = function() {
 
 // Increment login attempts and lock account if needed
 userSchema.methods.incrementLoginAttempts = async function() {
-  // If previous lock has expired, restart at 1
   if (this.lockUntil && this.lockUntil < Date.now()) {
     return this.updateOne({
       $set: { loginAttempts: 1 },
@@ -243,12 +227,9 @@ userSchema.methods.incrementLoginAttempts = async function() {
     });
   }
   
-  // Otherwise increment login attempts
   const updates = { $inc: { loginAttempts: 1 } };
   
-  // Lock the account if we've reached max attempts (5) and it's not locked
   if (this.loginAttempts + 1 >= 5 && !this.isLocked()) {
-    // Lock for 1 hour
     updates.$set = { lockUntil: Date.now() + 60 * 60 * 1000 };
   }
   
@@ -264,7 +245,7 @@ userSchema.methods.resetLoginAttempts = function() {
 };
 
 // ======================================
-// NEW SUBSCRIPTION METHODS START HERE
+// SUBSCRIPTION METHODS (MONTHLY ONLY)
 // ======================================
 
 // Get current subscription plan limits
@@ -438,7 +419,7 @@ userSchema.methods.getUsageStats = function() {
   return stats;
 };
 
-// Check if subscription is active and valid
+// Check if subscription is active and valid (monthly billing assumed)
 userSchema.methods.hasActiveSubscription = function() {
   if (this.subscriptionTier === 'free') return true;
   
@@ -449,9 +430,26 @@ userSchema.methods.hasActiveSubscription = function() {
   );
 };
 
-// ======================================
-// END OF NEW SUBSCRIPTION METHODS
-// ======================================
+// Get billing cycle (always monthly)
+userSchema.methods.getBillingCycle = function() {
+  return 'monthly';
+};
+
+// Get subscription summary
+userSchema.methods.getSubscriptionSummary = function() {
+  return {
+    tier: this.subscriptionTier,
+    status: this.subscriptionStatus,
+    billingCycle: 'monthly',
+    startDate: this.subscriptionStartDate,
+    endDate: this.subscriptionEndDate,
+    trialEndDate: this.trialEndDate,
+    cancelAtPeriodEnd: this.cancelAtPeriodEnd,
+    isActive: this.hasActiveSubscription(),
+    planLimits: this.getPlanLimits(),
+    usageStats: this.getUsageStats()
+  };
+};
 
 const User = mongoose.model('User', userSchema);
 

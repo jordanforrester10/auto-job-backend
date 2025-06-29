@@ -1,4 +1,4 @@
-// backend/server.js - UPDATED WITH SETTINGS ROUTES
+// backend/server.js - FIXED WEBHOOK BODY PARSING
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -9,6 +9,7 @@ require('dotenv').config();
 // Database connections
 const connectMongoDB = require('./config/mongodb');
 const { createTables, seedInitialData } = require('./models/postgresql/schema');
+const { initializeStripe } = require('./config/stripe');
 
 // Import routes
 const authRoutes = require('./routes/auth.routes');
@@ -17,19 +18,20 @@ const jobRoutes = require('./routes/job.routes');
 const assistantRoutes = require('./routes/assistant.routes');
 const recruiterRoutes = require('./routes/recruiter.routes');
 const searchRoutes = require('./routes/search.routes');
-const settingsRoutes = require('./routes/settings.routes'); // NEW: Settings routes
+const settingsRoutes = require('./routes/settings.routes');
+const subscriptionRoutes = require('./routes/subscription.routes');
 
 // Initialize Express
 const app = express();
 
-console.log('🚀 Starting Job Application Platform API...');
+console.log('🚀 Starting Job Application Platform API with Subscription System...');
 
 // Trust proxy for production
 if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-// CORS configuration (simplified - the complex version wasn't the issue)
+// CORS configuration
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? process.env.FRONTEND_URL || 'https://yourproductiondomain.com'
@@ -41,21 +43,33 @@ app.use(cors({
     'Authorization', 
     'X-Requested-With',
     'Accept',
-    'Origin'
+    'Origin',
+    'stripe-signature'
   ]
 }));
 
 // Security middleware
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false // Disable CSP for development
+  contentSecurityPolicy: false
 }));
 
-// Body parser middleware
+// ======================================
+// CRITICAL: WEBHOOK BODY PARSING FIX
+// ======================================
+
+// Stripe webhook endpoint - MUST use raw body parser
+app.use('/api/subscriptions/webhook', express.raw({ 
+  type: 'application/json',
+  limit: '1mb'
+}));
+
+// All other routes use regular JSON parsing
 app.use(express.json({ 
   limit: '10mb',
   strict: true
 }));
+
 app.use(express.urlencoded({ 
   extended: true, 
   limit: '10mb' 
@@ -64,7 +78,7 @@ app.use(express.urlencoded({
 // Cookie parser middleware
 app.use(cookieParser());
 
-// Request sanitization middleware - FIXED VERSION
+// Request sanitization middleware
 const sanitizeRequest = (req, res, next) => {
   const sanitize = (obj) => {
     if (!obj) return obj;
@@ -75,10 +89,9 @@ const sanitizeRequest = (req, res, next) => {
         return obj.map(sanitize);
       }
       
-      // Handle objects - FIXED: Use Object.prototype.hasOwnProperty.call()
+      // Handle objects
       const sanitized = {};
       for (const key in obj) {
-        // FIXED: Use Object.prototype.hasOwnProperty.call instead of obj.hasOwnProperty
         if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
         
         // Check for MongoDB injection patterns
@@ -94,14 +107,18 @@ const sanitizeRequest = (req, res, next) => {
     return obj;
   };
   
-  // Sanitize request data
+  // Skip sanitization for webhook endpoint (it needs raw body)
+  if (req.path === '/api/subscriptions/webhook') {
+    return next();
+  }
+  
+  // Sanitize request data for other endpoints
   try {
     if (req.body) req.body = sanitize(req.body);
     if (req.query) req.query = sanitize(req.query);
     if (req.params) req.params = sanitize(req.params);
   } catch (error) {
     console.warn('Sanitization error:', error);
-    // Continue without sanitization if there's an error
   }
   
   next();
@@ -109,7 +126,7 @@ const sanitizeRequest = (req, res, next) => {
 
 app.use(sanitizeRequest);
 
-// Rate limiting (more lenient for AI Assistant)
+// Rate limiting
 const generalLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
   max: 100, // limit each IP to 100 requests per windowMs
@@ -157,7 +174,7 @@ const searchLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// NEW: Special rate limiter for Settings API (moderate limits)
+// Special rate limiter for Settings API
 const settingsLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
   max: 30, // Allow reasonable settings updates
@@ -169,24 +186,39 @@ const settingsLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Special rate limiter for Subscription API
+const subscriptionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // Allow reasonable subscription operations
+  message: {
+    success: false,
+    error: 'Subscription rate limit exceeded. Please wait before making more requests.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.use('/api/', generalLimiter);
 app.use('/api/assistant', aiLimiter);
 app.use('/api/recruiters', recruiterLimiter);
 app.use('/api/search', searchLimiter);
-app.use('/api/settings', settingsLimiter); // NEW: Settings-specific rate limiting
+app.use('/api/settings', settingsLimiter);
+app.use('/api/subscriptions', subscriptionLimiter);
 
 // Request logging middleware (development only)
 if (process.env.NODE_ENV !== 'production') {
   app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
+    if (req.path !== '/api/subscriptions/webhook') {
+      console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
+    }
     next();
   });
 }
 
-// Database initialization
-const initializeDatabases = async () => {
+// Database and service initialization
+const initializeServices = async () => {
   try {
-    console.log('🔌 Initializing databases...');
+    console.log('🔌 Initializing services...');
     
     // Connect to MongoDB
     await connectMongoDB();
@@ -200,28 +232,36 @@ const initializeDatabases = async () => {
     await seedInitialData();
     console.log('✅ Initial data seeded successfully');
     
-    console.log('🎉 All database connections completed successfully');
+    // Initialize Stripe
+    const stripeInitialized = await initializeStripe();
+    if (stripeInitialized) {
+      console.log('✅ Stripe initialized successfully');
+    } else {
+      console.log('⚠️ Stripe initialization failed - subscription features may not work');
+    }
+    
+    console.log('🎉 All services initialized successfully');
   } catch (error) {
-    console.error('❌ Database initialization error:', error.message);
+    console.error('❌ Service initialization error:', error.message);
     
     // In production, exit on database failure
     if (process.env.NODE_ENV === 'production') {
       process.exit(1);
     } else {
-      console.log('⚠️ Continuing in development mode without full database setup...');
+      console.log('⚠️ Continuing in development mode without full service setup...');
     }
   }
 };
 
-// Initialize databases
-initializeDatabases();
+// Initialize services
+initializeServices();
 
 // API Routes
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'Job Application Platform API is running',
-    version: '1.0.0',
+    message: 'Job Application Platform API with Subscription System',
+    version: '2.0.0',
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
     features: [
@@ -233,7 +273,10 @@ app.get('/', (req, res) => {
       'AI Job Search',
       'Recruiter Outreach',
       'Global Search',
-      'User Settings & Security' // NEW: Added settings feature
+      'User Settings & Security',
+      '💳 Subscription & Billing System',
+      '📊 Usage Tracking & Limits',
+      '⚡ Feature Gating'
     ]
   });
 });
@@ -247,10 +290,13 @@ app.get('/api/health', (req, res) => {
     uptime: Math.floor(process.uptime()),
     memory: process.memoryUsage(),
     environment: process.env.NODE_ENV || 'development',
-    ai_status: process.env.OPENAI_API_KEY ? 'configured' : 'not_configured',
-    database_status: {
-      mongodb: 'connected',
-      postgresql: 'connected'
+    services: {
+      ai_status: process.env.OPENAI_API_KEY ? 'configured' : 'not_configured',
+      stripe_status: process.env.STRIPE_SECRET_KEY ? 'configured' : 'not_configured',
+      database_status: {
+        mongodb: 'connected',
+        postgresql: 'connected'
+      }
     }
   });
 });
@@ -262,10 +308,10 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/recruiters', recruiterRoutes);
 app.use('/api/search', searchRoutes);
-app.use('/api/settings', settingsRoutes); // NEW: Mount settings routes
+app.use('/api/settings', settingsRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
-// FIXED: Catch-all route with named parameter (this was the problem!)
-// Changed from '/api/*' to '/api/*path' - the wildcard MUST be named
+// Catch-all route for undefined API endpoints
 app.all('/api/*', (req, res) => {
   res.status(404).json({
     success: false,
@@ -308,13 +354,24 @@ app.all('/api/*', (req, res) => {
         'GET /api/search/suggestions?query={query}',
         'GET /api/search/popular'
       ],
-      settings: [ // NEW: Settings endpoints
+      settings: [
         'GET /api/settings/profile',
         'PUT /api/settings/profile',
         'PUT /api/settings/change-password',
         'DELETE /api/settings/delete-account',
         'POST /api/settings/send-verification-email',
         'GET /api/settings/verify-email/:token'
+      ],
+      subscriptions: [
+        'GET /api/subscriptions/plans',
+        'GET /api/subscriptions/current',
+        'GET /api/subscriptions/usage',
+        'POST /api/subscriptions/create-checkout',
+        'POST /api/subscriptions/cancel',
+        'POST /api/subscriptions/resume',
+        'PUT /api/subscriptions/change-plan',
+        'GET /api/subscriptions/billing-history',
+        'POST /api/subscriptions/webhook'
       ]
     }
   });
@@ -335,6 +392,15 @@ app.use((err, req, res, next) => {
     return res.status(503).json({
       success: false,
       error: 'AI service temporarily unavailable',
+      details: process.env.NODE_ENV !== 'production' ? err.message : undefined
+    });
+  }
+  
+  // Stripe error handling
+  if (err.type && err.type.includes('Stripe')) {
+    return res.status(400).json({
+      success: false,
+      error: 'Payment processing error',
       details: process.env.NODE_ENV !== 'production' ? err.message : undefined
     });
   }
@@ -405,9 +471,12 @@ const server = app.listen(PORT, () => {
   console.log(`📊 Health check available at: http://localhost:${PORT}/api/health`);
   console.log(`🔗 API documentation: http://localhost:${PORT}/`);
   console.log(`🤖 AI Assistant: ${process.env.OPENAI_API_KEY ? '✅ Configured' : '❌ Not configured - add OPENAI_API_KEY to .env'}`);
+  console.log(`💳 Stripe Payments: ${process.env.STRIPE_SECRET_KEY ? '✅ Configured' : '❌ Not configured - add STRIPE_SECRET_KEY to .env'}`);
+  console.log(`🔔 Webhook endpoint: http://localhost:${PORT}/api/subscriptions/webhook`);
   console.log(`🎯 Recruiter API: ✅ Configured with PostgreSQL database`);
   console.log(`🔍 Global Search: ✅ Configured with cross-platform search`);
-  console.log(`⚙️ Settings API: ✅ Configured with profile & security management`); // NEW
+  console.log(`⚙️ Settings API: ✅ Configured with profile & security management`);
+  console.log(`📈 Subscription System: ✅ Configured with usage tracking & limits`);
 });
 
 // Graceful shutdown handlers

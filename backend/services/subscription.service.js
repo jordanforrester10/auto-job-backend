@@ -1,4 +1,4 @@
-// backend/services/subscription.service.js
+// backend/services/subscription.service.js - COMPLETE MONTHLY ONLY VERSION
 const User = require('../models/mongodb/user.model');
 const db = require('../config/postgresql');
 const stripeService = require('./stripe.service');
@@ -23,7 +23,6 @@ class SubscriptionService {
           sp.display_name as plan_display_name,
           sp.description as plan_description,
           sp.price_monthly,
-          sp.price_yearly,
           sp.features,
           sp.limits
         FROM user_subscriptions us
@@ -49,7 +48,7 @@ class SubscriptionService {
           subscriptionEndDate: user.subscriptionEndDate,
           trialEndDate: user.trialEndDate,
           cancelAtPeriodEnd: user.cancelAtPeriodEnd,
-          billingCycle: user.billingCycle,
+          billingCycle: 'monthly', // Always monthly
           stripeCustomerId: user.stripeCustomerId
         },
         subscription: subscription || null,
@@ -64,7 +63,7 @@ class SubscriptionService {
   }
 
   /**
-   * Get all available subscription plans
+   * Get all available subscription plans (Monthly only)
    * @returns {Array} Array of subscription plans
    */
   async getAvailablePlans() {
@@ -78,7 +77,8 @@ class SubscriptionService {
       return plansQuery.rows.map(plan => ({
         ...plan,
         features: plan.features || {},
-        limits: plan.limits || {}
+        limits: plan.limits || {},
+        billingCycle: 'monthly' // Always monthly
       }));
     } catch (error) {
       console.error('Error getting available plans:', error);
@@ -166,15 +166,14 @@ class SubscriptionService {
   }
 
   /**
-   * Create checkout session for plan upgrade
+   * Create checkout session for plan upgrade (Monthly only)
    * @param {string} userId - User ID
    * @param {string} planName - Plan to upgrade to
-   * @param {string} billingCycle - 'monthly' or 'yearly'
    * @param {string} successUrl - URL to redirect on success
    * @param {string} cancelUrl - URL to redirect on cancel
    * @returns {Object} Checkout session
    */
-  async createCheckoutSession(userId, planName, billingCycle, successUrl, cancelUrl) {
+  async createCheckoutSession(userId, planName, successUrl, cancelUrl) {
     try {
       const user = await User.findById(userId);
       if (!user) {
@@ -192,23 +191,20 @@ class SubscriptionService {
         throw new Error('Plan not found');
       }
 
-      // Determine price ID based on billing cycle
-      const priceId = billingCycle === 'yearly' 
-        ? plan.stripe_yearly_price_id 
-        : plan.stripe_monthly_price_id;
+      // Use monthly price ID only
+      const priceId = plan.stripe_monthly_price_id;
 
       if (!priceId) {
-        throw new Error(`No price configured for ${planName} ${billingCycle} plan`);
+        throw new Error(`No monthly price configured for ${planName} plan`);
       }
 
-      // Create checkout session
+      // Create checkout session (always monthly)
       const session = await stripeService.createCheckoutSession({
         userId,
         priceId,
         successUrl,
         cancelUrl,
-        planName,
-        billingCycle
+        planName
       });
 
       return session;
@@ -332,13 +328,12 @@ class SubscriptionService {
   }
 
   /**
-   * Change subscription plan
+   * Change subscription plan (Monthly only)
    * @param {string} userId - User ID
    * @param {string} newPlanName - New plan name
-   * @param {string} billingCycle - 'monthly' or 'yearly'
    * @returns {Object} Updated subscription
    */
-  async changeSubscriptionPlan(userId, newPlanName, billingCycle) {
+  async changeSubscriptionPlan(userId, newPlanName) {
     try {
       const user = await User.findById(userId);
       if (!user) {
@@ -367,13 +362,11 @@ class SubscriptionService {
         throw new Error('Plan not found');
       }
 
-      // Determine new price ID
-      const newPriceId = billingCycle === 'yearly' 
-        ? plan.stripe_yearly_price_id 
-        : plan.stripe_monthly_price_id;
+      // Get monthly price ID
+      const newPriceId = plan.stripe_monthly_price_id;
 
       if (!newPriceId) {
-        throw new Error(`No price configured for ${newPlanName} ${billingCycle} plan`);
+        throw new Error(`No monthly price configured for ${newPlanName} plan`);
       }
 
       // Change plan in Stripe
@@ -384,8 +377,7 @@ class SubscriptionService {
 
       // Update user in MongoDB
       await User.findByIdAndUpdate(userId, {
-        subscriptionTier: newPlanName,
-        billingCycle: billingCycle
+        subscriptionTier: newPlanName
       });
 
       return updatedSubscription;
@@ -545,7 +537,7 @@ class SubscriptionService {
   }
 
   /**
-   * Get plan comparison data
+   * Get plan comparison data (Monthly only)
    * @returns {Object} Plan comparison matrix
    */
   async getPlanComparison() {
@@ -571,7 +563,7 @@ class SubscriptionService {
           displayName: plan.display_name,
           description: plan.description,
           priceMonthly: plan.price_monthly,
-          priceYearly: plan.price_yearly,
+          billingCycle: 'monthly', // Always monthly
           features: plan.features,
           limits: plan.limits
         })),
