@@ -1,4 +1,4 @@
-// backend/routes/assistant.routes.js - RAG VERSION WITH NO MEMORY SYSTEM
+// backend/routes/assistant.routes.js - CLEANED VERSION WITH ONLY EXISTING FUNCTIONS
 const express = require('express');
 const router = express.Router();
 const assistantController = require('../controllers/assistant.controller');
@@ -9,10 +9,10 @@ const rateLimit = require('express-rate-limit');
 router.use(protect);
 
 // ===================================================================
-// RATE LIMITING SETUP (updated for RAG)
+// RATE LIMITING SETUP
 // ===================================================================
 
-// Rate limiting for AI operations with RAG context (more restrictive due to cost)
+// Rate limiting for AI operations with RAG context
 const ragAiLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
   max: 30, // Reduced limit for RAG operations
@@ -24,25 +24,13 @@ const ragAiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Rate limiting for mention suggestions (moderate)
+// Rate limiting for mention suggestions
 const mentionLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 60, // Allow frequent @-mention lookups
   message: {
     success: false,
     error: 'Mention lookup rate limit exceeded. Please wait before trying again.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Rate limiting for resume operations with context (moderate)
-const resumeContextLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 15, // Reduced for context-aware operations
-  message: {
-    success: false,
-    error: 'Resume operation rate limit exceeded. Please wait before making more requests.'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -77,28 +65,11 @@ router.get('/context-data/:type/:id', standardLimiter, assistantController.getCo
 // Enhanced main chat endpoint with RAG context support
 router.post('/chat', ragAiLimiter, assistantController.chat);
 
-// Conversation management (unchanged)
+// Conversation management
 router.get('/conversations', standardLimiter, assistantController.getConversations);
 router.get('/conversations/:conversationId', standardLimiter, assistantController.getConversation);
 router.put('/conversations/:conversationId', standardLimiter, assistantController.updateConversation);
 router.delete('/conversations/:conversationId', standardLimiter, assistantController.deleteConversation);
-
-// ===================================================================
-// ENHANCED RESUME OPERATIONS WITH RAG CONTEXT
-// ===================================================================
-
-// Core resume editing operations with context awareness
-router.post('/apply-resume-changes', resumeContextLimiter, assistantController.applyResumeChanges);
-router.post('/optimize-ats', resumeContextLimiter, assistantController.optimizeForATS);
-router.post('/analyze-resume', resumeContextLimiter, assistantController.analyzeResume);
-
-// ===================================================================
-// JOB ANALYSIS WITH RAG CONTEXT
-// ===================================================================
-
-// Job matching with resume context
-router.post('/analyze-job-match', ragAiLimiter, assistantController.analyzeJobMatch);
-router.post('/generate-cover-letter', ragAiLimiter, assistantController.generateCoverLetter);
 
 // ===================================================================
 // SIMPLIFIED SEARCH (NO MEMORY SYSTEM)
@@ -114,51 +85,13 @@ router.get('/search', standardLimiter, assistantController.search);
 // System endpoints with RAG information
 router.get('/capabilities', assistantController.getCapabilities);
 router.get('/health', assistantController.healthCheck);
-router.get('/usage-stats', assistantController.getUsageStats);
-router.post('/track-interaction', assistantController.trackInteraction);
-router.post('/reset-context', assistantController.resetContext);
 
 // ===================================================================
-// CAREER GUIDANCE WITH RAG CONTEXT
+// CONTEXTUAL SUGGESTIONS
 // ===================================================================
 
-// Career guidance endpoints (simplified, context-aware)
-router.post('/career-advice', ragAiLimiter, assistantController.getCareerAdvice);
+// Get contextual suggestions for current page
 router.post('/contextual-suggestions', standardLimiter, assistantController.getContextualSuggestions);
-router.post('/personalized-tips', standardLimiter, assistantController.getPersonalizedTips);
-
-// ===================================================================
-// ANALYTICS (simplified, no memory analytics)
-// ===================================================================
-
-router.get('/analytics', standardLimiter, assistantController.getAnalytics);
-
-// ===================================================================
-// REMOVED: MEMORY SYSTEM ENDPOINTS
-// ===================================================================
-// The following endpoints have been removed as we've eliminated the memory system:
-// - /memories (GET, POST, DELETE)
-// - /memory-insights
-// - /memory-maintenance
-//
-// These are replaced by conversation-scoped RAG context
-
-// ===================================================================
-// LEGACY COMPATIBILITY ENDPOINTS (return simplified responses)
-// ===================================================================
-
-// Memory endpoints (return empty/disabled responses for compatibility)
-router.get('/memories', assistantController.getMemories);
-router.post('/memories', assistantController.updateMemory);
-router.delete('/memories/:memoryId', assistantController.deleteMemory);
-router.get('/memory-insights', assistantController.getMemoryInsights);
-router.post('/memory-maintenance', assistantController.performMemoryMaintenance);
-
-// Conversation utilities (simplified implementations)
-router.post('/conversations/:conversationId/summary', assistantController.generateSummary);
-router.get('/conversations/:conversationId/insights', assistantController.getConversationInsights);
-router.get('/conversations/:conversationId/export', assistantController.exportConversation);
-router.post('/conversations/bulk-update', assistantController.bulkUpdateConversations);
 
 // ===================================================================
 // ERROR HANDLING MIDDLEWARE (enhanced for RAG)
@@ -172,7 +105,7 @@ router.use((error, req, res, next) => {
     route: req.route?.path,
     method: req.method,
     userId: req.user?._id,
-ragContext: req.body?.context ? {
+    ragContext: req.body?.context ? {
       hasAttachedResumes: req.body.context.attachedResumes?.length > 0,
       hasAttachedJobs: req.body.context.attachedJobs?.length > 0
     } : null,
@@ -261,7 +194,7 @@ ragContext: req.body?.context ? {
       suggestion: isRagOperation ?
         'RAG context processing is resource-intensive. Please wait a few minutes before trying again.' :
         'Please wait a few minutes before trying again',
-      retryAfter: error.retryAfter || (isRagOperation ? 600 : 300), // Longer retry for RAG
+      retryAfter: error.retryAfter || (isRagOperation ? 600 : 300),
       ragEnabled: true
     });
   }

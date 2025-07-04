@@ -1,4 +1,4 @@
-// src/components/recruiters/OutreachComposer.js - FIXED DATA HANDLING AND ERROR RESOLUTION
+// src/components/recruiters/OutreachComposer.js - FIXED TONE OPTIONS ERROR
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -495,8 +495,9 @@ ${formattedEmailBody}`;
     onClose();
   };
 
-  const messageTemplates = recruiterService.getMessageTemplates();
-  const toneOptions = recruiterService.getToneOptions();
+  // FIXED: Use synchronous methods for templates and options
+  const messageTemplates = recruiterService.getDefaultMessageTemplates();
+  const toneOptions = recruiterService.getDefaultToneOptions();
 
   const getCharacterCountColor = () => {
     if (characterCount > 2000) return 'error';
@@ -843,8 +844,7 @@ ${formattedEmailBody}`;
                                 size="small"
                                 InputProps={{
                                   startAdornment: <LightbulbIcon sx={{ mr: 1, color: theme.palette.info.main, alignSelf: 'flex-start', mt: 1, fontSize: '1rem' }} />
-                                }}
-                              />
+                                }}/>
                             </Grid>
                           </Grid>
                         </Box>

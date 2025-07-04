@@ -1,3 +1,4 @@
+// src/components/jobs/FindJobsDialog.js - Enhanced with Subscription Validation
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -38,12 +39,14 @@ import {
   TrendingUp as TrendingUpIcon,
   Work as WorkIcon,
   CalendarToday as CalendarIcon,
-  Speed as SpeedIcon
+  Speed as SpeedIcon,
+  Upgrade as UpgradeIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import resumeService from '../../utils/resumeService';
 import jobService from '../../utils/jobService';
 import AutoJobLogo from '../common/AutoJobLogo';
+import { useSubscription } from '../../context/SubscriptionContext';
 
 // Custom styled components for better theming
 const CustomStepConnector = styled(StepConnector)(({ theme }) => ({
@@ -92,6 +95,15 @@ const SuccessBox = styled(Paper)(({ theme }) => ({
 
 const FindJobsDialog = ({ open, onClose }) => {
   const navigate = useNavigate();
+  const { 
+    subscription, 
+    usage, 
+    planLimits, 
+    canPerformAction, 
+    hasFeatureAccess,
+    planInfo 
+  } = useSubscription();
+  
   const [activeStep, setActiveStep] = useState(0);
   const [resumes, setResumes] = useState([]);
   const [selectedResumeId, setSelectedResumeId] = useState('');
@@ -101,6 +113,12 @@ const FindJobsDialog = ({ open, onClose }) => {
   const [resumesLoading, setResumesLoading] = useState(true);
 
   const steps = ['Select Resume', 'Confirm Search', 'Search Started'];
+
+  // Get current subscription info
+  const currentPlan = subscription?.subscriptionTier || 'free';
+  const aiDiscoveryUsage = usage?.aiJobDiscovery || { used: 0, limit: planLimits?.aiJobDiscovery || 0 };
+  const aiDiscoveryLimit = planLimits?.aiJobDiscovery || 0;
+  const isAtLimit = aiDiscoveryLimit !== -1 && aiDiscoveryUsage.used >= aiDiscoveryLimit;
 
   useEffect(() => {
     if (open) {
@@ -166,6 +184,12 @@ const FindJobsDialog = ({ open, onClose }) => {
       setError('');
       setSearchStarted(true);
 
+      // Final validation before starting search
+      const permission = canPerformAction('aiJobDiscovery', 1);
+      if (!permission.allowed) {
+        throw new Error(permission.reason);
+      }
+
       const response = await jobService.findJobsWithAi(selectedResumeId);
       
       // The backend returns a 202 status with a message
@@ -203,6 +227,61 @@ const FindJobsDialog = ({ open, onClose }) => {
             <Typography variant="body1" paragraph color="text.secondary">
               Select a resume to use for AI job discovery. AJ will analyze your resume and search for relevant job opportunities for you.
             </Typography>
+
+            {/* Subscription Info Alert */}
+            {currentPlan === 'casual' && (
+              <Alert 
+                severity="info" 
+                sx={{ 
+                  mb: 3,
+                  borderRadius: 2,
+                  '& .MuiAlert-icon': {
+                    fontSize: '1.5rem'
+                  }
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} gutterBottom>
+                  Casual Plan: {aiDiscoveryUsage.used}/{aiDiscoveryLimit} AI Job Discoveries Used
+                </Typography>
+                <Typography variant="body2">
+                  {isAtLimit 
+                    ? 'You\'ve reached your monthly limit. Upgrade to Hunter for unlimited AI job searches.'
+                    : `You have ${aiDiscoveryLimit - aiDiscoveryUsage.used} AI job discovery remaining this month.`
+                  }
+                </Typography>
+                {isAtLimit && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<UpgradeIcon />}
+                    onClick={() => window.open('/pricing', '_blank')}
+                    sx={{ mt: 1, borderRadius: 2 }}
+                  >
+                    Upgrade to Hunter
+                  </Button>
+                )}
+              </Alert>
+            )}
+
+            {currentPlan === 'hunter' && (
+              <Alert 
+                severity="success" 
+                sx={{ 
+                  mb: 3,
+                  borderRadius: 2,
+                  '& .MuiAlert-icon': {
+                    fontSize: '1.5rem'
+                  }
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} gutterBottom>
+                  Hunter Plan: Unlimited AI Job Discoveries
+                </Typography>
+                <Typography variant="body2">
+                  Create as many AI job searches as you need to find your perfect role.
+                </Typography>
+              </Alert>
+            )}
             
             {resumesLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -326,6 +405,56 @@ const FindJobsDialog = ({ open, onClose }) => {
               </Typography>
             </Box>
 
+            {/* Plan-specific messaging */}
+            {currentPlan === 'casual' && !isAtLimit && (
+              <Alert 
+                severity="warning" 
+                icon={<WarningIcon />} 
+                sx={{ 
+                  mb: 3,
+                  borderRadius: 2,
+                  backgroundColor: 'warning.light',
+                  border: '1px solid',
+                  borderColor: 'warning.main',
+                  '& .MuiAlert-icon': {
+                    fontSize: '1.5rem'
+                  }
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} gutterBottom>
+                  Casual Plan Limitation
+                </Typography>
+                <Typography variant="body2">
+                  This will use your {aiDiscoveryLimit - aiDiscoveryUsage.used} remaining AI job discovery for this month. 
+                  Upgrade to Hunter for unlimited searches.
+                </Typography>
+              </Alert>
+            )}
+
+            {currentPlan === 'hunter' && (
+              <Alert 
+                severity="success" 
+                icon={<CheckCircleIcon />} 
+                sx={{ 
+                  mb: 3,
+                  borderRadius: 2,
+                  backgroundColor: 'success.light',
+                  border: '1px solid',
+                  borderColor: 'success.main',
+                  '& .MuiAlert-icon': {
+                    fontSize: '1.5rem'
+                  }
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} gutterBottom>
+                  Hunter Plan - Unlimited Access
+                </Typography>
+                <Typography variant="body2">
+                  You have unlimited AI job discoveries. Create as many searches as you need!
+                </Typography>
+              </Alert>
+            )}
+
             <Alert 
               severity="info" 
               icon={<InfoIcon />} 
@@ -433,6 +562,30 @@ const FindJobsDialog = ({ open, onClose }) => {
             <Typography variant="body1" paragraph color="text.secondary">
               Your AI job search is now running in the background.
             </Typography>
+
+            {/* Plan-specific success messaging */}
+            {currentPlan === 'casual' && (
+              <Alert 
+                severity="info" 
+                sx={{ 
+                  mb: 3,
+                  borderRadius: 2,
+                  '& .MuiAlert-icon': {
+                    fontSize: '1.5rem'
+                  }
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} gutterBottom>
+                  Casual Plan: {aiDiscoveryUsage.used + 1}/{aiDiscoveryLimit} AI Job Discoveries Used
+                </Typography>
+                <Typography variant="body2">
+                  {aiDiscoveryUsage.used + 1 >= aiDiscoveryLimit 
+                    ? 'You\'ve used all your AI job discoveries for this month. Upgrade to Hunter for unlimited searches.'
+                    : `You have ${aiDiscoveryLimit - (aiDiscoveryUsage.used + 1)} AI job discovery remaining this month.`
+                  }
+                </Typography>
+              </Alert>
+            )}
             
             <SuccessBox sx={{ mb: 3 }}>
               <Typography variant="body1" fontWeight={600} gutterBottom sx={{ color: 'success.dark !important' }}>
@@ -499,6 +652,20 @@ const FindJobsDialog = ({ open, onClose }) => {
     }
   };
 
+  // Check if user can proceed to next step
+  const canProceed = () => {
+    if (activeStep === 0) {
+      return selectedResumeId && !resumesLoading && resumes.length > 0;
+    }
+    if (activeStep === 1) {
+      // Check subscription limits before allowing search
+      if (currentPlan === 'free') return false;
+      if (currentPlan === 'casual' && isAtLimit) return false;
+      return true;
+    }
+    return true;
+  };
+
   return (
     <Dialog 
       open={open} 
@@ -522,7 +689,17 @@ const FindJobsDialog = ({ open, onClose }) => {
               color="primary"
               sx={{ mr: 1.5 }}
             />
-            <Typography variant="h6" fontWeight={600}>Find Jobs with AJ</Typography>
+            <Typography variant="h6" fontWeight={600}>
+              Find Jobs with AJ
+              {currentPlan !== 'free' && (
+                <Chip 
+                  label={planInfo?.displayName || currentPlan}
+                  size="small"
+                  color={currentPlan === 'hunter' ? 'warning' : 'primary'}
+                  sx={{ ml: 2, height: 24 }}
+                />
+              )}
+            </Typography>
           </Box>
           <IconButton 
             onClick={handleClose} 
@@ -600,7 +777,7 @@ const FindJobsDialog = ({ open, onClose }) => {
             <Button 
               variant="contained" 
               onClick={handleNext}
-              disabled={!selectedResumeId || resumesLoading}
+              disabled={!canProceed()}
               sx={{ 
                 borderRadius: 2,
                 textTransform: 'none',
@@ -629,7 +806,7 @@ const FindJobsDialog = ({ open, onClose }) => {
             <Button 
               variant="contained" 
               onClick={handleNext}
-              disabled={loading}
+              disabled={loading || !canProceed()}
               startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
               sx={{ 
                 borderRadius: 2,

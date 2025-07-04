@@ -1,5 +1,5 @@
-// src/components/jobs/JobCreateDialog.js
-import React, { useState } from 'react';
+// src/components/jobs/JobCreateDialog.js - Enhanced with Usage Limits
+import React, { useState, useEffect } from 'react';
 import { 
   Dialog, 
   DialogTitle, 
@@ -21,7 +21,11 @@ import {
   CircularProgress,
   Paper,
   InputAdornment,
-  useTheme
+  useTheme,
+  LinearProgress,
+  Chip,
+  Card,
+  CardContent
 } from '@mui/material';
 import { 
   Add as AddIcon,
@@ -34,14 +38,29 @@ import {
   Schedule as ScheduleIcon,
   AttachMoney as AttachMoneyIcon,
   Description as DescriptionIcon,
-  Home as HomeIcon
+  Home as HomeIcon,
+  Warning as WarningIcon,
+  Upgrade as UpgradeIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import jobService from '../../utils/jobService';
+import { useSubscription } from '../../context/SubscriptionContext';
 
 const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
   const theme = useTheme();
+  const { 
+    subscription, 
+    usage, 
+    planLimits, 
+    canPerformAction, 
+    getUsagePercentage,
+    planInfo 
+  } = useSubscription();
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [usageData, setUsageData] = useState(null);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
   
   const [jobData, setJobData] = useState({
     title: '',
@@ -61,6 +80,24 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
     },
     jobType: 'FULL_TIME'
   });
+
+  // Check usage limits when dialog opens
+  useEffect(() => {
+    if (open && usage && planLimits) {
+      const jobImportUsage = usage.jobImports || { used: 0, limit: planLimits.jobImports };
+      setUsageData(jobImportUsage);
+      
+      // Check if user is approaching or at limit
+      const permission = canPerformAction('jobImports', 1);
+      if (!permission.allowed) {
+        setShowUpgradePrompt(true);
+        setError(permission.reason);
+      } else {
+        setShowUpgradePrompt(false);
+        setError('');
+      }
+    }
+  }, [open, usage, planLimits, canPerformAction]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -105,6 +142,14 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
       setError('Job title, company, and description are required');
       return;
     }
+
+    // Final usage check before submission
+    const permission = canPerformAction('jobImports', 1);
+    if (!permission.allowed) {
+      setError(permission.reason);
+      setShowUpgradePrompt(true);
+      return;
+    }
     
     setLoading(true);
     setError('');
@@ -145,7 +190,14 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
       onJobCreated();
     } catch (err) {
       console.error('Error creating job:', err);
-      setError(err.response?.data?.message || 'Failed to create job. Please try again.');
+      
+      // Handle specific usage limit errors
+      if (err.response?.status === 403 && err.response?.data?.upgradeRequired) {
+        setError(err.response.data.message);
+        setShowUpgradePrompt(true);
+      } else {
+        setError(err.response?.data?.message || 'Failed to create job. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -172,7 +224,25 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
       jobType: 'FULL_TIME'
     });
     setError('');
+    setShowUpgradePrompt(false);
     onClose();
+  };
+
+  const handleUpgrade = () => {
+    // Navigate to pricing/subscription page
+    window.open('/pricing', '_blank');
+  };
+
+  // Calculate usage percentage and status
+  const usagePercentage = usageData ? getUsagePercentage('jobImports') : 0;
+  const isApproachingLimit = usagePercentage >= 80;
+  const isAtLimit = usagePercentage >= 100;
+
+  // Usage status color
+  const getUsageColor = () => {
+    if (isAtLimit) return 'error';
+    if (isApproachingLimit) return 'warning';
+    return 'success';
   };
 
   return (
@@ -184,9 +254,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
       PaperProps={{
         sx: { 
           borderRadius: 3,
-          // Custom scrollbar styling specifically for this dialog
           '& .MuiDialogContent-root': {
-            // Override scrollbar for dialog content
             '&::-webkit-scrollbar': {
               width: '4px',
             },
@@ -206,7 +274,6 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
             '&::-webkit-scrollbar-corner': {
               backgroundColor: 'transparent',
             },
-            // Firefox scrollbar styling
             scrollbarWidth: 'thin',
             scrollbarColor: 'rgba(0, 0, 0, 0.2) transparent',
           }
@@ -244,10 +311,8 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
       <form onSubmit={handleSubmit}>
         <DialogContent sx={{ 
           p: 3,
-          // Enhanced scrollbar styling for the content area
           maxHeight: '70vh',
           overflowY: 'auto',
-          // Custom scrollbar that matches your theme
           '&::-webkit-scrollbar': {
             width: '4px',
           },
@@ -267,13 +332,65 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
           '&::-webkit-scrollbar-corner': {
             backgroundColor: 'transparent',
           },
-          // Firefox scrollbar styling
           scrollbarWidth: 'thin',
           scrollbarColor: 'rgba(0, 0, 0, 0.2) transparent',
         }}>
-          {error && (
+          
+          {/* Usage Status Card */}
+          {usageData && (
+            <Card 
+              sx={{ 
+                mb: 3, 
+                borderRadius: 2,
+                border: `1px solid ${theme.palette[getUsageColor()].main}`,
+                backgroundColor: `${theme.palette[getUsageColor()].main}08`
+              }}
+            >
+              <CardContent sx={{ p: 2.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <InfoIcon color={getUsageColor()} />
+                    <Typography variant="subtitle2" fontWeight={600}>
+                      Job Import Usage - {planInfo?.displayName || 'Current Plan'}
+                    </Typography>
+                  </Box>
+                  <Chip 
+                    label={planLimits?.jobImports === -1 ? 'Unlimited' : `${usageData.used || 0}/${planLimits?.jobImports || 0}`}
+                    color={getUsageColor()}
+                    size="small"
+                    sx={{ fontWeight: 500 }}
+                  />
+                </Box>
+                
+                {planLimits?.jobImports !== -1 && (
+                  <Box sx={{ mb: 1 }}>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={Math.min(usagePercentage, 100)}
+                      color={getUsageColor()}
+                      sx={{ height: 8, borderRadius: 4 }}
+                    />
+                  </Box>
+                )}
+                
+                <Typography variant="body2" color="text.secondary">
+                  {planLimits?.jobImports === -1 
+                    ? '✨ You have unlimited job imports with your Hunter plan!'
+                    : isAtLimit 
+                      ? '⚠️ You\'ve reached your monthly limit. Upgrade to import more jobs.'
+                      : isApproachingLimit
+                        ? '⚠️ You\'re approaching your monthly limit.'
+                        : `🎯 ${planLimits?.jobImports - (usageData.used || 0)} job imports remaining this month.`
+                  }
+                </Typography>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Error/Upgrade Alert */}
+          {(error || showUpgradePrompt) && (
             <Alert 
-              severity="error" 
+              severity={showUpgradePrompt ? "warning" : "error"}
               sx={{ 
                 mb: 3, 
                 borderRadius: 2,
@@ -281,8 +398,29 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
                   fontSize: '1.2rem'
                 }
               }}
+              action={
+                showUpgradePrompt && (
+                  <Button 
+                    color="inherit" 
+                    size="small" 
+                    onClick={handleUpgrade}
+                    startIcon={<UpgradeIcon />}
+                    sx={{ fontWeight: 600 }}
+                  >
+                    Upgrade Plan
+                  </Button>
+                )
+              }
             >
-              {error}
+              {error || 'Upgrade your plan to import more jobs this month'}
+              {showUpgradePrompt && (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="body2">
+                    • <strong>Casual Plan ($19.99/month):</strong> 25 job imports per month<br/>
+                    • <strong>Hunter Plan ($34.99/month):</strong> Unlimited job imports
+                  </Typography>
+                </Box>
+              )}
             </Alert>
           )}
           
@@ -304,7 +442,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
                   onChange={handleChange}
                   fullWidth
                   required
-                  disabled={loading}
+                  disabled={loading || isAtLimit}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
@@ -324,7 +462,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
                   onChange={handleChange}
                   fullWidth
                   required
-                  disabled={loading}
+                  disabled={loading || isAtLimit}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
@@ -344,7 +482,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
                   onChange={handleChange}
                   fullWidth
                   placeholder="https://example.com/job-listing"
-                  disabled={loading}
+                  disabled={loading || isAtLimit}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
@@ -375,7 +513,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
                       checked={jobData.location.remote} 
                       onChange={handleSwitchChange}
                       name="location.remote"
-                      disabled={loading}
+                      disabled={loading || isAtLimit}
                       color="secondary"
                     />
                   }
@@ -395,7 +533,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
                   value={jobData.location.city}
                   onChange={handleChange}
                   fullWidth
-                  disabled={loading || jobData.location.remote}
+                  disabled={loading || jobData.location.remote || isAtLimit}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
@@ -414,13 +552,13 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
                   value={jobData.location.state}
                   onChange={handleChange}
                   fullWidth
-                  disabled={loading || jobData.location.remote}
+                  disabled={loading || jobData.location.remote || isAtLimit}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                 />
               </Grid>
               
               <Grid item xs={12} sm={4}>
-                <FormControl fullWidth disabled={loading || jobData.location.remote}>
+                <FormControl fullWidth disabled={loading || jobData.location.remote || isAtLimit}>
                   <InputLabel>Country</InputLabel>
                   <Select
                     name="location.country"
@@ -459,7 +597,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
             
             <Grid container spacing={2.5}>
               <Grid item xs={12} sm={6}>
-                <FormControl fullWidth disabled={loading}>
+                <FormControl fullWidth disabled={loading || isAtLimit}>
                   <InputLabel>Job Type</InputLabel>
                   <Select
                     name="jobType"
@@ -483,7 +621,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
               </Grid>
               
               <Grid item xs={12} sm={6}>
-                <FormControl fullWidth disabled={loading}>
+                <FormControl fullWidth disabled={loading || isAtLimit}>
                   <InputLabel>Currency</InputLabel>
                   <Select
                     name="salary.currency"
@@ -523,7 +661,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
                       </InputAdornment>
                     ),
                   }}
-                  disabled={loading}
+                  disabled={loading || isAtLimit}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                 />
               </Grid>
@@ -544,7 +682,7 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
                       </InputAdornment>
                     ),
                   }}
-                  disabled={loading}
+                  disabled={loading || isAtLimit}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                 />
               </Grid>
@@ -570,14 +708,13 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
               multiline
               rows={8}
               placeholder="Paste the full job description here..."
-              disabled={loading}
+              disabled={loading || isAtLimit}
               sx={{ 
                 '& .MuiOutlinedInput-root': { 
                   borderRadius: 2,
                   '& textarea': {
                     fontSize: '0.9rem',
                     lineHeight: 1.5,
-                    // Custom scrollbar for textarea
                     '&::-webkit-scrollbar': {
                       width: '4px',
                     },
@@ -618,20 +755,37 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
           >
             Cancel
           </Button>
-          <Button 
-            type="submit" 
-            variant="contained" 
-            color="primary" 
-            disabled={loading}
-            startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <AddIcon />}
-            sx={{ 
-              borderRadius: 2,
-              px: 3,
-              py: 1
-            }}
-          >
-            {loading ? 'Creating...' : 'Create Job'}
-          </Button>
+          
+          {isAtLimit ? (
+            <Button 
+              variant="contained" 
+              color="warning"
+              onClick={handleUpgrade}
+              startIcon={<UpgradeIcon />}
+              sx={{ 
+                borderRadius: 2,
+                px: 3,
+                py: 1
+              }}
+            >
+              Upgrade Plan
+            </Button>
+          ) : (
+            <Button 
+              type="submit" 
+              variant="contained" 
+              color="primary" 
+              disabled={loading}
+              startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <AddIcon />}
+              sx={{ 
+                borderRadius: 2,
+                px: 3,
+                py: 1
+              }}
+            >
+              {loading ? 'Creating...' : 'Create Job'}
+            </Button>
+          )}
         </DialogActions>
       </form>
     </Dialog>

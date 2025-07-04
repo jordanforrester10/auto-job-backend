@@ -1,5 +1,6 @@
 // backend/server.js - FIXED WEBHOOK BODY PARSING
 const express = require('express');
+
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
@@ -23,6 +24,8 @@ const subscriptionRoutes = require('./routes/subscription.routes');
 
 // Initialize Express
 const app = express();
+
+// app.set('trust proxy', true);
 
 console.log('🚀 Starting Job Application Platform API with Subscription System...');
 

@@ -1,21 +1,47 @@
-// controllers/assistant.controller.js - RAG VERSION WITH NO MEMORY SYSTEM
+// controllers/assistant.controller.js - CLEAN VERSION WITH FEATURE GATING
 const { openai } = require('../config/openai');
 const Resume = require('../models/mongodb/resume.model');
 const Job = require('../models/mongodb/job.model');
 const User = require('../models/mongodb/user.model');
 const Conversation = require('../models/mongodb/conversation.model');
 const ConversationService = require('../services/conversationService');
+const subscriptionService = require('../services/subscription.service');
+const usageService = require('../services/usage.service');
 
 // ===================================================================
-// 🆕 RAG: @-MENTION ENDPOINTS
+// 🆕 RAG: @-MENTION ENDPOINTS - WITH FEATURE GATING
 // ===================================================================
 
 /**
- * Get mention suggestions for @-functionality
+ * Get mention suggestions for @-functionality - WITH AI ASSISTANT ACCESS CONTROL
  */
 exports.getMentionSuggestions = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check AI assistant access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiAssistantAllowed = currentSubscription.planLimits.aiAssistant;
+      
+      if (!aiAssistantAllowed) {
+        return res.status(403).json({ 
+          message: 'AI Assistant not available on your current plan',
+          error: 'This feature requires Hunter plan',
+          currentPlan: currentSubscription.user.subscriptionTier,
+          upgradeRequired: true,
+          feature: 'aiAssistant',
+          availableOn: ['hunter']
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI assistant permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI assistant permission',
+        error: permissionError.message 
+      });
+    }
+
     const { query = '' } = req.query;
 
     console.log(`🔍 Getting mention suggestions for user ${userId}, query: "${query}"`);
@@ -76,11 +102,32 @@ exports.getMentionSuggestions = async (req, res) => {
 };
 
 /**
- * Get full context data for mentioned item
+ * Get full context data for mentioned item - WITH FEATURE GATING
  */
 exports.getContextData = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check AI assistant access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiAssistantAllowed = currentSubscription.planLimits.aiAssistant;
+      
+      if (!aiAssistantAllowed) {
+        return res.status(403).json({ 
+          message: 'AI Assistant not available on your current plan',
+          upgradeRequired: true,
+          feature: 'aiAssistant'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI assistant permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI assistant permission',
+        error: permissionError.message 
+      });
+    }
+
     const { type, id } = req.params;
 
     console.log(`📄 Getting context data for ${type}:${id}`);
@@ -132,15 +179,45 @@ exports.getContextData = async (req, res) => {
 };
 
 // ===================================================================
-// 🆕 ENHANCED RAG CHAT - WITH FULL CONTEXT SUPPORT
+// 🆕 ENHANCED RAG CHAT - WITH CONVERSATION LIMITS
 // ===================================================================
 
 /**
- * Enhanced chat endpoint with RAG context support
+ * Enhanced chat endpoint with RAG context support and conversation limits
  */
 exports.chat = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check AI assistant access permissions
+    console.log('🔒 Checking AI assistant access permissions for user:', userId);
+    
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiAssistantAllowed = currentSubscription.planLimits.aiAssistant;
+      
+      if (!aiAssistantAllowed) {
+        console.log('❌ AI assistant not available on current plan:', currentSubscription.user.subscriptionTier);
+        return res.status(403).json({ 
+          message: 'AI Assistant not available on your current plan',
+          error: 'This feature requires Hunter plan',
+          currentPlan: currentSubscription.user.subscriptionTier,
+          upgradeRequired: true,
+          feature: 'aiAssistant',
+          availableOn: ['hunter']
+        });
+      }
+      
+      console.log('✅ AI assistant access permission granted for plan:', currentSubscription.user.subscriptionTier);
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking AI assistant permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI assistant permission',
+        error: permissionError.message 
+      });
+    }
+
     const { 
       message, 
       context = {}, 
@@ -152,6 +229,56 @@ exports.chat = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Message is required'
+      });
+    }
+
+    // 🔒 FEATURE GATING: Check conversation and message limits
+    console.log('🔒 Checking AI conversation limits for user:', userId);
+    
+    try {
+      // Check conversation limits if creating new conversation
+      if (newConversation || !conversationId) {
+        const conversationPermission = await usageService.checkUsageLimit(userId, 'aiConversations', 1);
+        
+        if (!conversationPermission.allowed) {
+          console.log('❌ AI conversation limit exceeded:', conversationPermission.reason);
+          return res.status(403).json({ 
+            message: 'AI conversation limit reached',
+            error: conversationPermission.reason,
+            current: conversationPermission.current,
+            limit: conversationPermission.limit,
+            plan: conversationPermission.plan,
+            upgradeRequired: false, // Hunter users hit conversation limits
+            feature: 'aiConversations',
+            note: 'You have reached your monthly conversation limit for the Hunter plan'
+          });
+        }
+      }
+
+      // Check message limits for this conversation
+      const messagePermission = await usageService.checkUsageLimit(userId, 'aiMessagesTotal', 1);
+      
+      if (!messagePermission.allowed) {
+        console.log('❌ AI message limit exceeded:', messagePermission.reason);
+        return res.status(403).json({ 
+          message: 'AI message limit reached',
+          error: messagePermission.reason,
+          current: messagePermission.current,
+          limit: messagePermission.limit,
+          plan: messagePermission.plan,
+          upgradeRequired: false, // Hunter users hit message limits
+          feature: 'aiMessagesTotal',
+          note: 'You have reached your monthly message limit for the Hunter plan'
+        });
+      }
+      
+      console.log('✅ AI conversation and message limits validated');
+      
+    } catch (limitError) {
+      console.error('❌ Error checking AI limits:', limitError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI usage limits',
+        error: limitError.message 
       });
     }
 
@@ -199,6 +326,20 @@ exports.chat = async (req, res) => {
     // Get or create conversation
     let conversation = await getOrCreateConversationFast(conversationId, userId, newConversation, message, context);
 
+    // 🔒 FEATURE GATING: Track conversation creation if new
+    if (newConversation || !conversationId) {
+      try {
+        await usageService.trackUsage(userId, 'aiConversations', 1, {
+          conversationId: conversation._id.toString(),
+          conversationTitle: conversation.title,
+          createdAt: new Date()
+        });
+        console.log('✅ New AI conversation usage tracked successfully');
+      } catch (trackingError) {
+        console.error('❌ Error tracking conversation usage (non-critical):', trackingError);
+      }
+    }
+
     // Save user message in background
     setTimeout(async () => {
       try {
@@ -242,6 +383,19 @@ exports.chat = async (req, res) => {
     const aiMessage = aiResponse.choices[0].message.content;
     const parsedResponse = parseRagResponse(aiMessage, fullResumeContext, fullJobContext);
 
+    // 🔒 FEATURE GATING: Track AI message usage
+    try {
+      await usageService.trackUsage(userId, 'aiMessagesTotal', 1, {
+        conversationId: conversation._id.toString(),
+        tokensUsed: aiResponse.usage?.total_tokens || 0,
+        messageLength: aiMessage.length,
+        hasContext: !!(fullResumeContext || fullJobContext)
+      });
+      console.log('✅ AI message usage tracked successfully');
+    } catch (trackingError) {
+      console.error('❌ Error tracking message usage (non-critical):', trackingError);
+    }
+
     // Save AI response in background
     setTimeout(async () => {
       try {
@@ -273,6 +427,24 @@ exports.chat = async (req, res) => {
       }
     }, 0);
 
+    // 🔒 FEATURE GATING: Get usage statistics to include in response
+    let usageStats = null;
+    try {
+      const userUsage = await usageService.getUserUsageStats(userId);
+      usageStats = {
+        aiConversations: userUsage.usageStats.aiConversations,
+        aiMessagesTotal: userUsage.usageStats.aiMessagesTotal,
+        plan: userUsage.plan,
+        planLimits: {
+          aiAssistant: userUsage.planLimits.aiAssistant,
+          aiConversations: userUsage.planLimits.aiConversations,
+          aiMessagesPerConversation: userUsage.planLimits.aiMessagesPerConversation
+        }
+      };
+    } catch (usageError) {
+      console.error('❌ Error fetching usage stats (non-critical):', usageError);
+    }
+
     const totalDuration = Date.now() - startTime;
     console.log(`🎉 RAG chat completed in ${totalDuration}ms`);
 
@@ -288,6 +460,7 @@ exports.chat = async (req, res) => {
         tokens: aiResponse.usage?.total_tokens || 0,
         duration: totalDuration
       },
+      usageStats: usageStats,
       performance: {
         openaiDuration: aiDuration,
         totalDuration: totalDuration,
@@ -311,7 +484,7 @@ exports.chat = async (req, res) => {
 };
 
 // ===================================================================
-// 🆕 RAG RESUME EDITING WITH CONTEXT
+// 🆕 RAG RESUME EDITING WITH CONTEXT - WITH USAGE TRACKING
 // ===================================================================
 
 async function handleResumeEditingWithContext(req, res, userId, message, resumeContext, conversationId, newConversation) {
@@ -684,8 +857,7 @@ function detectResumeEditingIntent(message) {
   ];
 
   const sectionKeywords = [
-    'experience', 'work', 'summary', 'skills', 'education', 'resume'
-  ];
+    'experience', 'work', 'summary', 'skills', 'education', 'resume'];
 
   const hasEditingKeyword = editingKeywords.some(keyword => messageLower.includes(keyword));
   const hasSectionKeyword = sectionKeywords.some(keyword => messageLower.includes(keyword));
@@ -790,13 +962,33 @@ function getRagFallbackResponse(message, context) {
 }
 
 // ===================================================================
-// EXISTING ENDPOINTS - SIMPLIFIED (NO MEMORY SYSTEM)
+// CONVERSATION MANAGEMENT - WITH FEATURE GATING
 // ===================================================================
 
-// Conversation management (keep existing)
 exports.getConversations = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check AI assistant access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiAssistantAllowed = currentSubscription.planLimits.aiAssistant;
+      
+      if (!aiAssistantAllowed) {
+        return res.status(403).json({ 
+          message: 'AI Assistant not available on your current plan',
+          upgradeRequired: true,
+          feature: 'aiAssistant'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI assistant permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI assistant permission',
+        error: permissionError.message 
+      });
+    }
+    
     const options = {
       limit: parseInt(req.query.limit) || 20,
       offset: parseInt(req.query.offset) || 0,
@@ -804,7 +996,26 @@ exports.getConversations = async (req, res) => {
     };
 
     const result = await ConversationService.getUserConversations(userId, options);
-    res.json({ success: true, ...result });
+    
+    // 🔒 FEATURE GATING: Get usage statistics to include in response
+    let usageStats = null;
+    try {
+      const userUsage = await usageService.getUserUsageStats(userId);
+      usageStats = {
+        aiConversations: userUsage.usageStats.aiConversations,
+        aiMessagesTotal: userUsage.usageStats.aiMessagesTotal,
+        plan: userUsage.plan,
+        planLimits: userUsage.planLimits
+      };
+    } catch (usageError) {
+      console.error('❌ Error fetching usage stats (non-critical):', usageError);
+    }
+    
+    res.json({ 
+      success: true, 
+      ...result,
+      usageStats: usageStats
+    });
 
   } catch (error) {
     console.error('Get conversations error:', error);
@@ -815,6 +1026,27 @@ exports.getConversations = async (req, res) => {
 exports.getConversation = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check AI assistant access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiAssistantAllowed = currentSubscription.planLimits.aiAssistant;
+      
+      if (!aiAssistantAllowed) {
+        return res.status(403).json({ 
+          message: 'AI Assistant not available on your current plan',
+          upgradeRequired: true,
+          feature: 'aiAssistant'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI assistant permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI assistant permission',
+        error: permissionError.message 
+      });
+    }
+    
     const { conversationId } = req.params;
     
     const conversation = await ConversationService.getConversation(conversationId, userId);
@@ -828,6 +1060,27 @@ exports.getConversation = async (req, res) => {
 exports.updateConversation = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check AI assistant access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiAssistantAllowed = currentSubscription.planLimits.aiAssistant;
+      
+      if (!aiAssistantAllowed) {
+        return res.status(403).json({ 
+          message: 'AI Assistant not available on your current plan',
+          upgradeRequired: true,
+          feature: 'aiAssistant'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI assistant permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI assistant permission',
+        error: permissionError.message 
+      });
+    }
+    
     const { conversationId } = req.params;
     const conversation = await ConversationService.updateConversation(conversationId, userId, req.body);
     res.json({ success: true, conversation });
@@ -840,6 +1093,27 @@ exports.updateConversation = async (req, res) => {
 exports.deleteConversation = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check AI assistant access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiAssistantAllowed = currentSubscription.planLimits.aiAssistant;
+      
+      if (!aiAssistantAllowed) {
+        return res.status(403).json({ 
+          message: 'AI Assistant not available on your current plan',
+          upgradeRequired: true,
+          feature: 'aiAssistant'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI assistant permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI assistant permission',
+        error: permissionError.message 
+      });
+    }
+    
     const { conversationId } = req.params;
     const { permanent = false } = req.query;
     
@@ -902,101 +1176,31 @@ exports.getCapabilities = async (req, res) => {
   });
 };
 
-// Resume operation endpoints (enhanced with context)
-exports.analyzeResume = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const { resumeId, context = {} } = req.body;
-
-    if (!resumeId) {
-      return res.status(400).json({ success: false, error: 'Resume ID is required' });
-    }
-
-    const resumeAnalysisService = require('../services/resumeAnalysis.service');
-    const analysis = await resumeAnalysisService.analyzeResumeWithContext(resumeId, context);
-
-    res.json({
-      success: true,
-      analysis: analysis,
-      message: 'Resume analyzed successfully with context',
-      ragEnabled: true
-    });
-
-  } catch (error) {
-    console.error('Resume analysis error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to analyze resume'
-    });
-  }
-};
-
-exports.applyResumeChanges = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const { resumeId, changes, context = {} } = req.body;
-
-    if (!resumeId || !changes) {
-      return res.status(400).json({
-        success: false,
-        error: 'Resume ID and changes are required'
-      });
-    }
-
-    const ResumeEditorService = require('../services/resumeEditor.service');
-    const result = await ResumeEditorService.applyResumeChangesWithContext(resumeId, userId, changes, context);
-
-    res.json({
-      success: true,
-      message: 'Resume updated successfully with context',
-      result: result,
-      ragEnabled: true
-    });
-
-  } catch (error) {
-    console.error('Apply resume changes error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to apply resume changes'
-    });
-  }
-};
-
-exports.optimizeForATS = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const { resumeId, targetJob = null } = req.body;
-
-    if (!resumeId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Resume ID is required'
-      });
-    }
-
-    const ResumeEditorService = require('../services/resumeEditor.service');
-    const result = await ResumeEditorService.optimizeForATSWithContext(resumeId, userId, targetJob);
-
-    res.json({
-      success: true,
-      message: 'Resume optimized for ATS with job context',
-      result: result,
-      ragEnabled: true
-    });
-
-  } catch (error) {
-    console.error('ATS optimization error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to optimize resume for ATS'
-    });
-  }
-};
-
-// Simple search (no memory system)
+// Simple search (no memory system) - WITH FEATURE GATING
 exports.search = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check AI assistant access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiAssistantAllowed = currentSubscription.planLimits.aiAssistant;
+      
+      if (!aiAssistantAllowed) {
+        return res.status(403).json({ 
+          message: 'AI Assistant not available on your current plan',
+          upgradeRequired: true,
+          feature: 'aiAssistant'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI assistant permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI assistant permission',
+        error: permissionError.message 
+      });
+    }
+    
     const { query, type = 'all' } = req.query;
 
     if (!query) {
@@ -1033,77 +1237,35 @@ exports.search = async (req, res) => {
   }
 };
 
-// Placeholder implementations for compatibility (removed memory features)
-exports.getMemories = async (req, res) => {
-  res.json({ 
-    success: true, 
-    memories: [], 
-    message: 'Memory system removed - using RAG context instead' 
-  });
-};
-
-exports.getMemoryInsights = async (req, res) => {
-  res.json({ 
-    success: true, 
-    insights: [], 
-    message: 'Memory system removed - using RAG context for intelligence',
-    ragEnabled: true
-  });
-};
-
-exports.updateMemory = async (req, res) => {
-  res.json({ success: true, message: 'Memory system removed - context handled by RAG' });
-};
-
-exports.deleteMemory = async (req, res) => {
-  res.json({ success: true, message: 'Memory system removed' });
-};
-
-exports.performMemoryMaintenance = async (req, res) => {
-  res.json({ success: true, message: 'Memory system removed - no maintenance needed' });
-};
-
-// Legacy placeholders for compatibility
-exports.analyzeJobMatch = async (req, res) => {
-  res.json({ success: true, analysis: { matchScore: 85, ragEnabled: true }, message: 'Use RAG context for detailed job matching' });
-};
-
-exports.generateCoverLetter = async (req, res) => {
-  res.json({ success: true, coverLetter: { content: 'Use RAG context for personalized cover letters' } });
-};
-
-exports.getCareerAdvice = async (req, res) => {
-  res.json({ success: true, advice: { advice: 'Use RAG context for personalized career advice' } });
-};
-
+// Get contextual suggestions for current page - WITH FEATURE GATING
 exports.getContextualSuggestions = async (req, res) => {
-  const suggestions = ['Use @ to add context', 'Upload resume for analysis', 'Find jobs to analyze'];
-  res.json({ success: true, suggestions, ragEnabled: true });
+  try {
+    const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check AI assistant access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiAssistantAllowed = currentSubscription.planLimits.aiAssistant;
+      
+      if (!aiAssistantAllowed) {
+        return res.status(403).json({ 
+          message: 'AI Assistant not available on your current plan',
+          upgradeRequired: true,
+          feature: 'aiAssistant'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI assistant permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI assistant permission',
+        error: permissionError.message 
+      });
+    }
+    
+    const suggestions = ['Use @ to add context', 'Upload resume for analysis', 'Find jobs to analyze'];
+    res.json({ success: true, suggestions, ragEnabled: true });
+  } catch (error) {
+    console.error('Get contextual suggestions error:', error);
+    res.status(500).json({ success: false, error: 'Failed to get contextual suggestions' });
+  }
 };
-
-exports.getPersonalizedTips = async (req, res) => {
-  const tips = ['Use RAG context for personalized tips', 'Attach resumes and jobs for better insights'];
-  res.json({ success: true, tips, ragEnabled: true });
-};
-
-exports.getAnalytics = async (req, res) => {
-  res.json({ success: true, analytics: { ragEnabled: true, memorySystem: false } });
-};
-
-exports.getUsageStats = async (req, res) => {
-  res.json({ success: true, stats: { ragEnabled: true } });
-};
-
-exports.trackInteraction = async (req, res) => {
-  res.json({ success: true, message: 'Interaction tracked' });
-};
-
-exports.resetContext = async (req, res) => {
-  res.json({ success: true, message: 'Context reset - use @ to add new context' });
-};
-
-// Placeholder exports for route compatibility
-exports.generateSummary = (req, res) => res.json({ success: true, message: 'Feature replaced by RAG context' });
-exports.getConversationInsights = (req, res) => res.json({ success: true, message: 'Feature replaced by RAG context' });
-exports.exportConversation = (req, res) => res.json({ success: true, message: 'Feature available' });
-exports.bulkUpdateConversations = (req, res) => res.json({ success: true, message: 'Feature available' });

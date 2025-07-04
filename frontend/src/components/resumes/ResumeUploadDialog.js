@@ -14,7 +14,8 @@ import {
   StepLabel,
   IconButton,
   LinearProgress,
-  StepContent
+  StepContent,
+  Chip
 } from '@mui/material';
 import { 
   CloudUpload as CloudUploadIcon,
@@ -26,9 +27,13 @@ import {
   Psychology as PsychologyIcon,
   DataObject as DataObjectIcon,
   Memory as MemoryIcon,
-  Error as ErrorIcon
+  Error as ErrorIcon,
+  Lock as LockIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
 import resumeService from '../../utils/resumeService';
+import { useSubscription } from '../../context/SubscriptionContext';
+import UpgradePrompt from '../subscription/shared/UpgradePrompt';
 
 const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
   const [activeStep, setActiveStep] = useState(0);
@@ -43,6 +48,17 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
   const [resumeId, setResumeId] = useState(null);
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [canClose, setCanClose] = useState(true);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
+
+  // Subscription context
+  const {
+    canPerformAction,
+    getUsagePercentage,
+    planInfo,
+    usage,
+    planLimits,
+    refreshSubscription
+  } = useSubscription();
 
   // Clear any intervals when the component unmounts
   useEffect(() => {
@@ -114,6 +130,15 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
   };
 
   const validateAndSetFile = (file) => {
+    // 🔒 FEATURE GATING: Check upload limits before allowing file selection
+    const uploadCheck = canPerformAction('resumeUploads', 1);
+    
+    if (!uploadCheck.allowed) {
+      setError(`Upload limit reached: ${uploadCheck.reason}`);
+      setShowUpgradePrompt(true);
+      return;
+    }
+
     const validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
     const maxSize = 10 * 1024 * 1024; // 10MB
     
@@ -201,6 +226,15 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
       return;
     }
 
+    // 🔒 FEATURE GATING: Double-check usage limits before upload
+    const uploadCheck = canPerformAction('resumeUploads', 1);
+    
+    if (!uploadCheck.allowed) {
+      setError(`Upload limit reached: ${uploadCheck.reason}`);
+      setShowUpgradePrompt(true);
+      return;
+    }
+
     try {
       setLoading(true);
       setActiveStep(2);
@@ -244,6 +278,9 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
       if (resumeId) {
         setResumeId(resumeId);
         
+        // 🔒 FEATURE GATING: Refresh subscription data to update usage stats after successful upload
+        await refreshSubscription();
+        
         try {
           // Start polling for status updates
           await resumeService.pollResumeStatus(resumeId, handleProgressUpdate, 300000);
@@ -265,7 +302,20 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
       }
     } catch (err) {
       console.error('Error uploading resume:', err);
-      setError(err.response?.data?.message || 'Failed to upload resume. Please try again.');
+      
+      // 🔒 FEATURE GATING: Handle usage limit errors from backend
+      if (err.response?.status === 403) {
+        const errorData = err.response.data;
+        if (errorData.feature === 'resumeUploads') {
+          setError(`Upload limit reached: ${errorData.error}`);
+          setShowUpgradePrompt(true);
+        } else {
+          setError(errorData.message || 'Upload not allowed');
+        }
+      } else {
+        setError(err.response?.data?.message || 'Failed to upload resume. Please try again.');
+      }
+      
       setCanClose(true);
     } finally {
       setLoading(false);
@@ -332,46 +382,92 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
     }
   };
 
+  // 🔒 FEATURE GATING: Get current usage stats
+  const getUploadUsageStats = () => {
+    if (!usage || !planLimits) return { used: 0, limit: 1, percentage: 0 };
+    
+    const used = usage.resumeUploads?.used || 0;
+    const limit = planLimits.resumeUploads;
+    const percentage = limit === -1 ? 0 : Math.round((used / limit) * 100);
+    
+    return { used, limit, percentage };
+  };
+
+  const uploadStats = getUploadUsageStats();
+  const isUploadBlocked = uploadStats.used >= uploadStats.limit && uploadStats.limit !== -1;
+
   const renderStepContent = () => {
     switch (activeStep) {
       case 0:
         return (
-          <Box 
-            sx={{ 
-              mt: 2, 
-              border: '2px dashed',
-              borderColor: dragActive ? 'primary.main' : 'divider',
-              borderRadius: 2,
-              p: 4,
-              textAlign: 'center',
-              cursor: 'pointer',
-              backgroundColor: dragActive ? 'action.hover' : 'background.paper',
-              transition: 'all 0.2s ease'
-            }}
-            onDrop={handleFileDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onClick={() => document.getElementById('resume-file-upload').click()}
-          >
-            <input
-              id="resume-file-upload"
-              type="file"
-              accept=".pdf,.docx"
-              onChange={handleFileChange}
-              style={{ display: 'none' }}
-            />
-            
-            <CloudUploadIcon sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
-            
-            <Typography variant="h6" gutterBottom fontWeight={500}>
-              Drag & drop your resume here
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              or click to browse your files
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Supported formats: PDF, DOCX (Max size: 10MB)
-            </Typography>
+          <Box>
+            {/* 🔒 FEATURE GATING: Usage Warning */}
+            {isUploadBlocked && (
+              <Alert severity="warning" sx={{ mb: 3 }}>
+                <Typography variant="body2">
+                  You've reached your upload limit of {uploadStats.limit} resume{uploadStats.limit !== 1 ? 's' : ''} this month.
+                  <Button 
+                    size="small" 
+                    onClick={() => setShowUpgradePrompt(true)}
+                    sx={{ ml: 1 }}
+                  >
+                    Upgrade Plan
+                  </Button>
+                </Typography>
+              </Alert>
+            )}
+
+            <Box 
+              sx={{ 
+                mt: 2, 
+                border: '2px dashed',
+                borderColor: isUploadBlocked ? 'grey.400' : (dragActive ? 'primary.main' : 'divider'),
+                borderRadius: 2,
+                p: 4,
+                textAlign: 'center',
+                cursor: isUploadBlocked ? 'not-allowed' : 'pointer',
+                backgroundColor: isUploadBlocked ? 'grey.50' : (dragActive ? 'action.hover' : 'background.paper'),
+                transition: 'all 0.2s ease',
+                opacity: isUploadBlocked ? 0.6 : 1
+              }}
+              onDrop={isUploadBlocked ? undefined : handleFileDrop}
+              onDragOver={isUploadBlocked ? undefined : handleDragOver}
+              onDragLeave={isUploadBlocked ? undefined : handleDragLeave}
+              onClick={isUploadBlocked ? () => setShowUpgradePrompt(true) : () => document.getElementById('resume-file-upload').click()}
+            >
+              <input
+                id="resume-file-upload"
+                type="file"
+                accept=".pdf,.docx"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+                disabled={isUploadBlocked}
+              />
+              
+              {isUploadBlocked ? (
+                <LockIcon sx={{ fontSize: 64, color: 'grey.500', mb: 2 }} />
+              ) : (
+                <CloudUploadIcon sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
+              )}
+              
+              <Typography variant="h6" gutterBottom fontWeight={500}>
+                {isUploadBlocked 
+                  ? 'Upload Limit Reached'
+                  : 'Drag & drop your resume here'
+                }
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                {isUploadBlocked 
+                  ? 'Upgrade your plan to upload more resumes'
+                  : 'or click to browse your files'
+                }
+              </Typography>
+              {!isUploadBlocked && (
+                <Typography variant="body2" color="text.secondary">
+                  Supported formats: PDF, DOCX (Max size: 10MB)
+                </Typography>
+              )}
+            </Box>
           </Box>
         );
       case 1:
@@ -502,99 +598,138 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
   };
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={canClose ? handleClose : undefined} 
-      maxWidth="sm" 
-      fullWidth
-      PaperProps={{
-        sx: {
-          borderRadius: 2
-        }
-      }}
-    >
-      <DialogTitle>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="h6" fontWeight={600}>Upload Resume</Typography>
-          {canClose && (
-            <IconButton onClick={handleClose} size="small">
-              <CloseIcon />
-            </IconButton>
+    <>
+      <Dialog 
+        open={open} 
+        onClose={canClose ? handleClose : undefined} 
+        maxWidth="sm" 
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2
+          }
+        }}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box>
+              <Typography variant="h6" fontWeight={600}>Upload Resume</Typography>
+              {/* 🔒 FEATURE GATING: Show usage indicator in dialog title */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Usage: 
+                </Typography>
+                <Chip 
+                  size="small"
+                  label={uploadStats.limit === -1 ? 'Unlimited' : `${uploadStats.used}/${uploadStats.limit}`}
+                  color={isUploadBlocked ? 'error' : 'default'}
+                />
+                {planInfo && (
+                  <Chip 
+                    size="small" 
+                    label={planInfo.displayName} 
+                    sx={{ 
+                      backgroundColor: planInfo.backgroundColor,
+                      color: planInfo.color,
+                      fontWeight: 500
+                    }}
+                  />
+                )}
+              </Box>
+            </Box>
+            {canClose && (
+              <IconButton onClick={handleClose} size="small">
+                <CloseIcon />
+              </IconButton>
+            )}
+          </Box>
+        </DialogTitle>
+        
+        <DialogContent>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
           )}
-        </Box>
-      </DialogTitle>
-      
-      <DialogContent>
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
+          
+          <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
+            {steps.map((step) => (
+              <Step key={step.label}>
+                <StepLabel StepIconComponent={() => step.icon}>{step.label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+          
+          {renderStepContent()}
+        </DialogContent>
         
-        <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-          {steps.map((step) => (
-            <Step key={step.label}>
-              <StepLabel StepIconComponent={() => step.icon}>{step.label}</StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-        
-        {renderStepContent()}
-      </DialogContent>
-      
-      <DialogActions sx={{ px: 3, pb: 3 }}>
-        {activeStep === 0 && (
-          <Button onClick={handleClose} disabled={!canClose}>
-            Cancel
-          </Button>
-        )}
-        
-        {activeStep === 1 && (
-          <>
-            <Button onClick={() => setActiveStep(0)} disabled={loading}>
-              Back
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          {activeStep === 0 && (
+            <Button onClick={handleClose} disabled={!canClose}>
+              Cancel
             </Button>
-            <Button 
-              onClick={handleSubmit} 
-              variant="contained" 
-              color="primary"
-              disabled={!file || !name.trim() || loading}
-            >
-              Upload
-            </Button>
-          </>
-        )}
-        
-        {activeStep === 2 && (
-          <>
-            {(processingTimeout || uploadComplete || processingStage === 'error') && (
+          )}
+          
+          {activeStep === 1 && (
+            <>
+              <Button onClick={() => setActiveStep(0)} disabled={loading}>
+                Back
+              </Button>
               <Button 
-                onClick={() => {
-                  handleClose();
-                  if (uploadComplete) {
-                    onResumeUploaded(resumeId);
-                  }
-                }} 
+                onClick={handleSubmit} 
                 variant="contained" 
                 color="primary"
+                disabled={!file || !name.trim() || loading || isUploadBlocked}
+                startIcon={isUploadBlocked ? <LockIcon /> : undefined}
               >
-                {uploadComplete ? 'View Resume' : 'Close'}
+                {isUploadBlocked ? 'Upload Limit Reached' : 'Upload'}
               </Button>
-            )}
-            
-            {!uploadComplete && !processingTimeout && processingStage !== 'error' && (
-              <Button 
-                disabled={!canClose}
-                variant="outlined"
-                color="primary"
-              >
-                Processing...
-              </Button>
-            )}
-          </>
-        )}
-      </DialogActions>
-    </Dialog>
+            </>
+          )}
+          
+          {activeStep === 2 && (
+            <>
+              {(processingTimeout || uploadComplete || processingStage === 'error') && (
+                <Button 
+                  onClick={() => {
+                    handleClose();
+                    if (uploadComplete) {
+                      onResumeUploaded(resumeId);
+                    }
+                  }} 
+                  variant="contained" 
+                  color="primary"
+                >
+                  {uploadComplete ? 'View Resume' : 'Close'}
+                </Button>
+              )}
+              
+              {!uploadComplete && !processingTimeout && processingStage !== 'error' && (
+                <Button 
+                  disabled={!canClose}
+                  variant="outlined"
+                  color="primary"
+                >
+                  Processing...
+                </Button>
+              )}
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* 🔒 FEATURE GATING: Upgrade Prompt */}
+      {showUpgradePrompt && (
+        <UpgradePrompt 
+          open={showUpgradePrompt}
+          onClose={() => setShowUpgradePrompt(false)}
+          feature="resumeUploads"
+          title="Resume Upload Limit Reached"
+          description={`You've used all ${uploadStats.limit} resume uploads for this month.`}
+          currentPlan={planInfo?.tier}
+        />
+      )}
+    </>
   );
 };
 

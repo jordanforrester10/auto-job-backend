@@ -1,4 +1,4 @@
-// backend/routes/subscription.routes.js - COMPLETE MONTHLY ONLY VERSION
+// backend/routes/subscription.routes.js - FIXED MIDDLEWARE VERSION
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const SubscriptionController = require('../controllers/subscription.controller');
@@ -93,6 +93,17 @@ router.get('/current',
   authMiddleware.protect,
   SubscriptionMiddleware.injectSubscriptionContext(),
   SubscriptionController.getCurrentSubscription
+);
+
+/**
+ * @route GET /api/subscriptions/invoice/:invoiceId/download
+ * @desc Get invoice download URL
+ * @access Private
+ */
+router.get('/invoice/:invoiceId/download', 
+  subscriptionLimiter,
+  authMiddleware.protect, 
+  SubscriptionController.getInvoiceDownload
 );
 
 /**
@@ -201,7 +212,6 @@ router.post('/create-checkout',
       .withMessage('Plan name is required')
       .isIn(['casual', 'hunter'])
       .withMessage('Invalid plan name')
-    // Note: No billingCycle validation since we only do monthly
   ],
   handleValidationErrors,
   SubscriptionController.createCheckoutSession
@@ -263,7 +273,6 @@ router.put('/change-plan',
       .withMessage('New plan name is required')
       .isIn(['casual', 'hunter'])
       .withMessage('Invalid plan name')
-    // Note: No billingCycle validation since we only do monthly
   ],
   handleValidationErrors,
   SubscriptionMiddleware.requireSubscription(['casual', 'hunter']),
@@ -332,6 +341,50 @@ router.get('/health',
   SubscriptionController.getSubscriptionHealth
 );
 
+/**
+ * @route GET /api/subscriptions/validate
+ * @desc Validate subscription data
+ * @access Private
+ */
+router.get('/validate',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  SubscriptionController.validateSubscriptionData
+);
+
+/**
+ * @route POST /api/subscriptions/fix
+ * @desc Fix subscription data
+ * @access Private
+ */
+router.post('/fix',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  SubscriptionController.fixSubscriptionData
+);
+
+/**
+ * @route POST /api/subscriptions/force-sync
+ * @desc Force fresh sync from Stripe
+ * @access Private
+ */
+router.post('/force-sync',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  SubscriptionController.forceFreshSync
+);
+
+/**
+ * @route GET /api/subscriptions/fresh-billing-date
+ * @desc Get fresh billing date from Stripe
+ * @access Private
+ */
+router.get('/fresh-billing-date',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  SubscriptionController.getFreshBillingDate
+);
+
 // ======================================
 // ADMIN-ONLY ROUTES
 // ======================================
@@ -391,58 +444,36 @@ router.get('/analytics/trends/:feature',
   SubscriptionController.getFeatureTrends
 );
 
-// ======================================
-// EXAMPLE USAGE MIDDLEWARE INTEGRATION
-// ======================================
+/**
+ * @route GET /api/subscriptions/admin/health-dashboard
+ * @desc Get subscription health dashboard (Admin only)
+ * @access Private (Admin)
+ */
+router.get('/admin/health-dashboard',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  authMiddleware.restrictTo('admin'),
+  SubscriptionController.getHealthDashboard
+);
 
 /**
- * Example middleware usage for existing routes
- * These would be added to your existing controllers
+ * @route POST /api/subscriptions/admin/bulk-fix
+ * @desc Bulk fix subscription data (Admin only)
+ * @access Private (Admin)
  */
-
-// Example: Resume upload with usage checking and tracking
-// router.post('/upload', 
-//   authMiddleware.protect,
-//   UsageMiddleware.checkUsageLimit('resumeUploads', 1),
-//   // ... existing middleware ...
-//   UsageMiddleware.trackUsage('resumeUploads', 1, (req, res, body) => ({
-//     fileName: body.data?.resume?.fileName,
-//     fileSize: body.data?.resume?.fileSize
-//   })),
-//   ResumeController.uploadResume
-// );
-
-// Example: Job import with usage checking
-// router.post('/import',
-//   authMiddleware.protect,
-//   UsageMiddleware.checkUsageLimit('jobImports', 1),
-//   // ... existing middleware ...
-//   UsageMiddleware.trackUsage('jobImports', 1),
-//   JobController.importJob
-// );
-
-// Example: Recruiter unlock with feature and usage checking
-// router.get('/:id/unlock',
-//   authMiddleware.protect,
-//   SubscriptionMiddleware.requireFeature('recruiterAccess'),
-//   UsageMiddleware.checkUsageLimit('recruiterUnlocks', 1),
-//   // ... existing middleware ...
-//   UsageMiddleware.trackUsage('recruiterUnlocks', 1, (req, res, body) => ({
-//     recruiterId: req.params.id,
-//     recruiterName: body.data?.recruiter?.name
-//   })),
-//   RecruiterController.unlockRecruiter
-// );
-
-// Example: AI Assistant chat with comprehensive usage tracking
-// router.post('/chat',
-//   authMiddleware.protect,
-//   SubscriptionMiddleware.requireFeature('aiAssistant'),
-//   UsageMiddleware.checkUsageLimit('aiConversations', 1), // For new conversations
-//   // ... existing middleware ...
-//   UsageMiddleware.trackAIUsage(), // Special AI tracking middleware
-//   AssistantController.chat
-// );
+router.post('/admin/bulk-fix',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  authMiddleware.restrictTo('admin'),
+  [
+    body('userIds')
+      .optional()
+      .isArray()
+      .withMessage('User IDs must be an array')
+  ],
+  handleValidationErrors,
+  SubscriptionController.bulkFixSubscriptionData
+);
 
 // ======================================
 // ERROR HANDLING MIDDLEWARE

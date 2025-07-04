@@ -1,10 +1,12 @@
-// controllers/resume.controller.js - COMPLETE FIXED VERSION
+// controllers/resume.controller.js - UPDATED WITH FEATURE GATING
 const { PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { s3Client, S3_BUCKET } = require('../config/s3');
 const Resume = require('../models/mongodb/resume.model');
 const resumeParserService = require('../services/resumeParser.service');
 const resumeAnalysisService = require('../services/resumeAnalysis.service');
+const subscriptionService = require('../services/subscription.service');
+const usageService = require('../services/usage.service');
 const mongoose = require('mongoose');
 const path = require('path');
 const uuid = require('uuid').v4;
@@ -15,7 +17,7 @@ const generateS3Key = (userId, originalFilename) => {
   return `resumes/${userId}/${uuid()}${extension}`;
 };
 
-// Upload a new resume
+// Upload a new resume - WITH USAGE LIMITS
 exports.uploadResume = async (req, res) => {
   try {
     // Check if S3 bucket is configured
@@ -34,6 +36,39 @@ exports.uploadResume = async (req, res) => {
     
     if (!userId) {
       return res.status(401).json({ message: 'User identification missing' });
+    }
+
+    // 🔒 FEATURE GATING: Check upload limits before processing
+    console.log('🔒 Checking resume upload limits for user:', userId);
+    
+    try {
+      const uploadPermission = await usageService.checkUsageLimit(userId, 'resumeUploads', 1);
+      
+      if (!uploadPermission.allowed) {
+        console.log('❌ Upload limit exceeded:', uploadPermission.reason);
+        return res.status(403).json({ 
+          message: 'Upload limit reached',
+          error: uploadPermission.reason,
+          current: uploadPermission.current,
+          limit: uploadPermission.limit,
+          plan: uploadPermission.plan,
+          upgradeRequired: true,
+          feature: 'resumeUploads'
+        });
+      }
+      
+      console.log('✅ Upload permission granted:', {
+        current: uploadPermission.current,
+        limit: uploadPermission.limit,
+        remaining: uploadPermission.remaining
+      });
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking upload permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate upload permission',
+        error: permissionError.message 
+      });
     }
 
     const originalFilename = req.file.originalname;
@@ -100,6 +135,20 @@ exports.uploadResume = async (req, res) => {
     await s3Client.send(new PutObjectCommand(uploadParams));
     console.log('S3 upload successful');
     
+    // 🔒 FEATURE GATING: Track successful upload AFTER S3 upload succeeds
+    try {
+      await usageService.trackUsage(userId, 'resumeUploads', 1, {
+        resumeId: resume._id.toString(),
+        fileName: originalFilename,
+        fileType: fileType,
+        fileSize: req.file.size
+      });
+      console.log('✅ Upload usage tracked successfully');
+    } catch (trackingError) {
+      console.error('❌ Error tracking upload usage (non-critical):', trackingError);
+      // Don't fail the upload if tracking fails
+    }
+    
     // Update processing status after successful upload
     resume.processingStatus = {
       status: 'parsing',
@@ -111,7 +160,7 @@ exports.uploadResume = async (req, res) => {
 
     // IMPORTANT: Initiate async parsing and analysis in the background
     // This way the user doesn't have to wait for the process to complete
-    processResumeInBackground(resume._id, s3Key, fileType).catch(err => {
+    processResumeInBackground(resume._id, s3Key, fileType, userId).catch(err => {
       console.error('Background resume processing error:', err);
       // Update status to error if background processing fails
       updateResumeProcessingStatus(resume._id, 'error', 0, 'Error processing resume', err.message)
@@ -162,8 +211,8 @@ async function updateResumeProcessingStatus(resumeId, status, progress, message,
   }
 }
 
-// Background processing function - UPDATED WITH BETTER ERROR HANDLING AND LOGGING
-async function processResumeInBackground(resumeId, fileUrl, fileType) {
+// Background processing function - UPDATED WITH USAGE TRACKING
+async function processResumeInBackground(resumeId, fileUrl, fileType, userId) {
   try {
     console.log(`Starting background processing for resume: ${resumeId}`);
     
@@ -194,8 +243,21 @@ async function processResumeInBackground(resumeId, fileUrl, fileType) {
     // Update status to analyzing (50-90%)
     await updateResumeProcessingStatus(resumeId, 'analyzing', 50, 'Parsing complete. Starting AI analysis...');
     
-    // Step 2: Analyze the resume using OpenAI
+    // Step 2: Analyze the resume using OpenAI - WITH USAGE TRACKING
     console.log('Starting resume analysis...');
+    
+    // 🔒 FEATURE GATING: Track resume analysis usage (tied to uploads)
+    try {
+      await usageService.trackUsage(userId, 'resumeAnalysis', 1, {
+        resumeId: resumeId.toString(),
+        analysisType: 'initial'
+      });
+      console.log('✅ Analysis usage tracked successfully');
+    } catch (trackingError) {
+      console.error('❌ Error tracking analysis usage (non-critical):', trackingError);
+      // Continue with analysis even if tracking fails
+    }
+    
     const analysis = await resumeAnalysisService.analyzeResume(resumeId);
     
     // CRITICAL FIX: Validate analysis data before saving
@@ -255,7 +317,7 @@ async function processResumeInBackground(resumeId, fileUrl, fileType) {
   }
 }
 
-// Create a tailored resume
+// Create a tailored resume - WITH USAGE LIMITS
 exports.createTailoredResume = async (req, res) => {
   try {
     const { resumeId, jobId } = req.params;
@@ -273,6 +335,39 @@ exports.createTailoredResume = async (req, res) => {
       return res.status(400).json({ message: 'Resume ID and Job ID are required' });
     }
     
+    // 🔒 FEATURE GATING: Check tailoring limits before processing
+    console.log('🔒 Checking resume tailoring limits for user:', userId);
+    
+    try {
+      const tailoringPermission = await usageService.checkUsageLimit(userId, 'resumeTailoring', 1);
+      
+      if (!tailoringPermission.allowed) {
+        console.log('❌ Tailoring limit exceeded:', tailoringPermission.reason);
+        return res.status(403).json({ 
+          message: 'Resume tailoring limit reached',
+          error: tailoringPermission.reason,
+          current: tailoringPermission.current,
+          limit: tailoringPermission.limit,
+          plan: tailoringPermission.plan,
+          upgradeRequired: true,
+          feature: 'resumeTailoring'
+        });
+      }
+      
+      console.log('✅ Tailoring permission granted:', {
+        current: tailoringPermission.current,
+        limit: tailoringPermission.limit,
+        remaining: tailoringPermission.remaining
+      });
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking tailoring permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate tailoring permission',
+        error: permissionError.message 
+      });
+    }
+    
     console.log(`Creating tailored resume: resumeId=${resumeId}, jobId=${jobId}, userId=${userId}`);
     
     // Import the tailoring service
@@ -283,6 +378,20 @@ exports.createTailoredResume = async (req, res) => {
       name,
       notes
     });
+    
+    // 🔒 FEATURE GATING: Track successful tailoring usage
+    try {
+      await usageService.trackUsage(userId, 'resumeTailoring', 1, {
+        originalResumeId: resumeId,
+        tailoredResumeId: result.resume.id,
+        jobId: jobId,
+        tailoringType: 'ai_generated'
+      });
+      console.log('✅ Tailoring usage tracked successfully');
+    } catch (trackingError) {
+      console.error('❌ Error tracking tailoring usage (non-critical):', trackingError);
+      // Don't fail the tailoring if tracking fails
+    }
     
     console.log('Tailored resume created successfully:', {
       resumeId: result.resume.id,
@@ -302,7 +411,7 @@ exports.createTailoredResume = async (req, res) => {
   }
 };
 
-// Get all resumes for a user
+// Get all resumes for a user - WITH USAGE STATS
 exports.getUserResumes = async (req, res) => {
   try {
     // Check if S3 bucket is configured
@@ -320,6 +429,23 @@ exports.getUserResumes = async (req, res) => {
     }
     
     const resumes = await Resume.find({ userId }).sort({ createdAt: -1 });
+    
+    // 🔒 FEATURE GATING: Get usage statistics to include in response
+    let usageStats = null;
+    try {
+      const userUsage = await usageService.getUserUsageStats(userId);
+      usageStats = {
+        resumeUploads: userUsage.usageStats.resumeUploads,
+        resumeTailoring: userUsage.usageStats.resumeTailoring,
+        plan: userUsage.plan,
+        planLimits: {
+          resumeUploads: userUsage.planLimits.resumeUploads,
+          resumeTailoring: userUsage.planLimits.resumeTailoring
+        }
+      };
+    } catch (usageError) {
+      console.error('❌ Error fetching usage stats (non-critical):', usageError);
+    }
     
     // Generate temporary signed URLs for each resume
     const resumesWithUrls = await Promise.all(resumes.map(async (resume) => {
@@ -356,14 +482,17 @@ exports.getUserResumes = async (req, res) => {
       };
     }));
     
-    res.status(200).json({ resumes: resumesWithUrls });
+    res.status(200).json({ 
+      resumes: resumesWithUrls,
+      usageStats: usageStats
+    });
   } catch (error) {
     console.error('Error fetching resumes:', error);
     res.status(500).json({ message: 'Failed to fetch resumes', error: error.message });
   }
 };
 
-// Get a specific resume by ID
+// Get a specific resume by ID - WITH USAGE STATS
 exports.getResumeById = async (req, res) => {
   try {
     // Check if S3 bucket is configured
@@ -390,6 +519,21 @@ exports.getResumeById = async (req, res) => {
     
     if (!resume) {
       return res.status(404).json({ message: 'Resume not found' });
+    }
+    
+    // 🔒 FEATURE GATING: Get usage statistics to include in response
+    let usageStats = null;
+    try {
+      const userUsage = await usageService.getUserUsageStats(userId);
+      usageStats = {
+        resumeTailoring: userUsage.usageStats.resumeTailoring,
+        plan: userUsage.plan,
+        planLimits: {
+          resumeTailoring: userUsage.planLimits.resumeTailoring
+        }
+      };
+    } catch (usageError) {
+      console.error('❌ Error fetching usage stats (non-critical):', usageError);
     }
     
     // CRITICAL DEBUG: Log what we're retrieving
@@ -465,7 +609,8 @@ exports.getResumeById = async (req, res) => {
       },
       isTailored: resume.isTailored || false,
       tailoredForJob: resume.tailoredForJob || null,
-      versions: versionsWithUrls
+      versions: versionsWithUrls,
+      usageStats: usageStats
     };
     
     // CRITICAL DEBUG: Log what we're sending to frontend
@@ -498,6 +643,34 @@ exports.optimizeResumeForATS = async (req, res) => {
     
     if (!mongoose.Types.ObjectId.isValid(resumeId)) {
       return res.status(400).json({ message: 'Invalid resume ID' });
+    }
+    
+    // 🔒 FEATURE GATING: Check if user has permission for ATS optimization
+    // This is considered a premium feature that uses resume analysis quota
+    try {
+      const optimizationPermission = await usageService.checkUsageLimit(userId, 'resumeAnalysis', 1);
+      
+      if (!optimizationPermission.allowed) {
+        console.log('❌ ATS optimization limit exceeded:', optimizationPermission.reason);
+        return res.status(403).json({ 
+          message: 'ATS optimization limit reached',
+          error: optimizationPermission.reason,
+          current: optimizationPermission.current,
+          limit: optimizationPermission.limit,
+          plan: optimizationPermission.plan,
+          upgradeRequired: true,
+          feature: 'resumeAnalysis'
+        });
+      }
+      
+      console.log('✅ ATS optimization permission granted');
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking ATS optimization permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate ATS optimization permission',
+        error: permissionError.message 
+      });
     }
     
     console.log(`🤖 AJ: Starting ATS optimization for resume ${resumeId}`);
@@ -537,6 +710,20 @@ exports.optimizeResumeForATS = async (req, res) => {
       originalData,
       progressCallback
     );
+    
+    // 🔒 FEATURE GATING: Track ATS optimization usage
+    try {
+      await usageService.trackUsage(userId, 'resumeAnalysis', 1, {
+        resumeId: resumeId,
+        optimizationType: 'ats_optimization',
+        targetJob: targetJob?.title || 'general',
+        scoreImprovement: result.newATSScore - result.previousScore
+      });
+      console.log('✅ ATS optimization usage tracked successfully');
+    } catch (trackingError) {
+      console.error('❌ Error tracking ATS optimization usage (non-critical):', trackingError);
+      // Don't fail the optimization if tracking fails
+    }
     
     console.log(`✅ AJ: ATS optimization completed. New score: ${result.newATSScore}%`);
     
@@ -700,7 +887,7 @@ exports.getOptimizationProgress = async (req, res) => {
   }
 };
 
-// Manually trigger resume analysis
+// Manually trigger resume analysis - WITH USAGE LIMITS
 exports.analyzeResume = async (req, res) => {
   try {
     // Get userId from either req.user._id or req.userId
@@ -714,6 +901,35 @@ exports.analyzeResume = async (req, res) => {
     
     if (!mongoose.Types.ObjectId.isValid(resumeId)) {
       return res.status(400).json({ message: 'Invalid resume ID' });
+    }
+    
+    // 🔒 FEATURE GATING: Check analysis limits
+    console.log('🔒 Checking resume analysis limits for user:', userId);
+    
+    try {
+      const analysisPermission = await usageService.checkUsageLimit(userId, 'resumeAnalysis', 1);
+      
+      if (!analysisPermission.allowed) {
+        console.log('❌ Analysis limit exceeded:', analysisPermission.reason);
+        return res.status(403).json({ 
+          message: 'Resume analysis limit reached',
+          error: analysisPermission.reason,
+          current: analysisPermission.current,
+          limit: analysisPermission.limit,
+          plan: analysisPermission.plan,
+          upgradeRequired: true,
+          feature: 'resumeAnalysis'
+        });
+      }
+      
+      console.log('✅ Analysis permission granted');
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking analysis permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate analysis permission',
+        error: permissionError.message 
+      });
     }
     
     const resume = await Resume.findOne({ _id: resumeId, userId });
@@ -744,6 +960,20 @@ exports.analyzeResume = async (req, res) => {
       // Update the resume with analysis data
       resume.analysis = analysis;
       await resume.save();
+      
+      // 🔒 FEATURE GATING: Track analysis usage
+      try {
+        await usageService.trackUsage(userId, 'resumeAnalysis', 1, {
+          resumeId: resumeId,
+          analysisType: 'manual_trigger',
+          overallScore: analysis.overallScore,
+          atsScore: analysis.atsCompatibility
+        });
+        console.log('✅ Manual analysis usage tracked successfully');
+      } catch (trackingError) {
+        console.error('❌ Error tracking analysis usage (non-critical):', trackingError);
+        // Don't fail the analysis if tracking fails
+      }
       
       res.status(200).json({ 
         message: 'Resume analyzed successfully',
@@ -797,7 +1027,7 @@ exports.addResumeVersion = async (req, res) => {
     
     const originalFilename = req.file.originalname;
     
-// Determine file type - IMPORTANT: Use UPPERCASE to match the schema enum
+    // Determine file type - IMPORTANT: Use UPPERCASE to match the schema enum
     let fileType;
     if (req.file.mimetype === 'application/pdf' || originalFilename.toLowerCase().endsWith('.pdf')) {
       fileType = 'PDF'; // Uppercase to match schema enum

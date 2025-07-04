@@ -1,4 +1,4 @@
-// backend/controllers/auth.controller.js
+// backend/controllers/auth.controller.js - FIXED RESET PASSWORD URL
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/mongodb/user.model');
@@ -58,8 +58,9 @@ exports.register = async (req, res) => {
     const verificationToken = user.generateEmailVerificationToken();
     await user.save({ validateBeforeSave: false });
     
-    // Create verification URL
-    const verificationUrl = `${req.protocol}://${req.get('host')}/api/auth/verify-email/${verificationToken}`;
+    // Create verification URL - FIXED TO USE PROPER FRONTEND URL
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const verificationUrl = `${frontendUrl}/verify-email/${verificationToken}`;
     
     // Try to send verification email, but don't fail registration if it fails
     try {
@@ -309,8 +310,9 @@ exports.resendVerification = async (req, res) => {
     const verificationToken = user.generateEmailVerificationToken();
     await user.save({ validateBeforeSave: false });
     
-    // Create verification URL
-    const verificationUrl = `${req.protocol}://${req.get('host')}/api/auth/verify-email/${verificationToken}`;
+    // Create verification URL - FIXED TO USE PROPER FRONTEND URL
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const verificationUrl = `${frontendUrl}/verify-email/${verificationToken}`;
     
     try {
       await sendEmail({
@@ -345,7 +347,7 @@ exports.resendVerification = async (req, res) => {
 };
 
 /**
- * Forgot password
+ * Forgot password - FIXED TO USE PROPER FRONTEND URL
  * @route POST /api/auth/forgot-password
  * @access Public
  */
@@ -364,8 +366,11 @@ exports.forgotPassword = async (req, res) => {
     const resetToken = user.generatePasswordResetToken();
     await user.save({ validateBeforeSave: false });
     
-    // Create reset URL
-    const resetUrl = `${req.protocol}://${req.get('host')}/api/auth/reset-password/${resetToken}`;
+    // Create reset URL - FIXED TO USE PROPER FRONTEND URL
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
+    
+    console.log('Generated reset URL:', resetUrl); // Debug log
     
     try {
       await sendEmail({

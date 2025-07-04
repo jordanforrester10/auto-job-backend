@@ -1,10 +1,12 @@
-// controllers/job.controller.js - UPDATED FOR REAL JOB BOARD INTEGRATION - FIXED
+// controllers/job.controller.js - UPDATED WITH FEATURE GATING
 const Job = require('../models/mongodb/job.model');
 const Resume = require('../models/mongodb/resume.model');
 const jobAnalysisService = require('../services/jobAnalysis.service');
 const jobMatchingService = require('../services/jobMatching.service');
 const resumeTailoringService = require('../services/resumeTailoring.service');
 const jobSearchService = require('../services/jobSearch.service');
+const subscriptionService = require('../services/subscription.service');
+const usageService = require('../services/usage.service');
 const mongoose = require('mongoose');
 
 // Enhanced background processing for manual jobs (uses premium GPT-4o)
@@ -110,13 +112,46 @@ async function updateJobAnalysisStatus(jobId, status, progress, message, additio
   }
 }
 
-// Create a new job with premium analysis
+// Create a new job with premium analysis - WITH USAGE LIMITS
 exports.createJob = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
     
     if (!userId) {
       return res.status(401).json({ message: 'User identification missing' });
+    }
+    
+    // 🔒 FEATURE GATING: Check job import limits before processing
+    console.log('🔒 Checking job import limits for user:', userId);
+    
+    try {
+      const importPermission = await usageService.checkUsageLimit(userId, 'jobImports', 1);
+      
+      if (!importPermission.allowed) {
+        console.log('❌ Job import limit exceeded:', importPermission.reason);
+        return res.status(403).json({ 
+          message: 'Job import limit reached',
+          error: importPermission.reason,
+          current: importPermission.current,
+          limit: importPermission.limit,
+          plan: importPermission.plan,
+          upgradeRequired: true,
+          feature: 'jobImports'
+        });
+      }
+      
+      console.log('✅ Job import permission granted:', {
+        current: importPermission.current,
+        limit: importPermission.limit,
+        remaining: importPermission.remaining
+      });
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking job import permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate job import permission',
+        error: permissionError.message 
+      });
     }
     
     const { 
@@ -161,6 +196,21 @@ exports.createJob = async (req, res) => {
     // Save job to database
     await job.save();
     
+    // 🔒 FEATURE GATING: Track successful job import AFTER job is saved
+    try {
+      await usageService.trackUsage(userId, 'jobImports', 1, {
+        jobId: job._id.toString(),
+        title: title,
+        company: company,
+        importType: 'manual',
+        sourcePlatform: 'MANUAL'
+      });
+      console.log('✅ Job import usage tracked successfully');
+    } catch (trackingError) {
+      console.error('❌ Error tracking job import usage (non-critical):', trackingError);
+      // Don't fail the job creation if tracking fails
+    }
+    
     console.log(`🔍 Manual job created: ${job.title} at ${job.company} - Starting premium analysis...`);
     
     // Process job in background with premium analysis
@@ -184,7 +234,7 @@ exports.createJob = async (req, res) => {
   }
 };
 
-// Get all user jobs with enhanced analysis status and real job board info
+// Get all user jobs with enhanced analysis status and usage stats
 exports.getUserJobs = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
@@ -194,6 +244,22 @@ exports.getUserJobs = async (req, res) => {
     }
     
     const jobs = await Job.find({ userId }).sort({ createdAt: -1 });
+    
+    // 🔒 FEATURE GATING: Get usage statistics to include in response
+    let usageStats = null;
+    try {
+      const userUsage = await usageService.getUserUsageStats(userId);
+      usageStats = {
+        jobImports: userUsage.usageStats.jobImports,
+        plan: userUsage.plan,
+        planLimits: {
+          jobImports: userUsage.planLimits.jobImports,
+          aiJobDiscovery: userUsage.planLimits.aiJobDiscovery
+        }
+      };
+    } catch (usageError) {
+      console.error('❌ Error fetching usage stats (non-critical):', usageError);
+    }
     
     // Enhance jobs with analysis status information and job board approach info
     const enhancedJobs = jobs.map(job => {
@@ -266,7 +332,10 @@ exports.getUserJobs = async (req, res) => {
       };
     });
     
-    res.status(200).json({ jobs: enhancedJobs });
+    res.status(200).json({ 
+      jobs: enhancedJobs,
+      usageStats: usageStats
+    });
   } catch (error) {
     console.error('Error fetching jobs:', error);
     res.status(500).json({ message: 'Failed to fetch jobs', error: error.message });
@@ -554,7 +623,7 @@ exports.deleteJob = async (req, res) => {
   }
 };
 
-// Match resume with job
+// Match resume with job - WITH USAGE LIMITS FOR TAILORING
 exports.matchResumeWithJob = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
@@ -634,7 +703,7 @@ exports.matchResumeWithJob = async (req, res) => {
   }
 };
 
-// Get tailoring recommendations
+// Get tailoring recommendations - UPDATED: NO USAGE TRACKING HERE
 exports.tailorResumeToJob = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
@@ -694,13 +763,92 @@ exports.tailorResumeToJob = async (req, res) => {
   }
 };
 
-// Find jobs with ENHANCED AI (Real Job Board Integration)
+// Find jobs with ENHANCED AI (Real Job Board Integration) - WITH STRICT PLAN PERMISSIONS
 exports.findJobsWithAi = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
     
     if (!userId) {
       return res.status(401).json({ message: 'User identification missing' });
+    }
+    
+    // 🔒 ENHANCED FEATURE GATING: Strict plan-based AI job discovery permissions
+    console.log('🔒 Checking AI job discovery permissions for user:', userId);
+    
+    let currentSubscription = null; // Declare in function scope
+    
+    try {
+      currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const userPlan = currentSubscription.user.subscriptionTier;
+      const aiDiscoveryAllowed = currentSubscription.planLimits.aiJobDiscovery;
+      
+      console.log(`📊 User plan: ${userPlan}, AI discovery allowed: ${aiDiscoveryAllowed}`);
+      
+      // RESTRICTION 1: Free users cannot access AI job discovery at all
+      if (userPlan === 'free') {
+        console.log('❌ AI job discovery denied - Free plan user');
+        return res.status(403).json({ 
+          message: 'AI job discovery not available on Free plan',
+          error: 'This feature requires Casual plan or higher',
+          currentPlan: userPlan,
+          upgradeRequired: true,
+          feature: 'aiJobDiscovery',
+          availableOn: ['casual', 'hunter'],
+          upgradeMessage: 'Upgrade to Casual plan to unlock AI job discovery',
+          upgradeUrl: '/pricing'
+        });
+      }
+      
+      // RESTRICTION 2: Check if AI job discovery feature is enabled for the plan
+      if (!aiDiscoveryAllowed) {
+        console.log('❌ AI job discovery not available on current plan:', userPlan);
+        return res.status(403).json({ 
+          message: 'AI job discovery not available on your current plan',
+          error: 'This feature is not included in your subscription',
+          currentPlan: userPlan,
+          upgradeRequired: true,
+          feature: 'aiJobDiscovery'
+        });
+      }
+      
+      // RESTRICTION 3: For Casual plan, check usage limits (1 discovery per month)
+      if (userPlan === 'casual') {
+        const discoveryPermission = await usageService.checkUsageLimit(userId, 'aiJobDiscovery', 1);
+        
+        if (!discoveryPermission.allowed) {
+          console.log('❌ AI job discovery limit exceeded for Casual plan:', discoveryPermission.reason);
+          return res.status(403).json({ 
+            message: 'AI job discovery limit reached for Casual plan',
+            error: discoveryPermission.reason,
+            current: discoveryPermission.current,
+            limit: discoveryPermission.limit,
+            plan: discoveryPermission.plan,
+            upgradeRequired: true,
+            feature: 'aiJobDiscovery',
+            upgradeOption: 'Upgrade to Hunter plan for unlimited AI job discovery',
+            upgradeMessage: 'You\'ve used your 1 AI job discovery for this month. Upgrade to Hunter for unlimited searches.',
+            upgradeUrl: '/pricing'
+          });
+        }
+        
+        console.log('✅ AI job discovery permission granted for Casual plan:', {
+          current: discoveryPermission.current,
+          limit: discoveryPermission.limit,
+          remaining: discoveryPermission.remaining
+        });
+      }
+      
+      // RESTRICTION 4: Hunter users have unlimited access (no additional checks needed)
+      if (userPlan === 'hunter') {
+        console.log('✅ AI job discovery permission granted for Hunter plan (unlimited)');
+      }
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking AI job discovery permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI job discovery permission',
+        error: permissionError.message 
+      });
     }
     
     const { resumeId } = req.params;
@@ -718,10 +866,42 @@ exports.findJobsWithAi = async (req, res) => {
       return res.status(400).json({ message: 'Resume parsing not complete. Please try again later.' });
     }
     
+    // 🔒 FEATURE GATING: Track AI job discovery usage for Casual plan users
+    try {
+      if (currentSubscription.user.subscriptionTier === 'casual') {
+        await usageService.trackUsage(userId, 'aiJobDiscovery', 1, {
+          resumeId: resumeId,
+          searchType: 'enhanced_3_phase_real_job_boards',
+          initiatedAt: new Date(),
+          planRestriction: 'casual_monthly_limit'
+        });
+        console.log('✅ AI job discovery usage tracked for Casual plan user');
+      } else if (currentSubscription.user.subscriptionTier === 'hunter') {
+        // For Hunter users, we still track for analytics but don't enforce limits
+        await usageService.trackUsage(userId, 'aiJobDiscovery', 1, {
+          resumeId: resumeId,
+          searchType: 'enhanced_3_phase_real_job_boards',
+          initiatedAt: new Date(),
+          planRestriction: 'hunter_unlimited'
+        });
+        console.log('✅ AI job discovery usage tracked for Hunter plan user (unlimited)');
+      }
+    } catch (trackingError) {
+      console.error('❌ Error tracking AI job discovery usage (non-critical):', trackingError);
+      // Don't fail the job discovery if tracking fails, but log the issue
+    }
+    
     // Start ENHANCED AI job search with REAL Job Board Integration
     res.status(202).json({
       message: 'ENHANCED 3-Phase AI job search with REAL job board integration initiated! Jobs will be discovered from actual company postings.',
       status: 'processing',
+      planInfo: {
+        currentPlan: currentSubscription?.user?.subscriptionTier || 'unknown',
+        unlimited: currentSubscription?.user?.subscriptionTier === 'hunter',
+        remainingSearches: currentSubscription?.user?.subscriptionTier === 'casual' 
+          ? Math.max(0, 1 - (currentSubscription?.usageStats?.aiJobDiscovery?.used || 0))
+          : -1 // unlimited for hunter
+      },
       realJobBoardIntegrationInfo: {
         phase1: 'Career Analysis (GPT-4 Turbo) - $0.05',
         phase2: 'REAL Job Board Discovery (Claude 3.5 Sonnet + Web Search) - $0.30-0.50',
@@ -948,6 +1128,20 @@ exports.getJobAnalysisInsights = async (req, res) => {
       parsedData: { $exists: true, $ne: {} }
     });
     
+    // 🔒 FEATURE GATING: Get usage statistics for insights
+    let usageStats = null;
+    try {
+      const userUsage = await usageService.getUserUsageStats(userId);
+      usageStats = {
+        jobImports: userUsage.usageStats.jobImports,
+        aiJobDiscovery: userUsage.usageStats.aiJobDiscovery,
+        plan: userUsage.plan,
+        planLimits: userUsage.planLimits
+      };
+    } catch (usageError) {
+      console.error('❌ Error fetching usage stats for insights (non-critical):', usageError);
+    }
+    
     // Calculate insights with model usage breakdown and real job board stats
     const insights = {
       totalJobsAnalyzed: jobs.length,
@@ -1100,6 +1294,7 @@ exports.getJobAnalysisInsights = async (req, res) => {
     
     res.status(200).json({ 
       insights,
+      usageStats: usageStats,
       enhancedRealJobBoardInfo: {
         description: 'ENHANCED 3-Phase Approach with REAL Job Board Integration: Career Analysis → Real Job Board Discovery → Premium Analysis',
         improvements: [
@@ -1139,7 +1334,7 @@ exports.getJobAnalysisInsights = async (req, res) => {
   }
 };
 
-// AI Search Management Routes
+// AI Search Management Routes - WITH PLAN PERMISSIONS
 
 // Get user AI searches
 exports.getUserAiSearches = async (req, res) => {
@@ -1148,6 +1343,27 @@ exports.getUserAiSearches = async (req, res) => {
     
     if (!userId) {
       return res.status(401).json({ message: 'User identification missing' });
+    }
+    
+    // 🔒 FEATURE GATING: Check if user has access to AI searches
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiDiscoveryAllowed = currentSubscription.planLimits.aiJobDiscovery;
+      
+      if (!aiDiscoveryAllowed) {
+        return res.status(403).json({ 
+          message: 'AI job discovery not available on your current plan',
+          currentPlan: currentSubscription.user.subscriptionTier,
+          upgradeRequired: true,
+          feature: 'aiJobDiscovery'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI search permissions:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate AI search permissions',
+        error: permissionError.message 
+      });
     }
     
     const searches = await jobSearchService.getUserAiSearches(userId);
@@ -1162,7 +1378,7 @@ exports.getUserAiSearches = async (req, res) => {
   }
 };
 
-// Pause AI search
+// Pause AI search - WITH PLAN PERMISSIONS
 exports.pauseAiSearch = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
@@ -1170,6 +1386,25 @@ exports.pauseAiSearch = async (req, res) => {
     
     if (!userId) {
       return res.status(401).json({ message: 'User identification missing' });
+    }
+    
+    // 🔒 FEATURE GATING: Check permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiDiscoveryAllowed = currentSubscription.planLimits.aiJobDiscovery;
+      
+      if (!aiDiscoveryAllowed) {
+        return res.status(403).json({ 
+          message: 'AI job discovery not available on your current plan',
+          upgradeRequired: true
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI search permissions:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate permissions',
+        error: permissionError.message 
+      });
     }
     
     const result = await jobSearchService.pauseAiSearch(userId, searchId);
@@ -1184,7 +1419,7 @@ exports.pauseAiSearch = async (req, res) => {
   }
 };
 
-// Resume AI search
+// Resume AI search - WITH PLAN PERMISSIONS
 exports.resumeAiSearch = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
@@ -1192,6 +1427,38 @@ exports.resumeAiSearch = async (req, res) => {
     
     if (!userId) {
       return res.status(401).json({ message: 'User identification missing' });
+    }
+    
+    // 🔒 FEATURE GATING: Check permissions and usage limits
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiDiscoveryAllowed = currentSubscription.planLimits.aiJobDiscovery;
+      
+      if (!aiDiscoveryAllowed) {
+        return res.status(403).json({ 
+          message: 'AI job discovery not available on your current plan',
+          upgradeRequired: true
+        });
+      }
+      
+      // For Casual plan, check usage limits
+      if (currentSubscription.user.subscriptionTier === 'casual') {
+        const discoveryPermission = await usageService.checkUsageLimit(userId, 'aiJobDiscovery', 1);
+        
+        if (!discoveryPermission.allowed) {
+          return res.status(403).json({ 
+            message: 'AI job discovery limit reached for Casual plan',
+            error: discoveryPermission.reason,
+            upgradeRequired: true
+          });
+        }
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI search permissions:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate permissions',
+        error: permissionError.message 
+      });
     }
     
     const result = await jobSearchService.resumeAiSearch(userId, searchId);
@@ -1206,7 +1473,7 @@ exports.resumeAiSearch = async (req, res) => {
   }
 };
 
-// Delete AI search
+// Delete AI search - WITH PLAN PERMISSIONS
 exports.deleteAiSearch = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
@@ -1214,6 +1481,25 @@ exports.deleteAiSearch = async (req, res) => {
     
     if (!userId) {
       return res.status(401).json({ message: 'User identification missing' });
+    }
+    
+    // 🔒 FEATURE GATING: Check permissions (basic check for access)
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const aiDiscoveryAllowed = currentSubscription.planLimits.aiJobDiscovery;
+      
+      if (!aiDiscoveryAllowed) {
+        return res.status(403).json({ 
+          message: 'AI job discovery not available on your current plan',
+          upgradeRequired: true
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking AI search permissions:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate permissions',
+        error: permissionError.message 
+      });
     }
     
     const result = await jobSearchService.deleteAiSearch(userId, searchId);

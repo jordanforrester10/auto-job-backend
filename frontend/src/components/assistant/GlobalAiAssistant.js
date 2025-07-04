@@ -1,4 +1,4 @@
-// src/components/assistant/GlobalAiAssistant.js - WITH WORKING CONVERSATION DELETION
+// src/components/assistant/GlobalAiAssistant.js - WITH SUBSCRIPTION PERMISSION CHECKING AND UPGRADE DIALOG
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -56,14 +56,17 @@ import {
   Work as WorkIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  Lock as LockIcon,
+  Upgrade as UpgradeIcon
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { useAiAssistant } from '../../context/AiAssistantContext';
 import { useAuth } from '../../context/AuthContext';
+import { useSubscription } from '../../context/SubscriptionContext';
 import AutoJobLogo from '../common/AutoJobLogo';
 import assistantService from '../../utils/assistantService';
-
+import UpgradePrompt from '../subscription/shared/UpgradePrompt';
 
 // Confirmation Dialog Component for Conversation Deletion
 const DeleteConfirmationDialog = ({ 
@@ -768,9 +771,7 @@ const EnhancedMessage = ({ message, theme, currentUser, onSuggestionClick, hasAt
   );
 };
 
-// FIXED Conversation List Component with Working Deletion
-
-
+// Conversation List Component with Working Deletion
 const ConversationList = ({ 
   conversations, 
   currentConversationId, 
@@ -897,7 +898,7 @@ const ConversationList = ({
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Success Message */}
+{/* Success Message */}
       <Snackbar
         open={!!successMessage}
         autoHideDuration={3000}
@@ -1017,16 +1018,89 @@ const ConversationList = ({
         conversationTitle={selectedConv?.title}
         isDeleting={isDeleting}
       />
-      
-
     </Box>
   );
 };
 
-// Main AI Assistant Component (UPDATED - REMOVED MEMORY TAB)
+// Upgrade Prompt Component for Non-Hunter Users
+const UpgradePromptWidget = ({ planInfo, onUpgrade }) => {
+  const theme = useTheme();
+
+  return (
+    <Tooltip title="AI Assistant - Hunter Plan Required" placement="left">
+      <Box
+        sx={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          zIndex: 1300,
+          cursor: 'pointer'
+        }}
+        onClick={onUpgrade}
+      >
+        <Paper
+          elevation={8}
+          sx={{
+            width: 64,
+            height: 64,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: `linear-gradient(135deg, ${theme.palette.grey[400]} 0%, ${theme.palette.grey[600]} 100%)`,
+            color: 'white',
+            position: 'relative',
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            '&:hover': {
+              transform: 'translateY(-4px) scale(1.05)',
+              boxShadow: '0 12px 24px rgba(0, 0, 0, 0.2)'
+            }
+          }}
+        >
+          <AutoJobLogo 
+            variant="icon-only" 
+            size="small" 
+            color="white"
+          />
+          
+          {/* Lock Icon Overlay */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -4,
+              right: -4,
+              width: 24,
+              height: 24,
+              borderRadius: '50%',
+              bgcolor: theme.palette.warning.main,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '2px solid white'
+            }}
+          >
+            <LockIcon sx={{ fontSize: 12, color: 'white' }} />
+          </Box>
+        </Paper>
+      </Box>
+    </Tooltip>
+  );
+};
+
+// Main AI Assistant Component - NOW WITH SUBSCRIPTION PERMISSION CHECKING AND UPGRADE DIALOG
 const GlobalAiAssistant = () => {
   const theme = useTheme();
   const { currentUser } = useAuth();
+  
+  // 🔧 SUBSCRIPTION CONTEXT INTEGRATION
+  const {
+    subscription,
+    planLimits,
+    hasFeatureAccess,
+    planInfo,
+    loading: subscriptionLoading
+  } = useSubscription();
+
   const {
     // State
     isOpen,
@@ -1067,6 +1141,22 @@ const GlobalAiAssistant = () => {
     resumes: [],
     jobs: []
   });
+  
+  // 🔧 NEW: State for upgrade prompt dialog
+  const [upgradePromptOpen, setUpgradePromptOpen] = useState(false);
+
+  // 🔧 SUBSCRIPTION PERMISSION CHECKING
+  const hasAiAssistantAccess = hasFeatureAccess('aiAssistant');
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('🤖 AI Assistant Access Check:', {
+      hasAccess: hasAiAssistantAccess,
+      planTier: subscription?.subscriptionTier,
+      aiAssistantLimit: planLimits?.aiAssistant,
+      planInfo: planInfo
+    });
+  }, [hasAiAssistantAccess, subscription, planLimits, planInfo]);
 
   // Resume editing intelligence
   const attachedResume = attachedContext.resumes[0] || null;
@@ -1195,7 +1285,7 @@ const GlobalAiAssistant = () => {
     // Keep attached context for new conversation
   };
 
-  // Handle conversation selection (continued)
+  // Handle conversation selection
   const handleSelectConversation = (conversationId) => {
     switchConversation(conversationId);
     setShowSidebar(false);
@@ -1264,8 +1354,56 @@ const GlobalAiAssistant = () => {
     console.log('🔄 AI Assistant closed - conversation and context preserved');
   }, [setIsOpen, setError]);
 
+  // 🔧 UPDATED: Handle upgrade click for non-Hunter users - Opens dialog instead of redirecting
+  const handleUpgradeClick = useCallback(() => {
+    console.log('🔄 User clicked upgrade from AI Assistant widget');
+    setUpgradePromptOpen(true);
+  }, []);
+
+  // 🔧 NEW: Handle upgrade prompt close
+  const handleUpgradePromptClose = useCallback(() => {
+    setUpgradePromptOpen(false);
+  }, []);
+
   // Check if we have attached context
   const hasAttachedContext = attachedContext.resumes.length > 0 || attachedContext.jobs.length > 0;
+
+  // 🔧 MAIN SUBSCRIPTION CHECK - EARLY RETURN FOR NON-HUNTER USERS
+  if (subscriptionLoading) {
+    // Still loading subscription data, don't render anything yet
+    return null;
+  }
+
+  // 🔧 KEY FIX: Only render AI Assistant for Hunter plan users
+  if (!hasAiAssistantAccess) {
+    console.log('🚫 AI Assistant access denied:', {
+      planTier: subscription?.subscriptionTier,
+      hasAccess: hasAiAssistantAccess,
+      aiAssistantLimit: planLimits?.aiAssistant
+    });
+
+    // Show upgrade prompt widget instead of full AI Assistant
+    return (
+      <>
+        <UpgradePromptWidget 
+          planInfo={planInfo}
+          onUpgrade={handleUpgradeClick}
+        />
+        
+        {/* 🔧 NEW: Upgrade Prompt Dialog */}
+        <UpgradePrompt
+          open={upgradePromptOpen}
+          onClose={handleUpgradePromptClose}
+          feature="aiAssistant"
+          title="Unlock AI Assistant"
+          description="Get personalized AI assistance for your entire job search journey with the Hunter plan."
+          currentPlan={subscription?.subscriptionTier || 'free'}
+        />
+      </>
+    );
+  }
+
+  console.log('✅ AI Assistant access granted for Hunter user');
 
   // Don't render if not open
   if (!isOpen) {
@@ -1392,7 +1530,7 @@ const GlobalAiAssistant = () => {
                       display: 'block'
                     }}
                   >
-                    {currentConversation?.title || 'AI Career Assistant'}
+                    {currentConversation?.title || 'AI Career Assistant'} • Hunter Plan
                   </Typography>
                 )}
               </Box>
@@ -1609,7 +1747,7 @@ const GlobalAiAssistant = () => {
                     </IconButton>
                   </Box>
                   
-                  {/* Context Hint */}
+{/* Context Hint */}
                   {hasAttachedContext ? (
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
                       💡 AJ now has full context of your {attachedContext.resumes.length > 0 ? 'resume' : ''}{attachedContext.resumes.length > 0 && attachedContext.jobs.length > 0 ? ' and ' : ''}{attachedContext.jobs.length > 0 ? 'job posting' : ''}

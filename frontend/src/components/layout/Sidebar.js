@@ -1,5 +1,5 @@
-// src/components/layout/Sidebar.js
-import React, { useContext } from 'react';
+// frontend/src/components/layout/Sidebar.js - UPDATED TO OPEN UPGRADE PROMPT DIALOG
+import React, { useContext, useState } from 'react';
 import { 
   Box, 
   Drawer, 
@@ -15,6 +15,10 @@ import {
   Avatar,
   Collapse,
   Tooltip,
+  Chip,
+  Badge,
+  alpha,
+  Button,
 } from '@mui/material';
 import { Link, useLocation } from 'react-router-dom';
 import {
@@ -35,63 +39,100 @@ import {
   ManageSearch as ManageSearchIcon,
   Search as SearchIcon,
   Message as MessageIcon,
-  Person as PersonIcon
+  Person as PersonIcon,
+  Lock as LockIcon,
+  TrendingUp as TrendingUpIcon,
+  Upgrade as UpgradeIcon,
 } from '@mui/icons-material';
 import { AuthContext } from '../../context/AuthContext';
+import { useSubscription } from '../../context/SubscriptionContext';
 import AutoJobLogo from '../common/AutoJobLogo';
+import PlanBadge from '../subscription/navigation/PlanBadge';
+import UpgradePrompt from '../subscription/shared/UpgradePrompt';
 
 const drawerWidth = 260;
-
-const navItems = [
-  { 
-    title: 'Dashboard',
-    path: '/dashboard',
-    icon: <DashboardIcon />,
-    color: '#1a73e8' // Primary blue
-  },
-  { 
-    title: 'My Resumes',
-    path: '/resumes',
-    icon: <DescriptionIcon />,
-    color: '#34a853', // Success green
-  },
-  { 
-    title: 'Jobs Portal',
-    path: '/jobs',
-    icon: <WorkIcon />,
-    color: '#4285f4', // Info blue
-    subItems: [
-      {
-        title: 'All Jobs',
-        path: '/jobs',
-        icon: <FormatListBulletedIcon fontSize="small" />,
-        color: '#4285f4'
-      },
-      {
-        title: 'Agent Job Discovery',
-        path: '/jobs/ai-searches',
-        icon: <SmartToyIcon fontSize="small" />,
-        color: '#4285f4'
-      }
-    ]
-  },
-
-  { 
-    title: 'Recruiter Outreach',
-    path: '/recruiters',
-    icon: <PeopleIcon />,
-    color: '#00c4b4', // Secondary teal
-
-  },
-
-];
 
 const Sidebar = ({ open, onClose }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const location = useLocation();
   const { currentUser, logout } = useContext(AuthContext);
+  const { 
+    usage, 
+    planLimits, 
+    hasFeatureAccess, 
+    getUsagePercentage, 
+    planInfo,
+    isFreePlan,
+    isCasualPlan,
+    isHunterPlan 
+  } = useSubscription();
   const [openSubMenu, setOpenSubMenu] = React.useState('');
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
+
+  // Navigation items with subscription awareness - REMOVED AI ASSISTANT
+  const getNavItems = () => {
+    const baseItems = [
+      { 
+        title: 'Dashboard',
+        path: '/dashboard',
+        icon: <DashboardIcon />,
+        color: '#1a73e8',
+        available: true
+      },
+      { 
+        title: 'My Resumes',
+        path: '/resumes',
+        icon: <DescriptionIcon />,
+        color: '#34a853',
+        available: true,
+        usageFeature: 'resumeUploads'
+      },
+      { 
+        title: 'Jobs Portal',
+        path: '/jobs',
+        icon: <WorkIcon />,
+        color: '#4285f4',
+        available: true,
+        usageFeature: 'jobImports',
+        subItems: [
+          {
+            title: 'All Jobs',
+            path: '/jobs',
+            icon: <FormatListBulletedIcon fontSize="small" />,
+            color: '#4285f4',
+            available: true
+          },
+          {
+            title: 'Agent Job Discovery',
+            path: '/jobs/ai-searches',
+            icon: <SmartToyIcon fontSize="small" />,
+            color: '#4285f4',
+            available: hasFeatureAccess('aiJobDiscovery'),
+            requiresPlan: 'casual',
+            featureName: 'AI Job Discovery'
+          }
+        ]
+      },
+      { 
+        title: 'Recruiter Outreach',
+        path: '/recruiters',
+        icon: <PeopleIcon />,
+        color: '#00c4b4',
+        available: hasFeatureAccess('recruiterAccess'),
+        requiresPlan: 'casual',
+        featureName: 'Recruiter Access',
+        usageFeature: 'recruiterUnlocks'
+      }
+    ];
+
+    // NOTE: AI Assistant menu item has been completely removed
+    // Previously it was added here for Hunter users, but per requirements it should not appear in navigation
+
+    return baseItems;
+  };
+
+  const navItems = getNavItems();
 
   // Auto-expand the submenu for the current path
   React.useEffect(() => {
@@ -99,33 +140,52 @@ const Sidebar = ({ open, onClose }) => {
       if (item.subItems && (
         location.pathname === item.path || 
         item.subItems.some(subItem => location.pathname.startsWith(subItem.path)) ||
-        // Special handling for recruiter routes
         (item.path === '/recruiters' && location.pathname.startsWith('/recruiters'))
       )) {
         setOpenSubMenu(item.title);
       }
     });
-  }, [location.pathname]);
+  }, [location.pathname, navItems]);
 
   const handleSubMenuClick = (title) => {
     setOpenSubMenu(openSubMenu === title ? '' : title);
   };
 
   const isPathActive = (path) => {
-    // Special handling for exact path matching on main routes
     if (path === '/recruiters' && location.pathname === '/recruiters') {
       return true;
     }
-    // For sub-items, check exact path
     if (path.includes('/recruiters/')) {
       return location.pathname === path;
     }
-    // Default behavior for other routes
     return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
 
   const isSubItemActive = (subItemPath) => {
     return location.pathname === subItemPath;
+  };
+
+  // Get usage display for a feature
+  const getUsageDisplay = (feature) => {
+    if (!feature || !usage || !planLimits) return null;
+    
+    const limit = planLimits[feature];
+    const used = usage[feature]?.used || 0;
+    
+    if (limit === -1) return '∞';
+    if (limit === 0) return null;
+    
+    return `${used}/${limit}`;
+  };
+
+  // Get usage color for a feature
+  const getUsageColor = (feature) => {
+    if (!feature) return 'default';
+    
+    const percentage = getUsagePercentage(feature);
+    if (percentage >= 90) return 'error';
+    if (percentage >= 75) return 'warning';
+    return 'success';
   };
 
   // Helper function to get user display name
@@ -141,12 +201,22 @@ const Sidebar = ({ open, onClose }) => {
     return currentUser?.email || 'user@example.com';
   };
 
+  // Handle upgrade button click
+  const handleUpgradeClick = () => {
+    setUpgradeDialogOpen(true);
+  };
+
+  // Handle upgrade dialog close
+  const handleUpgradeDialogClose = () => {
+    setUpgradeDialogOpen(false);
+  };
+
   const drawerContent = (
     <Box sx={{ 
       height: '100%', 
       display: 'flex', 
       flexDirection: 'column',
-      overflow: 'hidden' // Prevent overflow on sidebar container
+      overflow: 'hidden'
     }}>
       {/* Logo Section */}
       <Box sx={{ 
@@ -155,7 +225,7 @@ const Sidebar = ({ open, onClose }) => {
         display: 'flex', 
         alignItems: 'center',
         cursor: 'pointer',
-        flexShrink: 0 // Prevent logo from shrinking
+        flexShrink: 0
       }}>
         <AutoJobLogo 
           variant="horizontal"
@@ -175,7 +245,6 @@ const Sidebar = ({ open, onClose }) => {
       <Box sx={{ 
         flex: 1, 
         overflow: 'auto',
-        // Custom scrollbar for sidebar
         '&::-webkit-scrollbar': {
           width: '4px',
         },
@@ -198,44 +267,92 @@ const Sidebar = ({ open, onClose }) => {
                   <ListItemButton
                     onClick={() => handleSubMenuClick(item.title)}
                     selected={location.pathname.startsWith(item.path)}
+                    disabled={!item.available}
                     sx={{
                       borderRadius: 1.5,
                       mb: 0.5,
-                      '&.Mui-selected': {
-                        backgroundColor: `${item.color}15`, // Use item color with 15% opacity
-                        color: item.color,
+                      position: 'relative',
+                      ...(!item.available && {
+                        opacity: 0.6,
                         '&:hover': {
-                          backgroundColor: `${item.color}20`, // Slightly darker on hover
-                        },
-                        '& .MuiListItemIcon-root': {
+                          backgroundColor: 'transparent',
+                        }
+                      }),
+                      ...(item.available && {
+                        '&.Mui-selected': {
+                          backgroundColor: `${item.color}15`,
                           color: item.color,
+                          '&:hover': {
+                            backgroundColor: `${item.color}20`,
+                          },
+                          '& .MuiListItemIcon-root': {
+                            color: item.color,
+                          },
                         },
-                      },
-                      '&:hover': {
-                        backgroundColor: `${item.color}08`, // Light hover state with item color
-                      }
+                        '&:hover': {
+                          backgroundColor: `${item.color}08`,
+                        }
+                      })
                     }}
                   >
                     <ListItemIcon 
                       sx={{ 
                         minWidth: 40,
-                        color: item.color,
+                        color: item.available ? item.color : 'text.disabled',
                         '& .MuiSvgIcon-root': {
                           fontSize: '1.3rem'
                         }
                       }}
                     >
-                      {React.cloneElement(item.icon, { 
-                        style: { color: item.color }
-                      })}
+                      {item.available ? (
+                        React.cloneElement(item.icon, { 
+                          style: { color: item.color }
+                        })
+                      ) : (
+                        <LockIcon style={{ color: theme.palette.text.disabled }} />
+                      )}
                     </ListItemIcon>
                     <ListItemText 
-                      primary={item.title}
-                      primaryTypographyProps={{
-                        fontWeight: location.pathname.startsWith(item.path) ? 600 : 500,
-                        fontSize: '0.9rem',
-                        color: location.pathname.startsWith(item.path) ? item.color : 'text.primary'
-                      }}
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography
+                            sx={{
+                              fontWeight: location.pathname.startsWith(item.path) ? 600 : 500,
+                              fontSize: '0.9rem',
+                              color: location.pathname.startsWith(item.path) ? item.color : 'text.primary'
+                            }}
+                          >
+                            {item.title}
+                          </Typography>
+                          {!item.available && item.requiresPlan && (
+                            <Chip
+                              label={item.requiresPlan === 'casual' ? 'Casual+' : 'Hunter'}
+                              size="small"
+                              sx={{
+                                height: 18,
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                backgroundColor: item.requiresPlan === 'casual' ? '#2196f320' : '#ff980020',
+                                color: item.requiresPlan === 'casual' ? '#2196f3' : '#ff9800',
+                                border: `1px solid ${item.requiresPlan === 'casual' ? '#2196f340' : '#ff980040'}`
+                              }}
+                            />
+                          )}
+                          {item.usageFeature && item.available && (
+                            <Chip
+                              label={getUsageDisplay(item.usageFeature)}
+                              size="small"
+                              color={getUsageColor(item.usageFeature)}
+                              sx={{
+                                height: 18,
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                minWidth: 'auto'
+                              }}
+                            />
+                          )}
+                        </Box>
+                      }
                     />
                     {openSubMenu === item.title ? 
                       <ExpandLess sx={{ color: 'text.secondary' }} /> : 
@@ -244,47 +361,96 @@ const Sidebar = ({ open, onClose }) => {
                   </ListItemButton>
                 ) : (
                   <ListItemButton
-                    component={Link}
-                    to={item.path}
-                    selected={isPathActive(item.path)}
+                    component={item.available ? Link : 'div'}
+                    to={item.available ? item.path : undefined}
+                    selected={item.available && isPathActive(item.path)}
+                    disabled={!item.available}
                     sx={{
                       borderRadius: 1.5,
                       mb: 0.5,
-                      '&.Mui-selected': {
-                        backgroundColor: `${item.color}15`, // Use item color with 15% opacity
-                        color: item.color,
+                      position: 'relative',
+                      ...(!item.available && {
+                        opacity: 0.6,
+                        cursor: 'not-allowed',
                         '&:hover': {
-                          backgroundColor: `${item.color}20`, // Slightly darker on hover
-                        },
-                        '& .MuiListItemIcon-root': {
+                          backgroundColor: 'transparent',
+                        }
+                      }),
+                      ...(item.available && {
+                        '&.Mui-selected': {
+                          backgroundColor: `${item.color}15`,
                           color: item.color,
+                          '&:hover': {
+                            backgroundColor: `${item.color}20`,
+                          },
+                          '& .MuiListItemIcon-root': {
+                            color: item.color,
+                          },
                         },
-                      },
-                      '&:hover': {
-                        backgroundColor: `${item.color}08`, // Light hover state with item color
-                      }
+                        '&:hover': {
+                          backgroundColor: `${item.color}08`,
+                        }
+                      })
                     }}
                   >
                     <ListItemIcon 
                       sx={{ 
                         minWidth: 40,
-                        color: item.color,
+                        color: item.available ? item.color : 'text.disabled',
                         '& .MuiSvgIcon-root': {
                           fontSize: '1.3rem'
                         }
                       }}
                     >
-                      {React.cloneElement(item.icon, { 
-                        style: { color: item.color }
-                      })}
+                      {item.available ? (
+                        React.cloneElement(item.icon, { 
+                          style: { color: item.color }
+                        })
+                      ) : (
+                        <LockIcon style={{ color: theme.palette.text.disabled }} />
+                      )}
                     </ListItemIcon>
                     <ListItemText 
-                      primary={item.title}
-                      primaryTypographyProps={{
-                        fontWeight: isPathActive(item.path) ? 600 : 500,
-                        fontSize: '0.9rem',
-                        color: isPathActive(item.path) ? item.color : 'text.primary'
-                      }}
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography
+                            sx={{
+                              fontWeight: item.available && isPathActive(item.path) ? 600 : 500,
+                              fontSize: '0.9rem',
+                              color: item.available && isPathActive(item.path) ? item.color : 'text.primary'
+                            }}
+                          >
+                            {item.title}
+                          </Typography>
+                          {!item.available && item.requiresPlan && (
+                            <Chip
+                              label={item.requiresPlan === 'casual' ? 'Casual+' : 'Hunter'}
+                              size="small"
+                              sx={{
+                                height: 18,
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                backgroundColor: item.requiresPlan === 'casual' ? '#2196f320' : '#ff980020',
+                                color: item.requiresPlan === 'casual' ? '#2196f3' : '#ff9800',
+                                border: `1px solid ${item.requiresPlan === 'casual' ? '#2196f340' : '#ff980040'}`
+                              }}
+                            />
+                          )}
+                          {item.usageFeature && item.available && (
+                            <Chip
+                              label={getUsageDisplay(item.usageFeature)}
+                              size="small"
+                              color={getUsageColor(item.usageFeature)}
+                              sx={{
+                                height: 18,
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                minWidth: 'auto'
+                              }}
+                            />
+                          )}
+                        </Box>
+                      }
                     />
                   </ListItemButton>
                 )}
@@ -295,50 +461,85 @@ const Sidebar = ({ open, onClose }) => {
                     {item.subItems.map((subItem) => (
                       <ListItemButton
                         key={subItem.path}
-                        component={Link}
-                        to={subItem.path}
-                        selected={isSubItemActive(subItem.path)}
+                        component={subItem.available ? Link : 'div'}
+                        to={subItem.available ? subItem.path : undefined}
+                        selected={subItem.available && isSubItemActive(subItem.path)}
+                        disabled={!subItem.available}
                         sx={{
                           pl: 4,
                           py: 0.75,
                           borderRadius: 1.5,
                           mb: 0.5,
-                          '&.Mui-selected': {
-                            backgroundColor: `${subItem.color}15`, // Use subItem color with 15% opacity
-                            color: subItem.color,
+                          ...(!subItem.available && {
+                            opacity: 0.6,
+                            cursor: 'not-allowed',
                             '&:hover': {
-                              backgroundColor: `${subItem.color}20`, // Slightly darker on hover
-                            },
-                            '& .MuiListItemIcon-root': {
+                              backgroundColor: 'transparent',
+                            }
+                          }),
+                          ...(subItem.available && {
+                            '&.Mui-selected': {
+                              backgroundColor: `${subItem.color}15`,
                               color: subItem.color,
+                              '&:hover': {
+                                backgroundColor: `${subItem.color}20`,
+                              },
+                              '& .MuiListItemIcon-root': {
+                                color: subItem.color,
+                              },
                             },
-                          },
-                          '&:hover': {
-                            backgroundColor: `${subItem.color}08`, // Light hover state with subItem color
-                          }
+                            '&:hover': {
+                              backgroundColor: `${subItem.color}08`,
+                            }
+                          })
                         }}
                       >
                         <ListItemIcon 
                           sx={{ 
                             minWidth: 32,
-                            color: subItem.color,
+                            color: subItem.available ? subItem.color : 'text.disabled',
                             '& .MuiSvgIcon-root': {
                               fontSize: '1.1rem'
                             }
                           }}
                         >
-                          {React.cloneElement(subItem.icon, { 
-                            style: { color: subItem.color }
-                          })}
+                          {subItem.available ? (
+                            React.cloneElement(subItem.icon, { 
+                              style: { color: subItem.color }
+                            })
+                          ) : (
+                            <LockIcon style={{ color: theme.palette.text.disabled, fontSize: '1.1rem' }} />
+                          )}
                         </ListItemIcon>
                         <ListItemText 
-                          primary={subItem.title}
-                          primaryTypographyProps={{
-                            variant: 'body2',
-                            fontWeight: isSubItemActive(subItem.path) ? 600 : 500,
-                            fontSize: '0.85rem',
-                            color: isSubItemActive(subItem.path) ? subItem.color : 'text.primary'
-                          }}
+                          primary={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography
+                                sx={{
+                                  variant: 'body2',
+                                  fontWeight: subItem.available && isSubItemActive(subItem.path) ? 600 : 500,
+                                  fontSize: '0.85rem',
+                                  color: subItem.available && isSubItemActive(subItem.path) ? subItem.color : 'text.primary'
+                                }}
+                              >
+                                {subItem.title}
+                              </Typography>
+                              {!subItem.available && subItem.requiresPlan && (
+                                <Chip
+                                  label={subItem.requiresPlan === 'casual' ? 'Casual+' : 'Hunter'}
+                                  size="small"
+                                  sx={{
+                                    height: 16,
+                                    fontSize: '0.6rem',
+                                    fontWeight: 600,
+                                    backgroundColor: subItem.requiresPlan === 'casual' ? '#2196f320' : '#ff980020',
+                                    color: subItem.requiresPlan === 'casual' ? '#2196f3' : '#ff9800',
+                                    border: `1px solid ${subItem.requiresPlan === 'casual' ? '#2196f340' : '#ff980040'}`
+                                  }}
+                                />
+                              )}
+                            </Box>
+                          }
                         />
                       </ListItemButton>
                     ))}
@@ -348,11 +549,55 @@ const Sidebar = ({ open, onClose }) => {
             </React.Fragment>
           ))}
         </List>
+
+        {/* Upgrade Prompt for Limited Plans */}
+        {(isFreePlan || isCasualPlan) && (
+          <Box sx={{ px: 2, py: 2 }}>
+            <Box sx={{
+              p: 2,
+              borderRadius: 2,
+              background: `linear-gradient(135deg, ${theme.palette.primary.main}15 0%, ${theme.palette.secondary.main}15 100%)`,
+              border: `1px solid ${theme.palette.primary.main}30`,
+              textAlign: 'center'
+            }}>
+              <TrendingUpIcon sx={{ 
+                color: 'primary.main', 
+                fontSize: '2rem', 
+                mb: 1 
+              }} />
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                {isFreePlan ? 'Unlock Premium Features' : 'Go Pro with Hunter'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+                {isFreePlan 
+                  ? 'Access recruiter database and AI job discovery'
+                  : 'Get unlimited access and AI assistant'
+                }
+              </Typography>
+              <Button
+                variant="contained"
+                fullWidth
+                size="small"
+                startIcon={<UpgradeIcon />}
+                onClick={handleUpgradeClick}
+                sx={{
+                  py: 1,
+                  borderRadius: 1.5,
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  fontSize: '0.8rem'
+                }}
+              >
+                Upgrade
+              </Button>
+            </Box>
+          </Box>
+        )}
       </Box>
       
       <Divider sx={{ mt: 2, flexShrink: 0 }} />
       
-      {/* User Section - Fixed at bottom with improved email handling */}
+      {/* User Section - Fixed at bottom */}
       <Box sx={{ p: 2, flexShrink: 0 }}>
         <Box sx={{ 
           display: 'flex', 
@@ -360,9 +605,9 @@ const Sidebar = ({ open, onClose }) => {
           mb: 2,
           p: 1.5,
           borderRadius: 2,
-          backgroundColor: 'rgba(26, 115, 232, 0.04)',
-          border: '1px solid rgba(26, 115, 232, 0.1)',
-          minWidth: 0, // Allow shrinking
+          backgroundColor: planInfo?.backgroundColor || 'rgba(26, 115, 232, 0.04)',
+          border: `1px solid ${planInfo?.color || '#1a73e8'}20`,
+          minWidth: 0,
         }}>
           <Avatar 
             sx={{ 
@@ -372,15 +617,15 @@ const Sidebar = ({ open, onClose }) => {
               bgcolor: 'primary.main',
               fontSize: '1rem',
               fontWeight: 600,
-              flexShrink: 0, // Prevent avatar from shrinking
+              flexShrink: 0,
             }}
           >
             {currentUser?.firstName?.[0] || 'U'}
           </Avatar>
           <Box sx={{ 
             flex: 1, 
-            minWidth: 0, // Allow this box to shrink
-            overflow: 'hidden' // Prevent overflow
+            minWidth: 0,
+            overflow: 'hidden'
           }}>
             <Typography 
               variant="subtitle2" 
@@ -394,25 +639,14 @@ const Sidebar = ({ open, onClose }) => {
             >
               {getUserDisplayName()}
             </Typography>
-            <Tooltip title={getUserEmail()} arrow placement="top">
-              <Typography 
-                variant="caption" 
-                color="text.secondary" 
-                sx={{
-                  display: 'block',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  lineHeight: 1.2,
-                  cursor: 'help', // Show that it's interactive
-                  '&:hover': {
-                    color: 'text.primary', // Slightly darker on hover
-                  }
-                }}
-              >
-                {getUserEmail()}
-              </Typography>
-            </Tooltip>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
+              <PlanBadge 
+                size="small"
+                showIcon={false}
+                showTooltip={false}
+                variant="outlined"
+              />
+            </Box>
           </Box>
         </Box>
         
@@ -478,6 +712,15 @@ const Sidebar = ({ open, onClose }) => {
           </ListItem>
         </List>
       </Box>
+
+      {/* Upgrade Prompt Dialog */}
+      <UpgradePrompt
+        open={upgradeDialogOpen}
+        onClose={handleUpgradeDialogClose}
+        currentPlan={planInfo?.name?.toLowerCase() || 'free'}
+        title="Upgrade Your Plan"
+        description="Unlock premium features and accelerate your job search"
+      />
     </Box>
   );
 
@@ -495,8 +738,8 @@ const Sidebar = ({ open, onClose }) => {
           borderRight: '1px solid',
           borderColor: 'divider',
           backgroundColor: 'background.paper',
-          height: '100vh', // Full viewport height
-          overflow: 'hidden' // Prevent overflow on drawer paper
+          height: '100vh',
+          overflow: 'hidden'
         },
       }}
     >

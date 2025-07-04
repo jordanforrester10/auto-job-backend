@@ -1,4 +1,4 @@
-// src/components/jobs/JobsPage.js - Fixed Analysis Status Logic
+// src/components/jobs/JobsPage.js - Enhanced with Complete Usage Integration AND Plan-Based Discover Jobs Restrictions
 import React, { useState, useEffect } from 'react';
 import { 
   Box, 
@@ -18,15 +18,12 @@ import {
   Menu,
   MenuItem,
   Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Tabs,
   Tab,
   Snackbar,
-  Badge,
-  Backdrop
+  Dialog,
+  useTheme,
+  alpha
 } from '@mui/material';
 import { 
   Add as AddIcon, 
@@ -34,8 +31,6 @@ import {
   ErrorOutline as ErrorOutlineIcon,
   MoreVert as MoreVertIcon,
   Delete as DeleteIcon,
-  Edit as EditIcon,
-  ContentCopy as ContentCopyIcon,
   SmartToy as SmartToyIcon,
   OpenInNew as OpenInNewIcon,
   Refresh as RefreshIcon,
@@ -44,7 +39,11 @@ import {
   Schedule as ScheduleIcon,
   AutoAwesome as AutoAwesomeIcon,
   CheckCircle as CheckCircleIcon,
-  HourglassEmpty as HourglassEmptyIcon
+  HourglassEmpty as HourglassEmptyIcon,
+  Info as InfoIcon,
+  Warning as WarningIcon,
+  Upgrade as UpgradeIcon,
+  Lock as LockIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import jobService from '../../utils/jobService';
@@ -53,6 +52,8 @@ import MainLayout from '../layout/MainLayout';
 import JobCreateDialog from './JobCreateDialog';
 import FindJobsDialog from './FindJobsDialog';
 import AutoJobLogo from '../common/AutoJobLogo';
+import JobImportLimit from '../subscription/limits/JobImportLimit';
+import { useSubscription } from '../../context/SubscriptionContext';
 
 // Helper function to determine job analysis status
 const getJobAnalysisStatus = (job) => {
@@ -396,12 +397,25 @@ function TabPanel(props) {
 }
 
 const JobsPage = () => {
+  const theme = useTheme();
   const navigate = useNavigate();
+  const { 
+    subscription, 
+    usage, 
+    planLimits, 
+    canPerformAction, 
+    getUsagePercentage,
+    planInfo,
+    hasFeatureAccess 
+  } = useSubscription();
+
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
   const [openFindJobsDialog, setOpenFindJobsDialog] = useState(false);
+  const [openLimitDialog, setOpenLimitDialog] = useState(false);
+  const [openAiDiscoveryLimitDialog, setOpenAiDiscoveryLimitDialog] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [tabValue, setTabValue] = useState(0);
@@ -524,6 +538,12 @@ const JobsPage = () => {
   };
 
   const handleOpenCreateDialog = () => {
+    // Check usage limits before opening dialog
+    const permission = canPerformAction('jobImports', 1);
+    if (!permission.allowed) {
+      setOpenLimitDialog(true);
+      return;
+    }
     setOpenCreateDialog(true);
   };
 
@@ -531,7 +551,27 @@ const JobsPage = () => {
     setOpenCreateDialog(false);
   };
 
+  // UPDATED: Handle AI job discovery with plan-based restrictions
   const handleOpenFindJobsDialog = () => {
+    const currentPlan = subscription?.subscriptionTier || 'free';
+    
+    // RESTRICTION 1: Free users cannot access AI job discovery
+    if (currentPlan === 'free') {
+      setOpenAiDiscoveryLimitDialog(true);
+      return;
+    }
+    
+    // RESTRICTION 2: Casual users can only create 1 AI job discovery
+    if (currentPlan === 'casual') {
+      const aiDiscoveryUsage = usage?.aiJobDiscovery || { used: 0, limit: 1 };
+      if (aiDiscoveryUsage.used >= aiDiscoveryUsage.limit) {
+        setOpenAiDiscoveryLimitDialog(true);
+        return;
+      }
+    }
+    
+    // RESTRICTION 3: Hunter users have unlimited access (no additional checks needed)
+    
     setOpenFindJobsDialog(true);
   };
 
@@ -613,6 +653,169 @@ const JobsPage = () => {
     showSnackbar('AI job search initiated. Jobs will appear as they are found.', 'success');
   };
 
+  const handleUpgrade = (plan) => {
+    // Navigate to pricing page or subscription management
+    window.open('/pricing', '_blank');
+    setOpenLimitDialog(false);
+    setOpenAiDiscoveryLimitDialog(false);
+  };
+
+  // Calculate usage statistics
+  const jobImportUsage = usage?.jobImports || { used: 0, limit: planLimits?.jobImports || 0 };
+  const usagePercentage = getUsagePercentage('jobImports');
+  const isApproachingLimit = usagePercentage >= 80;
+  const isAtLimit = usagePercentage >= 100;
+
+  // NEW: Calculate AI discovery usage and restrictions
+  const aiDiscoveryUsage = usage?.aiJobDiscovery || { used: 0, limit: planLimits?.aiJobDiscovery || 0 };
+  const aiDiscoveryPercentage = getUsagePercentage('aiJobDiscovery');
+  const isAiDiscoveryAtLimit = planLimits?.aiJobDiscovery !== -1 && aiDiscoveryUsage.used >= aiDiscoveryUsage.limit;
+  const hasAiDiscoveryAccess = hasFeatureAccess('aiJobDiscovery');
+  const currentPlan = subscription?.subscriptionTier || 'free';
+
+  const getUsageColor = () => {
+    if (isAtLimit) return 'error';
+    if (isApproachingLimit) return 'warning';
+    return 'success';
+  };
+
+  // NEW: Get AI discovery button state and tooltip
+  const getAiDiscoveryButtonState = () => {
+    if (currentPlan === 'free') {
+      return {
+        disabled: true,
+        tooltip: 'AI Job Discovery requires Casual plan or higher',
+        text: 'Discover Jobs (Upgrade Required)',
+        icon: LockIcon
+      };
+    }
+    
+    if (currentPlan === 'casual' && isAiDiscoveryAtLimit) {
+      return {
+        disabled: true,
+        tooltip: 'You\'ve used your 1 AI job discovery for this month. Upgrade to Hunter for unlimited searches.',
+        text: 'Discover Jobs (Limit Reached)',
+        icon: LockIcon
+      };
+    }
+    
+    return {
+      disabled: false,
+      tooltip: currentPlan === 'casual' 
+        ? `Create AI job search (${aiDiscoveryUsage.used}/${aiDiscoveryUsage.limit} used)`
+        : 'Create unlimited AI job searches',
+      text: 'Discover Jobs',
+      icon: SafeAutoJobLogo
+    };
+  };
+
+  const aiDiscoveryButtonState = getAiDiscoveryButtonState();
+
+  const renderUsageCard = () => (
+    <Card 
+      sx={{ 
+        mb: 3, 
+        borderRadius: 2,
+        border: `1px solid ${theme.palette[getUsageColor()].main}`,
+        backgroundColor: `${theme.palette[getUsageColor()].main}08`
+      }}
+    >
+      <CardContent sx={{ p: 2.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InfoIcon color={getUsageColor()} />
+            <Typography variant="subtitle1" fontWeight={600}>
+              Usage Summary - {planInfo?.displayName || 'Current Plan'}
+            </Typography>
+          </Box>
+          <Chip 
+            label={planLimits?.jobImports === -1 ? 'Unlimited' : `${jobImportUsage.used || 0}/${planLimits?.jobImports || 0}`}
+            color={getUsageColor()}
+            sx={{ fontWeight: 500 }}
+          />
+        </Box>
+        
+        {/* Job Imports Progress */}
+        {planLimits?.jobImports !== -1 && (
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                Job Imports
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {jobImportUsage.used || 0}/{planLimits?.jobImports || 0}
+              </Typography>
+            </Box>
+            <LinearProgress 
+              variant="determinate" 
+              value={Math.min(usagePercentage, 100)}
+              color={getUsageColor()}
+              sx={{ height: 6, borderRadius: 3 }}
+            />
+          </Box>
+        )}
+
+        {/* AI Job Discovery Progress */}
+        {hasAiDiscoveryAccess && planLimits?.aiJobDiscovery !== -1 && (
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                AI Job Discovery
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {aiDiscoveryUsage.used || 0}/{planLimits?.aiJobDiscovery || 0}
+              </Typography>
+            </Box>
+            <LinearProgress 
+              variant="determinate" 
+              value={Math.min(aiDiscoveryPercentage, 100)}
+              color={isAiDiscoveryAtLimit ? 'error' : 'info'}
+              sx={{ height: 6, borderRadius: 3 }}
+            />
+          </Box>
+        )}
+        
+        <Typography variant="body2" color="text.secondary">
+          {planLimits?.jobImports === -1 
+            ? '✨ You have unlimited job imports with your Hunter plan!'
+            : isAtLimit 
+              ? '⚠️ You\'ve reached your monthly job import limit. Upgrade for more capacity.'
+              : isApproachingLimit
+                ? '⚠️ You\'re approaching your monthly job import limit.'
+                : `🎯 ${planLimits?.jobImports - (jobImportUsage.used || 0)} job imports remaining this month.`
+          }
+          {currentPlan === 'free' && (
+            <><br/>🔒 AI Job Discovery requires Casual plan or higher.</>
+          )}
+          {currentPlan === 'casual' && isAiDiscoveryAtLimit && (
+            <><br/>🔒 AI Job Discovery limit reached. Upgrade to Hunter for unlimited searches.</>
+          )}
+        </Typography>
+
+        {(isAtLimit || isApproachingLimit || currentPlan === 'free' || isAiDiscoveryAtLimit) && (
+          <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              <strong>Upgrade for more capacity:</strong>
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              • <strong>Casual Plan ($19.99/month):</strong> 25 job imports, 1 AI job discovery<br/>
+              • <strong>Hunter Plan ($34.99/month):</strong> Unlimited job imports & AI discoveries
+            </Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<UpgradeIcon />}
+              onClick={() => setOpenLimitDialog(true)}
+              sx={{ mt: 1, borderRadius: 2 }}
+            >
+              View Plans
+            </Button>
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+
   const renderEmptyState = () => (
     <Box sx={{ mt: 2 }}>
       <Paper 
@@ -645,6 +848,7 @@ const JobsPage = () => {
             color="primary" 
             startIcon={<AddIcon />} 
             onClick={handleOpenCreateDialog}
+            disabled={isAtLimit && planLimits?.jobImports !== -1}
             sx={{ 
               py: 1, 
               px: 3, 
@@ -653,28 +857,43 @@ const JobsPage = () => {
               borderRadius: 2
             }}
           >
-            Add Job Manually
+            {isAtLimit && planLimits?.jobImports !== -1 ? 'Upgrade to Add Jobs' : 'Add Job Manually'}
           </Button>
-          <Button 
-            variant="outlined" 
-            color="primary" 
-            startIcon={<SafeAutoJobLogo size="small" />} 
-            onClick={handleOpenFindJobsDialog}
-            sx={{ 
-              py: 1, 
-              px: 3, 
-              fontSize: '0.9rem', 
-              fontWeight: 500,
-              borderRadius: 2
-            }}
-          >
-            Discover Jobs
-          </Button>
+          <Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
+            <span>
+              <Button 
+                variant="outlined" 
+                color="primary" 
+                startIcon={
+                  aiDiscoveryButtonState.icon === LockIcon ? 
+                    <LockIcon /> : 
+                    <SafeAutoJobLogo size="small" />
+                } 
+                onClick={handleOpenFindJobsDialog}
+                disabled={aiDiscoveryButtonState.disabled}
+                sx={{ 
+                  py: 1, 
+                  px: 3, 
+                  fontSize: '0.9rem', 
+                  fontWeight: 500,
+                  borderRadius: 2,
+                  opacity: aiDiscoveryButtonState.disabled ? 0.6 : 1
+                }}
+              >
+                {aiDiscoveryButtonState.text}
+              </Button>
+            </span>
+          </Tooltip>
         </Box>
         {activeResumes.length === 0 && (
           <Alert severity="info" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
             You need at least one resume to use the AI job search feature.
             Please upload a resume first.
+          </Alert>
+        )}
+        {currentPlan === 'free' && (
+          <Alert severity="warning" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
+            <strong>Upgrade to unlock AI Job Discovery:</strong> Let our AI agent find relevant job opportunities automatically.
           </Alert>
         )}
       </Paper>
@@ -708,7 +927,7 @@ const JobsPage = () => {
             </Box>
             <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
               Add jobs manually from listings you find, or let our AI find relevant positions 
-              based on your resume.
+              based on your resume {currentPlan === 'free' ? '(requires upgrade)' : ''}.
             </Typography>
           </Paper>
         </Grid>
@@ -733,7 +952,7 @@ const JobsPage = () => {
                 my: 1.5
               }}
             >
-              <ContentCopyIcon sx={{ fontSize: 56, color: '#2196f3', opacity: 0.8 }} />
+              <AutoAwesomeIcon sx={{ fontSize: 56, color: '#2196f3', opacity: 0.8 }} />
             </Box>
             <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
               Our system analyzes how well your resume matches each job, identifying
@@ -803,17 +1022,17 @@ const JobsPage = () => {
           startIcon={<RefreshIcon />} 
           onClick={fetchJobs}
           sx={{ textTransform: 'none' }}
-        >
-          Try Again
+        >Try Again
         </Button>
         <Button 
           variant="contained" 
           color="primary" 
           startIcon={<AddIcon />} 
           onClick={handleOpenCreateDialog}
+          disabled={isAtLimit && planLimits?.jobImports !== -1}
           sx={{ textTransform: 'none' }}
         >
-          Add Job Manually
+          {isAtLimit && planLimits?.jobImports !== -1 ? 'Upgrade to Add Jobs' : 'Add Job Manually'}
         </Button>
       </Box>
     </Paper>
@@ -865,34 +1084,34 @@ const JobsPage = () => {
                 </Box>
               )}
 
-{/* Discovered Badge */}
-{job.isAiGenerated && (
-  <Chip 
-    icon={<SafeAutoJobLogo size="small" sx={{ '& svg': { width: 12, height: 12 } }} />}
-    label="Discovered" 
-    size="small" 
-    sx={{ 
-      position: 'absolute', 
-      top: 12, 
-      right: 12,
-      height: '28px',
-      fontWeight: 600,
-      fontSize: '0.75rem',
-      backgroundColor: '#00c4b4',
-      color: '#ffffff',
-      border: '1px solid #00c4b4',
-      boxShadow: '0 2px 8px rgba(38, 166, 154, 0.3)',
-      zIndex: 5,
-      '& .MuiChip-icon': {
-        color: '#ffffff !important'
-      },
-      '&:hover': {
-        backgroundColor: '#00695C',
-        boxShadow: '0 4px 12px rgba(38, 166, 154, 0.4)'
-      }
-    }}
-  />
-)}
+              {/* Discovered Badge */}
+              {job.isAiGenerated && (
+                <Chip 
+                  icon={<SafeAutoJobLogo size="small" sx={{ '& svg': { width: 12, height: 12 } }} />}
+                  label="Discovered" 
+                  size="small" 
+                  sx={{ 
+                    position: 'absolute', 
+                    top: 12, 
+                    right: 12,
+                    height: '28px',
+                    fontWeight: 600,
+                    fontSize: '0.75rem',
+                    backgroundColor: '#00c4b4',
+                    color: '#ffffff',
+                    border: '1px solid #00c4b4',
+                    boxShadow: '0 2px 8px rgba(38, 166, 154, 0.3)',
+                    zIndex: 5,
+                    '& .MuiChip-icon': {
+                      color: '#ffffff !important'
+                    },
+                    '&:hover': {
+                      backgroundColor: '#00695C',
+                      boxShadow: '0 4px 12px rgba(38, 166, 154, 0.4)'
+                    }
+                  }}
+                />
+              )}
 
               <CardContent sx={{ flexGrow: 1, pt: job.isAiGenerated ? 5 : 3 }}>
                 <Typography variant="h6" gutterBottom noWrap fontWeight={500}>
@@ -909,7 +1128,7 @@ const JobsPage = () => {
                 </Typography>
                 <Divider sx={{ my: 2 }} />
                 
-{/* FIXED: Only show progress for jobs that are actually being analyzed */}
+                {/* FIXED: Only show progress for jobs that are actually being analyzed */}
                 {isAnalyzing && (
                   <Box sx={{ mb: 2 }}>
                     <JobAnalysisStatus 
@@ -1053,11 +1272,28 @@ const JobsPage = () => {
         >
           <AddIcon sx={{ fontSize: 40, color: 'primary.main', mb: 2 }} />
           <Typography variant="h6" align="center" fontWeight={500}>
-            Add New Job
+            {isAtLimit && planLimits?.jobImports !== -1 ? 'Upgrade to Add Jobs' : 'Add New Job'}
           </Typography>
           <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
-            Manually add a job listing to your collection
+            {isAtLimit && planLimits?.jobImports !== -1 
+              ? 'You\'ve reached your monthly limit. Upgrade to continue.'
+              : 'Manually add a job listing to your collection'
+            }
           </Typography>
+          {isAtLimit && planLimits?.jobImports !== -1 && (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<UpgradeIcon />}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenLimitDialog(true);
+              }}
+              sx={{ mt: 2, borderRadius: 2 }}
+            >
+              View Plans
+            </Button>
+          )}
         </Card>
       </Grid>
     </Grid>
@@ -1096,6 +1332,87 @@ const JobsPage = () => {
     return status.status === 'analyzing' || status.status === 'pending';
   }).length;
 
+  // NEW: AI Discovery Limit Dialog Component
+  const AiDiscoveryLimitDialog = () => (
+    <Dialog 
+      open={openAiDiscoveryLimitDialog} 
+      onClose={() => setOpenAiDiscoveryLimitDialog(false)}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: { 
+          borderRadius: 3,
+          maxHeight: '90vh'
+        }
+      }}
+    >
+      <Box sx={{ 
+        background: `linear-gradient(135deg, ${theme.palette.info.main} 0%, ${theme.palette.info.light} 100%)`,
+        color: 'white',
+        p: 3,
+        textAlign: 'center'
+      }}>
+        <SafeAutoJobLogo size="large" />
+        <Typography variant="h6" fontWeight={600} sx={{ mt: 2 }}>
+          {currentPlan === 'free' 
+            ? 'AI Job Discovery - Upgrade Required' 
+            : 'AI Job Discovery Limit Reached'
+          }
+        </Typography>
+      </Box>
+      
+      <Box sx={{ p: 3 }}>
+        {currentPlan === 'free' ? (
+          <>
+            <Typography variant="body1" paragraph>
+              AI Job Discovery is a premium feature that automatically finds relevant job opportunities 
+              based on your resume and career goals.
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              <strong>What you get with AI Job Discovery:</strong>
+            </Typography>
+            <Box component="ul" sx={{ pl: 2, color: 'text.secondary' }}>
+              <li>Automated job searching across multiple platforms</li>
+              <li>Personalized job recommendations based on your resume</li>
+              <li>Daily job alerts for new matches</li>
+              <li>Advanced filtering and relevance scoring</li>
+            </Box>
+          </>
+        ) : (
+          <>
+            <Typography variant="body1" paragraph>
+              You've reached your monthly limit of {aiDiscoveryUsage.limit} AI job discovery.
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              <strong>Current usage:</strong> {aiDiscoveryUsage.used}/{aiDiscoveryUsage.limit} searches used
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Upgrade to Hunter plan for unlimited AI job searches and additional premium features.
+            </Typography>
+          </>
+        )}
+
+        <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'center' }}>
+          <Button 
+            variant="outlined"
+            onClick={() => setOpenAiDiscoveryLimitDialog(false)}
+            sx={{ borderRadius: 2 }}
+          >
+            Maybe Later
+          </Button>
+          <Button 
+            variant="contained"
+            startIcon={<UpgradeIcon />}
+            onClick={() => handleUpgrade(currentPlan === 'free' ? 'casual' : 'hunter')}
+            sx={{ borderRadius: 2 }}
+          >
+            {currentPlan === 'free' ? 'Upgrade to Casual' : 'Upgrade to Hunter'}
+          </Button>
+        </Box>
+      </Box>
+    </Dialog>
+  );
+
   return (
     <MainLayout>
       <Box sx={{ p: 3 }}>
@@ -1112,27 +1429,43 @@ const JobsPage = () => {
           </Box>
           {!loading && !error && jobs.length > 0 && (
             <Box sx={{ display: 'flex', gap: 2 }}>
-              <Button 
-                variant="outlined" 
-                color="primary" 
-                startIcon={<SafeAutoJobLogo size="small" />} 
-                onClick={handleOpenFindJobsDialog}
-                sx={{ textTransform: 'none' }}
-              >
-                Discover Jobs
-              </Button>
+              <Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
+                <span>
+                  <Button 
+                    variant="outlined" 
+                    color="primary" 
+                    startIcon={
+                      aiDiscoveryButtonState.icon === LockIcon ? 
+                        <LockIcon /> : 
+                        <SafeAutoJobLogo size="small" />
+                    } 
+                    onClick={handleOpenFindJobsDialog}
+                    disabled={aiDiscoveryButtonState.disabled}
+                    sx={{ 
+                      textTransform: 'none',
+                      opacity: aiDiscoveryButtonState.disabled ? 0.6 : 1
+                    }}
+                  >
+                    {aiDiscoveryButtonState.text}
+                  </Button>
+                </span>
+              </Tooltip>
               <Button 
                 variant="contained" 
                 color="primary" 
                 startIcon={<AddIcon />} 
                 onClick={handleOpenCreateDialog}
+                disabled={isAtLimit && planLimits?.jobImports !== -1}
                 sx={{ textTransform: 'none' }}
               >
-                Add Job Manually
+                {isAtLimit && planLimits?.jobImports !== -1 ? 'Upgrade to Add Jobs' : 'Add Job Manually'}
               </Button>
             </Box>
           )}
         </Box>
+
+        {/* Usage Statistics Card */}
+        {renderUsageCard()}
 
         {loading ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '300px' }}>
@@ -1157,8 +1490,6 @@ const JobsPage = () => {
               <Tab label={`All Jobs (${jobs.length})`} />
               <Tab label={`AI Found (${jobs.filter(job => job.isAiGenerated).length})`} />
               <Tab label={`Manually Added (${jobs.filter(job => !job.isAiGenerated).length})`} />
-              <Tab label={`Not Applied (${jobs.filter(job => !job.applicationStatus || job.applicationStatus === 'NOT_APPLIED').length})`} />
-              <Tab label={`Applied (${jobs.filter(job => job.applicationStatus && job.applicationStatus !== 'NOT_APPLIED').length})`} />
             </Tabs>
             
             {filteredJobs.length === 0 ? (
@@ -1188,6 +1519,18 @@ const JobsPage = () => {
         onJobsFound={handleJobsFindCompleted}
         resumes={activeResumes}
       />
+
+      {/* Job Import Limit Dialog */}
+      <JobImportLimit
+        open={openLimitDialog}
+        onClose={() => setOpenLimitDialog(false)}
+        currentUsage={jobImportUsage}
+        currentPlan={subscription?.subscriptionTier || 'free'}
+        onUpgrade={handleUpgrade}
+      />
+
+      {/* AI Discovery Limit Dialog */}
+      <AiDiscoveryLimitDialog />
       
       {/* Job menu */}
       <Menu

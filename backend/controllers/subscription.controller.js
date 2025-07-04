@@ -1,4 +1,4 @@
-// backend/controllers/subscription.controller.js - FIXED WEBHOOK PARSING
+// backend/controllers/subscription.controller.js - FIXED TO USE AUTHORITATIVE STRIPE DATES
 const subscriptionService = require('../services/subscription.service');
 const stripeService = require('../services/stripe.service');
 const usageService = require('../services/usage.service');
@@ -59,25 +59,56 @@ class SubscriptionController {
   }
 
   /**
-   * Get user's current subscription
+   * FIXED: Get user's current subscription with authoritative Stripe dates
    * @route GET /api/subscriptions/current
    * @access Private
    */
   static async getCurrentSubscription(req, res) {
     try {
       const userId = req.user.id;
-      const subscription = await subscriptionService.getCurrentSubscription(userId);
+      
+      console.log('🔍 Getting subscription with authoritative Stripe dates for user:', userId);
+      
+      // Use the fixed method that always gets authoritative dates from Stripe
+      const subscriptionData = await subscriptionService.getCurrentSubscription(userId);
+      
+      console.log('📊 Subscription service returned data with authoritative dates:', {
+        hasUser: !!subscriptionData.user,
+        tier: subscriptionData.user?.subscriptionTier,
+        subscriptionEndDate: subscriptionData.user?.subscriptionEndDate,
+        subscriptionStartDate: subscriptionData.user?.subscriptionStartDate,
+        cancelAtPeriodEnd: subscriptionData.user?.cancelAtPeriodEnd
+      });
+
+      // Format the response for frontend
+      const response = {
+        subscription: subscriptionData.user,  // User object with authoritative subscription info
+        planLimits: subscriptionData.planLimits,  // Plan limits object
+        usageStats: subscriptionData.usageStats,  // Usage statistics object
+        user: subscriptionData.user,  // Also include user for backward compatibility
+        isActive: subscriptionData.isActive,
+        billingCycle: 'monthly',
+        dataFreshness: {
+          lastSynced: new Date().toISOString(),
+          source: 'stripe_authoritative'
+        }
+      };
+      
+      console.log('✅ Sending response with authoritative Stripe dates:', {
+        subscriptionTier: response.subscription?.subscriptionTier,
+        subscriptionEndDate: response.subscription?.subscriptionEndDate,
+        subscriptionStartDate: response.subscription?.subscriptionStartDate,
+        cancelAtPeriodEnd: response.subscription?.cancelAtPeriodEnd,
+        dataSource: response.dataFreshness?.source
+      });
       
       res.status(200).json({
         success: true,
-        data: {
-          subscription,
-          billingCycle: 'monthly',
-          message: 'Current subscription retrieved successfully'
-        }
+        data: response,
+        message: 'Current subscription retrieved with authoritative Stripe dates'
       });
     } catch (error) {
-      console.error('Error getting current subscription:', error);
+      console.error('❌ Error getting current subscription:', error);
       res.status(500).json({
         success: false,
         error: 'Failed to retrieve current subscription'
@@ -112,6 +143,93 @@ class SubscriptionController {
   }
 
   /**
+   * Get invoice download URL
+   * @route GET /api/subscriptions/invoice/:invoiceId/download
+   * @access Private
+   */
+  static async getInvoiceDownload(req, res) {
+    try {
+      const userId = req.user.id;
+      const { invoiceId } = req.params;
+
+      if (!invoiceId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invoice ID is required'
+        });
+      }
+
+      console.log(`🔍 Getting invoice download for user ${userId}, invoice: ${invoiceId}`);
+
+      // Get user to verify they have access to this invoice
+      const user = await User.findById(userId);
+      if (!user || !user.stripeCustomerId) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found or no Stripe customer ID'
+        });
+      }
+
+      // Get invoice from Stripe
+      try {
+        const invoice = await stripeService.getInvoice(invoiceId);
+        
+        // Verify this invoice belongs to the user
+        if (invoice.customer !== user.stripeCustomerId) {
+          return res.status(403).json({
+            success: false,
+            error: 'Access denied to this invoice'
+          });
+        }
+
+        // Return the hosted invoice URL for download/viewing
+        const downloadUrl = invoice.hosted_invoice_url || invoice.invoice_pdf;
+        
+        if (!downloadUrl) {
+          return res.status(404).json({
+            success: false,
+            error: 'Invoice download URL not available'
+          });
+        }
+
+        res.status(200).json({
+          success: true,
+          data: {
+            downloadUrl,
+            invoiceId,
+            amount: invoice.amount_paid,
+            status: invoice.status,
+            created: invoice.created,
+            message: 'Invoice download URL retrieved successfully'
+          }
+        });
+
+      } catch (stripeError) {
+        console.error('Error retrieving invoice from Stripe:', stripeError);
+        
+        if (stripeError.code === 'resource_missing') {
+          return res.status(404).json({
+            success: false,
+            error: 'Invoice not found'
+          });
+        }
+        
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to retrieve invoice from Stripe'
+        });
+      }
+
+    } catch (error) {
+      console.error('Error getting invoice download:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get invoice download URL'
+      });
+    }
+  }
+
+  /**
    * Get user's usage history
    * @route GET /api/subscriptions/usage/history
    * @access Private
@@ -140,7 +258,7 @@ class SubscriptionController {
   }
 
   /**
-   * Create checkout session for subscription (Monthly only)
+   * Create checkout session
    * @route POST /api/subscriptions/create-checkout
    * @access Private
    */
@@ -158,15 +276,18 @@ class SubscriptionController {
 
       // Build URLs
       const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      const successUrl = `${baseUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`;
-      const cancelUrl = `${baseUrl}/pricing`;
+      const successUrl = `${baseUrl}/settings?upgraded=true&session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${baseUrl}/settings`;
 
+      // Create checkout session
       const session = await subscriptionService.createCheckoutSession(
         userId,
         planName,
         successUrl,
         cancelUrl
       );
+
+      console.log(`✅ Created checkout session for user ${userId}, plan: ${planName}`);
 
       res.status(200).json({
         success: true,
@@ -314,7 +435,7 @@ class SubscriptionController {
   }
 
   /**
-   * Sync subscription status with Stripe
+   * FIXED: Sync subscription status with authoritative Stripe dates
    * @route POST /api/subscriptions/sync
    * @access Private
    */
@@ -322,13 +443,15 @@ class SubscriptionController {
     try {
       const userId = req.user.id;
       
+      console.log(`🔄 Starting sync with authoritative Stripe dates for user ${userId}`);
+      
       const result = await subscriptionService.syncSubscriptionStatus(userId);
 
       res.status(200).json({
         success: true,
         data: {
           result,
-          message: 'Subscription status synced successfully'
+          message: 'Subscription status synced with authoritative Stripe dates'
         }
       });
     } catch (error) {
@@ -392,7 +515,6 @@ class SubscriptionController {
         console.log('⚠️ Skipping webhook verification for development');
         
         try {
-          // Parse the raw buffer to JSON
           const rawBody = req.body.toString('utf8');
           event = JSON.parse(rawBody);
           console.log('✅ Successfully parsed webhook event from raw buffer');
@@ -414,9 +536,8 @@ class SubscriptionController {
         }
 
         try {
-          // Verify webhook signature with raw buffer
           event = stripeService.verifyWebhookSignature(
-            req.body, // This is the raw buffer from express.raw()
+            req.body,
             signature,
             endpointSecret
           );
@@ -447,12 +568,12 @@ class SubscriptionController {
 
       console.log(`✅ Processing webhook event: ${event.type} (ID: ${event.id})`);
 
-      // Handle the event
+      // Handle the event with fixed processing
       await stripeService.handleWebhookEvent(event);
 
       res.status(200).json({
         success: true,
-        message: `Webhook ${event.type} handled successfully`,
+        message: `Webhook ${event.type} handled successfully with authoritative date processing`,
         eventId: event.id
       });
     } catch (error) {
@@ -530,7 +651,7 @@ class SubscriptionController {
     }
   }
 
-  /**
+/**
    * Track usage manually (for testing)
    * @route POST /api/subscriptions/usage/track
    * @access Private
@@ -802,6 +923,200 @@ class SubscriptionController {
       res.status(500).json({
         success: false,
         error: 'Failed to get subscription health'
+      });
+    }
+  }
+
+  /**
+   * FIXED: Validate subscription data
+   * @route GET /api/subscriptions/validate
+   * @access Private
+   */
+  static async validateSubscriptionData(req, res) {
+    try {
+      const userId = req.user.id;
+      
+      const validation = await subscriptionService.validateSubscriptionData(userId);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          validation,
+          message: 'Subscription data validation completed'
+        }
+      });
+    } catch (error) {
+      console.error('Error validating subscription data:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to validate subscription data'
+      });
+    }
+  }
+
+  /**
+   * FIXED: Fix subscription data with authoritative Stripe dates
+   * @route POST /api/subscriptions/fix
+   * @access Private
+   */
+  static async fixSubscriptionData(req, res) {
+    try {
+      const userId = req.user.id;
+      
+      console.log(`🔧 Starting data fix with authoritative Stripe dates for user ${userId}`);
+      
+      const fixResult = await subscriptionService.fixSubscriptionData(userId);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          fixResult,
+          message: 'Subscription data fix completed with authoritative Stripe dates'
+        }
+      });
+    } catch (error) {
+      console.error('Error fixing subscription data:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fix subscription data'
+      });
+    }
+  }
+
+  /**
+   * ADMIN: Get subscription health dashboard
+   * @route GET /api/subscriptions/admin/health-dashboard
+   * @access Private (Admin)
+   */
+  static async getHealthDashboard(req, res) {
+    try {
+      // Check if user is admin
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          error: 'Admin access required'
+        });
+      }
+
+      const dashboard = await subscriptionService.getSubscriptionHealthDashboard();
+
+      res.status(200).json({
+        success: true,
+        data: {
+          dashboard,
+          message: 'Subscription health dashboard retrieved successfully'
+        }
+      });
+    } catch (error) {
+      console.error('Error getting health dashboard:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to retrieve health dashboard'
+      });
+    }
+  }
+
+  /**
+   * ADMIN: Bulk fix subscription data
+   * @route POST /api/subscriptions/admin/bulk-fix
+   * @access Private (Admin)
+   */
+  static async bulkFixSubscriptionData(req, res) {
+    try {
+      // Check if user is admin
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          error: 'Admin access required'
+        });
+      }
+
+      const { userIds } = req.body;
+      
+      console.log('🔧 Starting bulk subscription data fix with authoritative Stripe dates...');
+      
+      const results = await subscriptionService.bulkFixSubscriptionData(userIds);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          results,
+          message: 'Bulk subscription data fix completed with authoritative Stripe dates'
+        }
+      });
+    } catch (error) {
+      console.error('Error in bulk fix:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to perform bulk fix'
+      });
+    }
+  }
+
+  /**
+   * UTILITY: Force fresh sync from Stripe
+   * @route POST /api/subscriptions/force-sync
+   * @access Private
+   */
+  static async forceFreshSync(req, res) {
+    try {
+      const userId = req.user.id;
+      
+      console.log(`🔄 Force syncing subscription data with authoritative Stripe dates for user ${userId}`);
+      
+      // Use the Stripe service's sync method
+      const syncResult = await stripeService.syncUserSubscriptionFromStripe(userId);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          syncResult,
+          timestamp: new Date().toISOString(),
+          message: 'Fresh subscription data synced from Stripe with authoritative dates'
+        }
+      });
+    } catch (error) {
+      console.error('Error in force sync:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to force sync subscription data'
+      });
+    }
+  }
+
+  /**
+   * UTILITY: Get fresh billing date from Stripe
+   * @route GET /api/subscriptions/fresh-billing-date
+   * @access Private
+   */
+  static async getFreshBillingDate(req, res) {
+    try {
+      const userId = req.user.id;
+      
+      console.log(`📅 Getting authoritative billing date from Stripe for user ${userId}`);
+      
+      const freshDate = await stripeService.getAccurateNextBillingDate(userId);
+
+      if (freshDate) {
+        res.status(200).json({
+          success: true,
+          data: {
+            nextBillingDate: freshDate.toISOString(),
+            timestamp: new Date().toISOString(),
+            message: 'Authoritative billing date retrieved from Stripe'
+          }
+        });
+      } else {
+        res.status(404).json({
+          success: false,
+          error: 'Could not retrieve authoritative billing date from Stripe'
+        });
+      }
+    } catch (error) {
+      console.error('Error getting fresh billing date:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get fresh billing date'
       });
     }
   }

@@ -1,4 +1,4 @@
-// src/components/jobs/ResumeTailoring.js
+// src/components/jobs/ResumeTailoring.js - FIXED USAGE LIMITS
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -27,7 +27,8 @@ import {
   AccordionDetails,
   Snackbar,
   useTheme,
-  alpha
+  alpha,
+  LinearProgress
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -42,16 +43,26 @@ import {
   FormatListBulleted as FormatListBulletedIcon,
   CropFree as CropFreeIcon,
   Keyboard as KeyboardIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  Upgrade as UpgradeIcon
 } from '@mui/icons-material';
 import jobService from '../../utils/jobService';
 import resumeService from '../../utils/resumeService';
 import MainLayout from '../layout/MainLayout';
+import { useSubscription } from '../../context/SubscriptionContext';
 
 const ResumeTailoring = () => {
   const theme = useTheme();
   const { jobId, resumeId } = useParams();
   const navigate = useNavigate();
+  const { 
+    subscription, 
+    usage, 
+    planLimits, 
+    canPerformAction, 
+    getUsagePercentage,
+    planInfo 
+  } = useSubscription();
   
   const [job, setJob] = useState(null);
   const [resume, setResume] = useState(null);
@@ -62,6 +73,9 @@ const ResumeTailoring = () => {
   const [tailoringSaving, setTailoringSaving] = useState(false);
   const [versionName, setVersionName] = useState('');
   const [versionNotes, setVersionNotes] = useState('');
+  const [usageData, setUsageData] = useState(null);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
+  const [canCreateTailoredResume, setCanCreateTailoredResume] = useState(true);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -79,6 +93,24 @@ const ResumeTailoring = () => {
       setVersionName(`AI Tailored - ${resume.name} for ${job.title} at ${job.company}`);
     }
   }, [resume, job]);
+
+  // Check usage limits for final creation step only
+  useEffect(() => {
+    if (usage && planLimits) {
+      const tailoringUsage = usage.resumeTailoring || { used: 0, limit: planLimits.resumeTailoring };
+      setUsageData(tailoringUsage);
+      
+      // Check if user can create tailored resume (only for final step)
+      const permission = canPerformAction('resumeTailoring', 1);
+      setCanCreateTailoredResume(permission.allowed);
+      
+      if (!permission.allowed) {
+        setShowUpgradePrompt(true);
+      } else {
+        setShowUpgradePrompt(false);
+      }
+    }
+  }, [usage, planLimits, canPerformAction]);
 
   const fetchData = async () => {
     try {
@@ -101,14 +133,21 @@ const ResumeTailoring = () => {
         setJob(updatedJobData);
       }
       
-      // Get tailoring recommendations
+      // Get tailoring recommendations (NO USAGE TRACKING HERE)
       const tailoringResult = await jobService.getTailoringRecommendations(jobId, resumeId);
       setTailoringData(tailoringResult.tailoringResult);
       
       setActiveStep(1); // Move to recommendations step
     } catch (err) {
       console.error('Error fetching tailoring data:', err);
-      setError('Failed to load tailoring data. Please try again.');
+      
+      // Check if it's a different kind of error (not usage limits)
+      if (err.response?.status === 403 && err.response?.data?.upgradeRequired) {
+        setError(err.response.data.message);
+        setShowUpgradePrompt(true);
+      } else {
+        setError('Failed to load tailoring data. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -137,9 +176,23 @@ const ResumeTailoring = () => {
     });
   };
 
+  const handleUpgrade = () => {
+    // Navigate to pricing/subscription page
+    window.open('/pricing', '_blank');
+  };
+
   const handleSaveTailoredResume = async () => {
     if (!versionName) {
       showSnackbar('Please provide a name for your tailored resume', 'warning');
+      return;
+    }
+
+    // Final usage check before submission (this is where usage should be checked)
+    const permission = canPerformAction('resumeTailoring', 1);
+    if (!permission.allowed) {
+      setError(permission.reason);
+      setShowUpgradePrompt(true);
+      showSnackbar('Resume tailoring limit reached. Please upgrade your plan.', 'error');
       return;
     }
     
@@ -151,7 +204,7 @@ const ResumeTailoring = () => {
         notes: versionNotes
       });
       
-      // Call API to create tailored resume
+      // Call API to create tailored resume (THIS IS WHERE USAGE IS TRACKED)
       const response = await resumeService.createTailoredResume(resumeId, jobId, {
         name: versionName,
         notes: versionNotes
@@ -187,18 +240,37 @@ const ResumeTailoring = () => {
     } catch (error) {
       console.error('Error saving tailored resume:', error);
       
-      // More detailed error handling
-      let errorMessage = 'Failed to create tailored resume. Please try again.';
-      
-      if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.message) {
-        errorMessage = error.message;
+      // Handle specific usage limit errors
+      if (error.response?.status === 403 && error.response?.data?.upgradeRequired) {
+        setError(error.response.data.message);
+        setShowUpgradePrompt(true);
+        setCanCreateTailoredResume(false);
+        showSnackbar('Resume tailoring limit reached. Please upgrade your plan.', 'error');
+      } else {
+        let errorMessage = 'Failed to create tailored resume. Please try again.';
+        
+        if (error.response?.data?.message) {
+          errorMessage = error.response.data.message;
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+        
+        showSnackbar(errorMessage, 'error');
       }
-      
-      showSnackbar(errorMessage, 'error');
       setTailoringSaving(false);
     }
+  };
+
+  // Calculate usage percentage and status
+  const usagePercentage = usageData ? getUsagePercentage('resumeTailoring') : 0;
+  const isApproachingLimit = usagePercentage >= 80;
+  const isAtLimit = usagePercentage >= 100 || !canCreateTailoredResume;
+
+  // Usage status color
+  const getUsageColor = () => {
+    if (isAtLimit) return 'error';
+    if (isApproachingLimit) return 'warning';
+    return 'success';
   };
 
   const renderStepContent = (step) => {
@@ -730,7 +802,6 @@ const ResumeTailoring = () => {
                 Your original resume will remain unchanged.
               </Typography>
             </Box>
-            
             <Typography variant="subtitle2" fontWeight={600} color="text.secondary" sx={{ mt: 3, mb: 1 }}>
               Resume Name
             </Typography>
@@ -741,6 +812,7 @@ const ResumeTailoring = () => {
               onChange={(e) => setVersionName(e.target.value)}
               placeholder="Enter a name for your tailored resume"
               size="medium"
+              disabled={isAtLimit}
               sx={{ 
                 mb: 3,
                 '& .MuiOutlinedInput-root': {
@@ -760,6 +832,7 @@ const ResumeTailoring = () => {
               value={versionNotes}
               onChange={(e) => setVersionNotes(e.target.value)}
               placeholder="Add any notes about this tailored version..."
+              disabled={isAtLimit}
               sx={{ 
                 '& .MuiOutlinedInput-root': {
                   borderRadius: 2
@@ -806,6 +879,75 @@ const ResumeTailoring = () => {
               </Typography>
             </Box>
           </Paper>
+        </Box>
+      </MainLayout>
+    );
+  }
+
+  if (error && showUpgradePrompt) {
+    return (
+      <MainLayout>
+        <Box sx={{ p: 3 }}>
+          <Button
+            startIcon={<ArrowBackIcon />}
+            onClick={() => navigate(`/jobs/${jobId}`)}
+            sx={{ mb: 2 }}
+            variant="outlined"
+          >
+            Back to Job
+          </Button>
+          
+          <Alert 
+            severity="warning" 
+            sx={{ mb: 3, borderRadius: 2 }}
+            action={
+              <Button 
+                color="inherit" 
+                size="small" 
+                onClick={handleUpgrade}
+                startIcon={<UpgradeIcon />}
+                sx={{ fontWeight: 600 }}
+              >
+                Upgrade Plan
+              </Button>
+            }
+          >
+            {error}
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="body2">
+                <strong>Resume Tailoring Limits:</strong><br/>
+                • <strong>Free Plan:</strong> 1 tailoring per month<br/>
+                • <strong>Casual Plan ($19.99/month):</strong> 25 tailorings per month<br/>
+                • <strong>Hunter Plan ($34.99/month):</strong> 50 tailorings per month
+              </Typography>
+            </Box>
+          </Alert>
+          
+          {usageData && (
+            <Card sx={{ mb: 3, borderRadius: 2 }}>
+              <CardContent sx={{ p: 2.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={600}>
+                    Resume Tailoring Usage - {planInfo?.displayName || 'Current Plan'}
+                  </Typography>
+                  <Chip 
+                    label={planLimits?.resumeTailoring === -1 ? 'Unlimited' : `${usageData.used || 0}/${planLimits?.resumeTailoring || 0}`}
+                    color="warning"
+                    size="small"
+                  />
+                </Box>
+                
+                {planLimits?.resumeTailoring !== -1 && (
+                  <LinearProgress 
+                    variant="determinate" 
+                    value={Math.min(usagePercentage, 100)}
+                    color="warning"
+                    sx={{ height: 8, borderRadius: 4 }}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          )}
         </Box>
       </MainLayout>
     );
@@ -891,6 +1033,84 @@ const ResumeTailoring = () => {
               />
             </Box>
           </Box>
+
+          {/* Usage Status Card - Only show on final step */}
+          {usageData && activeStep === 2 && (
+            <Card 
+              sx={{ 
+                mb: 3, 
+                borderRadius: 2,
+                border: `1px solid ${theme.palette[getUsageColor()].main}`,
+                backgroundColor: `${theme.palette[getUsageColor()].main}08`
+              }}
+            >
+              <CardContent sx={{ p: 2.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <InfoIcon color={getUsageColor()} />
+                    <Typography variant="subtitle2" fontWeight={600}>
+                      Resume Tailoring Usage - {planInfo?.displayName || 'Current Plan'}
+                    </Typography>
+                  </Box>
+                  <Chip 
+                    label={planLimits?.resumeTailoring === -1 ? 'Unlimited' : `${usageData.used || 0}/${planLimits?.resumeTailoring || 0}`}
+                    color={getUsageColor()}
+                    size="small"
+                    sx={{ fontWeight: 500 }}
+                  />
+                </Box>
+                
+                {planLimits?.resumeTailoring !== -1 && (
+                  <Box sx={{ mb: 1 }}>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={Math.min(usagePercentage, 100)}
+                      color={getUsageColor()}
+                      sx={{ height: 8, borderRadius: 4 }}
+                    />
+                  </Box>
+                )}
+                
+                <Typography variant="body2" color="text.secondary">
+                  {planLimits?.resumeTailoring === -1 
+                    ? '✨ You have unlimited resume tailoring with your Hunter plan!'
+                    : isAtLimit 
+                      ? '⚠️ You\'ve reached your monthly limit. Upgrade to tailor more resumes.'
+                      : isApproachingLimit
+                        ? '⚠️ You\'re approaching your monthly limit.'
+                        : `🎯 ${planLimits?.resumeTailoring - (usageData.used || 0)} tailorings remaining this month.`
+                  }
+                </Typography>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Upgrade Alert for at-limit users - Only show on final step */}
+          {isAtLimit && activeStep === 2 && (
+            <Alert 
+              severity="warning" 
+              sx={{ mb: 3, borderRadius: 2 }}
+              action={
+                <Button 
+                  color="inherit" 
+                  size="small" 
+                  onClick={handleUpgrade}
+                  startIcon={<UpgradeIcon />}
+                  sx={{ fontWeight: 600 }}
+                >
+                  Upgrade Plan
+                </Button>
+              }
+            >
+              You've reached your resume tailoring limit for this month.
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="body2">
+                  • <strong>Casual Plan ($19.99/month):</strong> 25 tailorings per month<br/>
+                  • <strong>Hunter Plan ($34.99/month):</strong> 50 tailorings per month
+                </Typography>
+              </Box>
+            </Alert>
+          )}
           
           <Stepper 
             activeStep={activeStep} 
@@ -951,13 +1171,23 @@ const ResumeTailoring = () => {
                 >
                   Next
                 </Button>
+              ) : isAtLimit ? (
+                <Button
+                  variant="contained"
+                  color="warning"
+                  onClick={handleUpgrade}
+                  startIcon={<UpgradeIcon />}
+                  sx={{ borderRadius: 2, px: 3 }}
+                >
+                  Upgrade to Continue
+                </Button>
               ) : (
                 <Button
                   variant="contained"
                   color="primary"
                   onClick={handleSaveTailoredResume}
                   startIcon={tailoringSaving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
-                  disabled={tailoringSaving}
+                  disabled={tailoringSaving || !canCreateTailoredResume}
                   sx={{ borderRadius: 2, px: 3 }}
                 >
                   {tailoringSaving ? 'Creating...' : 'Create Tailored Resume'}

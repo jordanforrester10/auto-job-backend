@@ -1,4 +1,4 @@
-// backend/routes/recruiter.routes.js - FIXED ROUTE ORDERING
+// backend/routes/recruiter.routes.js - UPDATED WITH UNLOCK FUNCTIONALITY
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth.middleware');
@@ -19,6 +19,7 @@ const validateRecruiterParams = [validate];
 const validateOutreachCreation = [validate];
 const validateMessageGeneration = [validate];
 const validateOutreachParams = [validate];
+const validateUnlockParams = [validate]; // NEW: validation for unlock endpoint
 
 // ===================================================================
 // SPECIFIC ROUTES (MUST COME BEFORE PARAMETERIZED ROUTES)
@@ -148,6 +149,14 @@ router.get('/recommendations', protect, (req, res) => {
  */
 router.get('/:recruiterId', protect, validateRecruiterParams, recruiterController.getRecruiterById);
 
+/**
+ * NEW ROUTE: POST /api/recruiters/:recruiterId/unlock
+ * @desc    Unlock recruiter details for casual plan users
+ * @access  Private
+ * @note    Costs 1 recruiter unlock credit for casual users
+ */
+router.post('/:recruiterId/unlock', protect, validateUnlockParams, recruiterController.unlockRecruiter);
+
 // ===================================================================
 // ADVANCED OUTREACH FEATURES (Future Implementation)
 // ===================================================================
@@ -181,6 +190,38 @@ router.post('/outreach/:outreachId/follow-up', protect, validateOutreachParams, 
 });
 
 // ===================================================================
+// RECRUITER UNLOCK MANAGEMENT (Future Implementation)
+// ===================================================================
+
+/**
+ * @route   GET /api/recruiters/:recruiterId/unlock-status
+ * @desc    Check if recruiter is unlocked for current user
+ * @access  Private
+ * @note    Future implementation for unlock status checking
+ */
+router.get('/:recruiterId/unlock-status', protect, validateRecruiterParams, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Unlock status checking feature coming soon',
+    feature: 'unlock_status_check'
+  });
+});
+
+/**
+ * @route   GET /api/recruiters/unlocked/list
+ * @desc    Get list of all unlocked recruiters for current user
+ * @access  Private
+ * @note    Future implementation for unlocked recruiters list
+ */
+router.get('/unlocked/list', protect, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Unlocked recruiters list feature coming soon',
+    feature: 'unlocked_list'
+  });
+});
+
+// ===================================================================
 // ERROR HANDLING
 // ===================================================================
 
@@ -202,7 +243,8 @@ router.use((req, res) => {
       'PUT /api/recruiters/outreach/:id - Update outreach',
       'DELETE /api/recruiters/outreach/:id - Delete outreach',
       'PUT /api/recruiters/outreach/:id/send - Send outreach',
-      'GET /api/recruiters/:id - Get recruiter details'
+      'GET /api/recruiters/:id - Get recruiter details',
+      'POST /api/recruiters/:id/unlock - Unlock recruiter (NEW)'
     ]
   });
 });

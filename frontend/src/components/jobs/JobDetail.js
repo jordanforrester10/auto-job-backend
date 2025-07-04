@@ -1,4 +1,4 @@
-// src/components/jobs/JobDetail.js - Final refactored version with improved dialog
+// src/components/jobs/JobDetail.js - FIXED WITH USAGE LIMITS
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -33,7 +33,8 @@ import {
   IconButton,
   Stack,
   Fade,
-  alpha
+  alpha,
+  LinearProgress
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -50,7 +51,10 @@ import {
   Insights as InsightsIcon,
   Close as CloseIcon,
   Stars as StarsIcon,
-  Rocket as RocketIcon
+  Rocket as RocketIcon,
+  Warning as WarningIcon,
+  Upgrade as UpgradeIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 
 // Import our component files
@@ -63,6 +67,7 @@ import AutoJobLogo from '../common/AutoJobLogo';
 import jobService from '../../utils/jobService';
 import resumeService from '../../utils/resumeService';
 import MainLayout from '../layout/MainLayout';
+import { useSubscription } from '../../context/SubscriptionContext';
 
 // Tab panel component
 function TabPanel(props) {
@@ -85,6 +90,15 @@ const JobDetail = () => {
   const theme = useTheme();
   const { id } = useParams();
   const navigate = useNavigate();
+  const { 
+    subscription, 
+    usage, 
+    planLimits, 
+    canPerformAction, 
+    getUsagePercentage,
+    planInfo 
+  } = useSubscription();
+  
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -96,11 +110,25 @@ const JobDetail = () => {
   const [tailorDialogOpen, setTailorDialogOpen] = useState(false);
   const [selectedResumeId, setSelectedResumeId] = useState('');
   const [matchLoading, setMatchLoading] = useState(false);
+  const [usageData, setUsageData] = useState(null);
+  const [canCreateTailoredResume, setCanCreateTailoredResume] = useState(true);
 
   useEffect(() => {
     fetchJobDetails();
     fetchAllResumes();
   }, [id]);
+
+  // Check usage limits for tailoring
+  useEffect(() => {
+    if (usage && planLimits) {
+      const tailoringUsage = usage.resumeTailoring || { used: 0, limit: planLimits.resumeTailoring };
+      setUsageData(tailoringUsage);
+      
+      // Check if user can create tailored resume
+      const permission = canPerformAction('resumeTailoring', 1);
+      setCanCreateTailoredResume(permission.allowed);
+    }
+  }, [usage, planLimits, canPerformAction]);
 
   const fetchJobDetails = async () => {
     try {
@@ -121,10 +149,32 @@ const JobDetail = () => {
 
   const fetchAllResumes = async () => {
     try {
-      const resumesData = await resumeService.getUserResumes();
-      setAllResumes(resumesData || []);
+      console.log('Fetching all resumes for dialog...');
+      const resumesResponse = await resumeService.getUserResumes();
+      console.log('Resumes API response:', resumesResponse);
+      
+      // Handle different response structures
+      let resumesList = [];
+      if (resumesResponse && resumesResponse.resumes) {
+        resumesList = resumesResponse.resumes;
+      } else if (Array.isArray(resumesResponse)) {
+        resumesList = resumesResponse;
+      } else if (resumesResponse && resumesResponse.data && resumesResponse.data.resumes) {
+        resumesList = resumesResponse.data.resumes;
+      }
+      
+      console.log('Processed resumes list:', resumesList);
+      console.log('Number of resumes found:', resumesList.length);
+      
+      setAllResumes(resumesList || []);
     } catch (err) {
       console.error('Error fetching resumes:', err);
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      });
+      setAllResumes([]);
     }
   };
 
@@ -159,6 +209,16 @@ const JobDetail = () => {
   };
 
   const handleOpenTailorDialog = () => {
+    // Check if user can create tailored resume before opening dialog
+    if (!canCreateTailoredResume) {
+      setAlert({
+        open: true,
+        message: 'Resume tailoring limit reached. Please upgrade your plan to continue.',
+        severity: 'warning'
+      });
+      return;
+    }
+    
     setTailorDialogOpen(true);
     handleMenuClose();
   };
@@ -177,6 +237,16 @@ const JobDetail = () => {
       setAlert({
         open: true,
         message: 'Please select a resume to tailor',
+        severity: 'warning'
+      });
+      return;
+    }
+
+    // Final check before proceeding
+    if (!canCreateTailoredResume) {
+      setAlert({
+        open: true,
+        message: 'Resume tailoring limit reached. Please upgrade your plan.',
         severity: 'warning'
       });
       return;
@@ -202,13 +272,29 @@ const JobDetail = () => {
       navigate(`/jobs/${id}/tailor/${selectedResumeId}`);
     } catch (error) {
       console.error('Error initializing resume tailoring:', error);
-      setAlert({
-        open: true,
-        message: 'Failed to start resume tailoring process. Please try again.',
-        severity: 'error'
-      });
+      
+      // Handle usage limit errors
+      if (error.response?.status === 403 && error.response?.data?.upgradeRequired) {
+        setAlert({
+          open: true,
+          message: 'Resume tailoring limit reached. Please upgrade your plan.',
+          severity: 'warning'
+        });
+        setCanCreateTailoredResume(false);
+      } else {
+        setAlert({
+          open: true,
+          message: 'Failed to start resume tailoring process. Please try again.',
+          severity: 'error'
+        });
+      }
       setMatchLoading(false);
     }
+  };
+
+  const handleUpgrade = () => {
+    // Navigate to pricing/subscription page
+    window.open('/pricing', '_blank');
   };
 
   const renderResumeStatusChip = (resume) => {
@@ -247,6 +333,18 @@ const JobDetail = () => {
     }
 
     return null;
+  };
+
+  // Calculate usage percentage and status
+  const usagePercentage = usageData ? getUsagePercentage('resumeTailoring') : 0;
+  const isApproachingLimit = usagePercentage >= 80;
+  const isAtLimit = usagePercentage >= 100 || !canCreateTailoredResume;
+
+  // Usage status color
+  const getUsageColor = () => {
+    if (isAtLimit) return 'error';
+    if (isApproachingLimit) return 'warning';
+    return 'success';
   };
 
   // Render analysis status indicator
@@ -335,16 +433,55 @@ const JobDetail = () => {
           Back to Jobs
         </Button>
 
-        {/* Job Header Component */}
+        {/* Job Header Component - Pass usage limits */}
         <JobHeader 
           job={job}
           onTailorClick={handleOpenTailorDialog}
           onMenuClick={handleMenuClick}
           onOpenOriginal={() => window.open(job.sourceUrl, '_blank')}
+          canCreateTailoredResume={canCreateTailoredResume}
+          usageData={usageData}
+          planInfo={planInfo}
         />
 
         {/* Analysis Status */}
         {renderAnalysisStatus()}
+
+        {/* Usage Warning Alert - Show if approaching or at limit */}
+        {usageData && (isApproachingLimit || isAtLimit) && (
+          <Alert 
+            severity={isAtLimit ? "error" : "warning"} 
+            sx={{ mb: 3, borderRadius: 2 }}
+
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <InfoIcon fontSize="small" />
+              <Typography variant="subtitle2" fontWeight={600}>
+                Resume Tailoring Usage - {planInfo?.displayName || 'Current Plan'}
+              </Typography>
+            </Box>
+            
+            {planLimits?.resumeTailoring !== -1 && (
+              <Box sx={{ mb: 1 }}>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={Math.min(usagePercentage, 100)}
+                  color={getUsageColor()}
+                  sx={{ height: 6, borderRadius: 3 }}
+                />
+              </Box>
+            )}
+            
+            <Typography variant="body2">
+              {planLimits?.resumeTailoring === -1 
+                ? '✨ You have unlimited resume tailoring with your Hunter plan!'
+                : isAtLimit 
+                  ? `⚠️ You've reached your monthly limit (${usageData.used || 0}/${planLimits?.resumeTailoring || 0}). Upgrade to tailor more resumes.`
+                  : `⚠️ You're approaching your monthly limit (${usageData.used || 0}/${planLimits?.resumeTailoring || 0}).`
+              }
+            </Typography>
+          </Alert>
+        )}
 
         {/* Tabs without white container background */}
         <Box sx={{ mb: 4 }}>
@@ -371,22 +508,28 @@ const JobDetail = () => {
           </Paper>
 
           {/* Tab content without Paper wrapper */}
-          {/* Overview Tab */}
+          {/* Overview Tab - Pass usage limits */}
           {tabValue === 0 && (
             <Box sx={{ py: 1 }}>
               <OverviewTab 
                 job={job} 
                 onTailorClick={handleOpenTailorDialog}
+                canCreateTailoredResume={canCreateTailoredResume}
+                usageData={usageData}
+                planInfo={planInfo}
               />
             </Box>
           )}
 
-          {/* Analysis Tab */}
+          {/* Analysis Tab - Pass usage limits */}
           {tabValue === 1 && (
             <Box sx={{ py: 1 }}>
               <AnalysisTab 
                 job={job} 
                 onTailorClick={handleOpenTailorDialog}
+                canCreateTailoredResume={canCreateTailoredResume}
+                usageData={usageData}
+                planInfo={planInfo}
               />
             </Box>
           )}
@@ -409,7 +552,6 @@ const JobDetail = () => {
             sx: { borderRadius: 2 }
           }}
         >
-
           <MenuItem onClick={handleDeleteJob} sx={{ color: 'error.main' }}>
             <ListItemIcon>
               <DeleteIcon fontSize="small" color="error" />
@@ -418,7 +560,7 @@ const JobDetail = () => {
           </MenuItem>
         </Menu>
 
-        {/* Enhanced AI Resume Analysis Dialog */}
+        {/* Enhanced AI Resume Analysis Dialog - WITH USAGE LIMITS */}
         <Dialog
           open={tailorDialogOpen}
           onClose={handleCloseTailorDialog}
@@ -514,6 +656,24 @@ const JobDetail = () => {
           </DialogTitle>
 
           <DialogContent sx={{ p: 0, overflow: 'hidden' }}>
+            {/* Usage Warning if at limit */}
+            {isAtLimit && (
+              <Box sx={{ p: 2.5, bgcolor: alpha(theme.palette.warning.main, 0.1), borderBottom: `1px solid ${alpha(theme.palette.warning.main, 0.2)}` }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <WarningIcon color="warning" />
+                  <Typography variant="subtitle2" fontWeight={600} color="warning.main">
+                    Resume Tailoring Limit Reached
+                  </Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  You've used {usageData?.used || 0} of {planLimits?.resumeTailoring || 0} monthly tailorings.
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Upgrade your plan to continue tailoring resumes for better job matches.
+                </Typography>
+              </Box>
+            )}
+
             {/* Hero Section */}
             <Box sx={{ 
               p: 2.5, 
@@ -664,6 +824,7 @@ const JobDetail = () => {
                   
                   <FormControl 
                     fullWidth 
+                    disabled={isAtLimit}
                     sx={{ 
                       '& .MuiOutlinedInput-root': {
                         borderRadius: 2
@@ -714,8 +875,7 @@ const JobDetail = () => {
             background: `linear-gradient(180deg, transparent 0%, ${alpha(theme.palette.background.paper, 0.8)} 100%)`
           }}>
             <Button 
-              onClick={handleCloseTailorDialog}
-              variant="outlined"
+              onClick={handleCloseTailorDialog}variant="outlined"
               sx={{ 
                 borderRadius: 2,
                 px: 3,
@@ -725,45 +885,73 @@ const JobDetail = () => {
             >
               Cancel
             </Button>
-            <Button 
-              onClick={handleTailorResume}
-              variant="contained" 
-              color="secondary"
-              disabled={!selectedResumeId || matchLoading}
-              startIcon={
-                matchLoading ? (
-                  <CircularProgress size={18} color="inherit" />
-                ) : (
-                  <AutoJobLogo 
-                    variant="icon-only" 
-                    size="small" 
-                    color="white"
-                    sx={{ transform: 'scale(0.7)' }}
-                  />
-                )
-              }
-              sx={{ 
-                px: 3,
-                py: 1,
-                borderRadius: 2,
-                fontWeight: 600,
-                backgroundColor: theme.palette.secondary.main,
-                color: 'white',
-                boxShadow: `0px 8px 16px ${alpha(theme.palette.secondary.main, 0.24)}`,
-                '&:hover': {
-                  backgroundColor: theme.palette.secondary.dark,
-                  boxShadow: `0px 12px 20px ${alpha(theme.palette.secondary.main, 0.32)}`,
-                  transform: 'translateY(-1px)'
-                },
-                '&:disabled': {
-                  backgroundColor: alpha(theme.palette.secondary.main, 0.6),
-                  color: 'white'
-                },
-                transition: 'all 0.2s ease-in-out'
-              }}
-            >
-              {matchLoading ? 'Analyzing Resume...' : 'Start Enhanced Analysis'}
-            </Button>
+            
+            {/* Conditional button based on usage limits */}
+            {isAtLimit ? (
+              <Button 
+                onClick={handleUpgrade}
+                variant="contained" 
+                color="warning"
+                startIcon={<UpgradeIcon />}
+                sx={{ 
+                  px: 3,
+                  py: 1,
+                  borderRadius: 2,
+                  fontWeight: 600,
+                  backgroundColor: theme.palette.warning.main,
+                  color: 'white',
+                  boxShadow: `0px 8px 16px ${alpha(theme.palette.warning.main, 0.24)}`,
+                  '&:hover': {
+                    backgroundColor: theme.palette.warning.dark,
+                    boxShadow: `0px 12px 20px ${alpha(theme.palette.warning.main, 0.32)}`,
+                    transform: 'translateY(-1px)'
+                  },
+                  transition: 'all 0.2s ease-in-out'
+                }}
+              >
+                Upgrade to Continue
+              </Button>
+            ) : (
+              <Button 
+                onClick={handleTailorResume}
+                variant="contained" 
+                color="secondary"
+                disabled={!selectedResumeId || matchLoading || !canCreateTailoredResume}
+                startIcon={
+                  matchLoading ? (
+                    <CircularProgress size={18} color="inherit" />
+                  ) : (
+                    <AutoJobLogo 
+                      variant="icon-only" 
+                      size="small" 
+                      color="white"
+                      sx={{ transform: 'scale(0.7)' }}
+                    />
+                  )
+                }
+                sx={{ 
+                  px: 3,
+                  py: 1,
+                  borderRadius: 2,
+                  fontWeight: 600,
+                  backgroundColor: theme.palette.secondary.main,
+                  color: 'white',
+                  boxShadow: `0px 8px 16px ${alpha(theme.palette.secondary.main, 0.24)}`,
+                  '&:hover': {
+                    backgroundColor: theme.palette.secondary.dark,
+                    boxShadow: `0px 12px 20px ${alpha(theme.palette.secondary.main, 0.32)}`,
+                    transform: 'translateY(-1px)'
+                  },
+                  '&:disabled': {
+                    backgroundColor: alpha(theme.palette.secondary.main, 0.6),
+                    color: 'white'
+                  },
+                  transition: 'all 0.2s ease-in-out'
+                }}
+              >
+                {matchLoading ? 'Analyzing Resume...' : 'Start Enhanced Analysis'}
+              </Button>
+            )}
           </DialogActions>
         </Dialog>
 

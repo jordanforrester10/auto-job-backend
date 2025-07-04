@@ -1,4 +1,4 @@
-// src/components/recruiters/RecruiterPage.js - UPDATED WITH ANALYTICS TAB REMOVED
+// src/components/recruiters/RecruiterPage.js - UPDATED WITH SHOW UNLOCKED ONLY FILTER
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
@@ -44,11 +44,14 @@ const RecruiterPage = () => {
   // Tab state
   const [activeTab, setActiveTab] = useState(0);
   
-  // Search state
+  // Search state - UPDATED WITH NEW FILTER
   const [searchResults, setSearchResults] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
+  
+  // NEW: Show Unlocked Only filter state
+  const [showUnlockedOnly, setShowUnlockedOnly] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -79,7 +82,7 @@ const RecruiterPage = () => {
     loadOutreachCampaigns();
   }, []);
 
-  // Search handlers
+  // Search handlers - UPDATED TO INCLUDE NEW FILTER
   const handleSearchResults = (results, searchParams = null) => {
     console.log('🔍 RecruiterPage: Search results received:', results);
     console.log('🔍 RecruiterPage: Search params received:', searchParams);
@@ -89,10 +92,14 @@ const RecruiterPage = () => {
     setHasSearched(true);
     setCurrentPage(1); // Reset to page 1 for new search
     
-    // Store search params for pagination (FIXED)
+    // Store search params for pagination - UPDATED TO INCLUDE NEW FILTER
     if (searchParams) {
-      setCurrentSearchParams(searchParams);
-      console.log('✅ RecruiterPage: Stored search params:', searchParams);
+      const enhancedParams = {
+        ...searchParams,
+        showUnlockedOnly // Include the new filter in stored params
+      };
+      setCurrentSearchParams(enhancedParams);
+      console.log('✅ RecruiterPage: Stored search params with unlock filter:', enhancedParams);
     }
   };
 
@@ -106,7 +113,52 @@ const RecruiterPage = () => {
     showNotification(error, 'error');
   };
 
-  // Pagination handler - this is the key fix
+  // NEW: Handle show unlocked only filter change
+  const handleShowUnlockedOnlyChange = (enabled) => {
+    console.log('🔍 RecruiterPage: Show unlocked only filter changed:', enabled);
+    setShowUnlockedOnly(enabled);
+    
+    // If we have current search params, trigger a new search with the updated filter
+    if (currentSearchParams) {
+      const updatedParams = {
+        ...currentSearchParams,
+        showUnlockedOnly: enabled
+      };
+      
+      // Trigger search with updated parameters
+      performSearchWithParams(updatedParams, 1, 0);
+    }
+  };
+
+  // NEW: Perform search with specific parameters
+  const performSearchWithParams = async (searchParams, page = 1, offset = 0) => {
+    try {
+      setSearchLoading(true);
+      setCurrentPage(page);
+      
+      const searchFilters = {
+        ...searchParams,
+        limit: 20,
+        offset: offset
+      };
+      
+      console.log('🔍 RecruiterPage: Performing search with updated params:', searchFilters);
+      
+      const response = await recruiterService.searchRecruiters(searchFilters);
+      
+      console.log('✅ RecruiterPage: Updated search results received:', response);
+      setSearchResults(response);
+      setCurrentSearchParams(searchParams); // Update stored params
+      
+    } catch (error) {
+      console.error('❌ RecruiterPage: Search with updated params failed:', error);
+      showNotification('Failed to update search results', 'error');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  // Pagination handler - UPDATED TO INCLUDE NEW FILTER
   const handlePageChange = async (page, offset) => {
     console.log(`📄 RecruiterPage: Page change - Page: ${page}, Offset: ${offset}`);
     console.log(`🔍 RecruiterPage: Using stored search params:`, currentSearchParams);
@@ -115,9 +167,9 @@ const RecruiterPage = () => {
       setSearchLoading(true);
       setCurrentPage(page);
       
-      // Use the stored search parameters with pagination (FIXED)
+      // Use the stored search parameters with pagination - NOW INCLUDES showUnlockedOnly
       const searchFilters = {
-        ...currentSearchParams, // This now contains the proper search filters
+        ...currentSearchParams, // This now includes showUnlockedOnly
         limit: 20,
         offset: offset
       };
@@ -137,7 +189,7 @@ const RecruiterPage = () => {
     }
   };
 
-  // Enhanced search results handler that stores search params
+  // Enhanced search results handler that stores search params - UPDATED
   const handleSearchResultsWithParams = (results, searchParams = null) => {
     console.log('🔍 RecruiterPage: Search results with params:', { results, searchParams });
     
@@ -146,9 +198,13 @@ const RecruiterPage = () => {
     setHasSearched(true);
     setCurrentPage(1);
     
-    // Store search parameters for pagination
+    // Store search parameters for pagination - INCLUDE NEW FILTER
     if (searchParams) {
-      setCurrentSearchParams(searchParams);
+      const enhancedParams = {
+        ...searchParams,
+        showUnlockedOnly // Always include current filter state
+      };
+      setCurrentSearchParams(enhancedParams);
     }
   };
 
@@ -187,6 +243,12 @@ const RecruiterPage = () => {
       showNotification('Failed to send message. Please try again.', 'error');
       throw error;
     }
+  };
+
+  // Handle recruiter unlocked callback
+  const handleRecruiterUnlocked = (updatedSearchResults) => {
+    console.log('📱 RecruiterPage: Updating search results after unlock');
+    setSearchResults(updatedSearchResults);
   };
 
   const handleSaveOutreach = async (outreachData) => {
@@ -327,7 +389,7 @@ const RecruiterPage = () => {
 
         {/* Tab Content */}
         <TabPanel value={activeTab} index={0}>
-          {/* Search Tab */}
+          {/* Search Tab - UPDATED WITH NEW FILTER PROPS */}
           <Box>
             <RecruiterSearch
               ref={searchRef}
@@ -335,6 +397,8 @@ const RecruiterPage = () => {
               onLoading={handleSearchLoading}
               onError={handleSearchError}
               onSearchStateChange={setHasSearched}
+              showUnlockedOnly={showUnlockedOnly}
+              onShowUnlockedOnlyChange={handleShowUnlockedOnlyChange}
             />
             
             <RecruiterList
@@ -346,6 +410,7 @@ const RecruiterPage = () => {
               onStartOutreach={handleStartOutreach}
               onLoadMore={handleLoadMore}
               onPageChange={handlePageChange}
+              onRecruiterUnlocked={handleRecruiterUnlocked}
             />
           </Box>
         </TabPanel>

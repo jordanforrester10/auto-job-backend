@@ -1,9 +1,11 @@
-// backend/controllers/recruiter.controller.js - COMPLETE UPDATED VERSION
+// backend/controllers/recruiter.controller.js - COMPLETE UPDATED VERSION WITH FEATURE GATING AND UNLOCK
 const { Pool } = require('pg');
 const Outreach = require('../models/mongodb/outreach.model');
 const Resume = require('../models/mongodb/resume.model');
 const Job = require('../models/mongodb/job.model');
 const { openai } = require('../config/openai');
+const subscriptionService = require('../services/subscription.service');
+const usageService = require('../services/usage.service');
 
 // PostgreSQL connection
 const pool = new Pool({
@@ -11,25 +13,67 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-/**
- * Search recruiters with simplified filtering (no experience or sort filters)
- */
 exports.searchRecruiters = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    console.log('🔒 Checking recruiter access permissions for user:', userId);
+    
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        console.log('❌ Recruiter access not available on current plan:', currentSubscription.user.subscriptionTier);
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          error: 'This feature requires Casual plan or higher',
+          currentPlan: currentSubscription.user.subscriptionTier,
+          upgradeRequired: true,
+          feature: 'recruiterAccess',
+          availableOn: ['casual', 'hunter']
+        });
+      }
+      
+      console.log('✅ Recruiter access permission granted for plan:', currentSubscription.user.subscriptionTier);
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
+    
     const {
       query = '',
       company = '',
       industry = '',
       location = '',
       title = '',
+      show_unlocked_only = false, // NEW: Show unlocked only filter
       limit = 20,
       offset = 0
     } = req.query;
 
+    // NEW: Log the unlock filter
+    const showUnlockedOnly = show_unlocked_only === 'true' || show_unlocked_only === true;
+    
     console.log(`🔍 Searching recruiters for user ${userId}:`, {
-      query, company, industry, location, title, limit: parseInt(limit)
+      query, 
+      company, 
+      industry, 
+      location, 
+      title, 
+      showUnlockedOnly, // NEW: Include in logs
+      limit: parseInt(limit)
     });
+
+    // NEW: Log special message for unlocked filter
+    if (showUnlockedOnly) {
+      console.log('🔓 Filtering to show ONLY unlocked recruiters');
+    }
 
     // Build the SQL query dynamically
     let sqlQuery = `
@@ -54,17 +98,27 @@ exports.searchRecruiters = async (req, res) => {
         l.country,
         -- Check if user has contacted this recruiter
         oh.last_contact_date,
-        oh.status as outreach_status
+        oh.status as outreach_status,
+        -- Check if user has unlocked this recruiter
+        ru.unlocked_at,
+        CASE WHEN ru.unlocked_at IS NOT NULL THEN true ELSE false END as is_unlocked
       FROM recruiters r
       LEFT JOIN companies c ON r.current_company_id = c.id
       LEFT JOIN industries i ON r.industry_id = i.id
       LEFT JOIN locations l ON r.location_id = l.id
       LEFT JOIN outreach_history oh ON (r.id = oh.recruiter_id AND oh.mongodb_user_id = $1)
+      LEFT JOIN recruiter_unlocks ru ON (r.id = ru.recruiter_id AND ru.mongodb_user_id = $1)
       WHERE r.is_active = true
     `;
 
     const queryParams = [userId.toString()];
     let paramIndex = 2;
+
+    // NEW: Add unlocked only filter
+    if (showUnlockedOnly) {
+      sqlQuery += ` AND ru.unlocked_at IS NOT NULL`;
+      console.log('🔓 Added SQL filter for unlocked recruiters only');
+    }
 
     // Add search filters with COALESCE to handle NULL values
     if (query) {
@@ -117,7 +171,7 @@ exports.searchRecruiters = async (req, res) => {
     // Execute the query
     const result = await pool.query(sqlQuery, queryParams);
 
-    // Get total count for pagination
+    // Get total count for pagination - UPDATED TO INCLUDE UNLOCK FILTER
     let countQuery = `
       SELECT COUNT(*) as count
       FROM recruiters r
@@ -125,11 +179,17 @@ exports.searchRecruiters = async (req, res) => {
       LEFT JOIN industries i ON r.industry_id = i.id
       LEFT JOIN locations l ON r.location_id = l.id
       LEFT JOIN outreach_history oh ON (r.id = oh.recruiter_id AND oh.mongodb_user_id = $1)
+      LEFT JOIN recruiter_unlocks ru ON (r.id = ru.recruiter_id AND ru.mongodb_user_id = $1)
       WHERE r.is_active = true
     `;
     
     const countParams = [userId.toString()];
     let countParamIndex = 2;
+
+    // NEW: Add unlocked filter to count query too
+    if (showUnlockedOnly) {
+      countQuery += ` AND ru.unlocked_at IS NOT NULL`;
+    }
 
     // Apply same filters to count query
     if (query) {
@@ -200,10 +260,33 @@ exports.searchRecruiters = async (req, res) => {
         hasContacted: !!row.last_contact_date,
         lastContactDate: row.last_contact_date,
         status: row.outreach_status
-      }
+      },
+      isUnlocked: row.is_unlocked,
+      unlockedAt: row.unlocked_at
     }));
 
-    console.log(`✅ Found ${recruiters.length} recruiters (Total: ${countResult.rows[0].count})`);
+    // 🔒 FEATURE GATING: Get usage statistics to include in response
+    let usageStats = null;
+    try {
+      const userUsage = await usageService.getUserUsageStats(userId);
+      usageStats = {
+        recruiterUnlocks: userUsage.usageStats.recruiterUnlocks,
+        plan: userUsage.plan,
+        planLimits: {
+          recruiterAccess: userUsage.planLimits.recruiterAccess,
+          recruiterUnlocks: userUsage.planLimits.recruiterUnlocks
+        }
+      };
+    } catch (usageError) {
+      console.error('❌ Error fetching usage stats (non-critical):', usageError);
+    }
+
+    // NEW: Enhanced logging for unlock filter results
+    if (showUnlockedOnly) {
+      console.log(`✅ Found ${recruiters.length} UNLOCKED recruiters (Total unlocked: ${countResult.rows[0].count})`);
+    } else {
+      console.log(`✅ Found ${recruiters.length} recruiters (Total: ${countResult.rows[0].count})`);
+    }
 
     res.json({
       success: true,
@@ -213,7 +296,17 @@ exports.searchRecruiters = async (req, res) => {
         limit: parseInt(limit),
         offset: parseInt(offset),
         hasMore: parseInt(offset) + parseInt(limit) < parseInt(countResult.rows[0].count)
-      }
+      },
+      // NEW: Include filter state in response for debugging
+      filters: {
+        query,
+        company,
+        industry,
+        location,
+        title,
+        showUnlockedOnly // NEW: Return the filter state
+      },
+      usageStats: usageStats
     });
 
   } catch (error) {
@@ -227,15 +320,164 @@ exports.searchRecruiters = async (req, res) => {
 };
 
 /**
- * Get recruiter details by ID
+ * Get recruiter details by ID - WITH UNLOCK LIMITS AND STATUS CHECK
  */
 exports.getRecruiterById = async (req, res) => {
   try {
     const userId = req.user._id;
     const { recruiterId } = req.params;
 
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    console.log('🔒 Checking recruiter access permissions for user:', userId);
+    
+    let currentSubscription;
+    try {
+      currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        console.log('❌ Recruiter access not available on current plan:', currentSubscription.user.subscriptionTier);
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          error: 'This feature requires Casual plan or higher',
+          currentPlan: currentSubscription.user.subscriptionTier,
+          upgradeRequired: true,
+          feature: 'recruiterAccess'
+        });
+      }
+      
+      console.log('✅ Recruiter access permission granted');
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
+
     console.log(`👤 Getting recruiter details for ID: ${recruiterId}`);
 
+    // Check if recruiter is already unlocked for this user
+    const unlockCheckQuery = `
+      SELECT unlocked_at FROM recruiter_unlocks 
+      WHERE recruiter_id = $1 AND mongodb_user_id = $2
+    `;
+    const unlockResult = await pool.query(unlockCheckQuery, [recruiterId, userId.toString()]);
+    const isUnlocked = unlockResult.rows.length > 0;
+
+    console.log(`🔓 Recruiter unlock status for user ${userId}:`, isUnlocked ? 'UNLOCKED' : 'LOCKED');
+
+    // For free users, return basic info only
+    if (currentSubscription.user.subscriptionTier === 'free') {
+      // Get basic recruiter info without contact details
+      const basicQuery = `
+        SELECT 
+          r.id,
+          r.first_name,
+          r.last_name,
+          r.title,
+          c.name as company_name,
+          i.name as industry_name
+        FROM recruiters r
+        LEFT JOIN companies c ON r.current_company_id = c.id
+        LEFT JOIN industries i ON r.industry_id = i.id
+        WHERE r.id = $1
+      `;
+
+      const basicResult = await pool.query(basicQuery, [recruiterId]);
+
+      if (basicResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Recruiter not found'
+        });
+      }
+
+      const row = basicResult.rows[0];
+      const basicRecruiter = {
+        id: row.id,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+        title: row.title,
+        company: {
+          name: row.company_name
+        },
+        industry: row.industry_name,
+        isUnlocked: false,
+        accessLevel: 'basic' // Indicate this is basic access
+      };
+
+      return res.json({
+        success: true,
+        recruiter: basicRecruiter,
+        accessLevel: 'basic',
+        upgradeRequired: true
+      });
+    }
+
+    // For casual users, check if they need to unlock or if already unlocked
+    if (currentSubscription.user.subscriptionTier === 'casual' && !isUnlocked) {
+      // Return limited info and unlock option
+      const limitedQuery = `
+        SELECT 
+          r.id,
+          r.first_name,
+          r.last_name,
+          r.title,
+          c.name as company_name,
+          c.employee_range as company_size,
+          i.name as industry_name,
+          l.city,
+          l.state,
+          l.country
+        FROM recruiters r
+        LEFT JOIN companies c ON r.current_company_id = c.id
+        LEFT JOIN industries i ON r.industry_id = i.id
+        LEFT JOIN locations l ON r.location_id = l.id
+        WHERE r.id = $1
+      `;
+
+      const limitedResult = await pool.query(limitedQuery, [recruiterId]);
+
+      if (limitedResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Recruiter not found'
+        });
+      }
+
+      const row = limitedResult.rows[0];
+      const limitedRecruiter = {
+        id: row.id,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+        title: row.title,
+        company: {
+          name: row.company_name,
+          size: row.company_size
+        },
+        industry: row.industry_name,
+        location: {
+          city: row.city,
+          state: row.state,
+          country: row.country
+        },
+        isUnlocked: false,
+        accessLevel: 'limited' // Indicate this is limited access
+      };
+
+      return res.json({
+        success: true,
+        recruiter: limitedRecruiter,
+        accessLevel: 'limited',
+        unlockRequired: true
+      });
+    }
+
+    // For hunter users or unlocked casual users, return full details
     const sqlQuery = `
       SELECT 
         r.*,
@@ -253,12 +495,15 @@ exports.getRecruiterById = async (req, res) => {
         l.postal_code,
         -- Outreach history
         oh.last_contact_date,
-        oh.status as outreach_status
+        oh.status as outreach_status,
+        -- Unlock info
+        ru.unlocked_at
       FROM recruiters r
       LEFT JOIN companies c ON r.current_company_id = c.id
       LEFT JOIN industries i ON r.industry_id = i.id
       LEFT JOIN locations l ON r.location_id = l.id
       LEFT JOIN outreach_history oh ON (r.id = oh.recruiter_id AND oh.mongodb_user_id = $1)
+      LEFT JOIN recruiter_unlocks ru ON (r.id = ru.recruiter_id AND ru.mongodb_user_id = $1)
       WHERE r.id = $2
     `;
 
@@ -331,6 +576,9 @@ exports.getRecruiterById = async (req, res) => {
         status: row.outreach_status,
         history: outreachHistory
       },
+      isUnlocked: !!row.unlocked_at,
+      unlockedAt: row.unlocked_at,
+      accessLevel: 'full',
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -339,7 +587,8 @@ exports.getRecruiterById = async (req, res) => {
 
     res.json({
       success: true,
-      recruiter
+      recruiter,
+      accessLevel: 'full'
     });
 
   } catch (error) {
@@ -353,10 +602,177 @@ exports.getRecruiterById = async (req, res) => {
 };
 
 /**
- * Get filter options for recruiter search (simplified - no experience ranges)
+ * NEW: Unlock recruiter for casual users
+ */
+exports.unlockRecruiter = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { recruiterId } = req.params;
+
+    console.log(`🔓 Unlocking recruiter ${recruiterId} for user ${userId}`);
+
+    // 🔒 FEATURE GATING: Check if user can unlock recruiters
+    let currentSubscription;
+    try {
+      currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      
+      // Only casual and hunter users can unlock recruiters
+      if (!['casual', 'hunter'].includes(currentSubscription.user.subscriptionTier)) {
+        return res.status(403).json({
+          message: 'Recruiter unlocking requires Casual plan or higher',
+          currentPlan: currentSubscription.user.subscriptionTier,
+          upgradeRequired: true,
+          feature: 'recruiterUnlocks'
+        });
+      }
+
+      // Hunter users have unlimited access, no need to track unlocks
+      if (currentSubscription.user.subscriptionTier === 'hunter') {
+        return res.status(400).json({
+          message: 'Hunter plan users have unlimited recruiter access',
+          alreadyUnlimited: true
+        });
+      }
+
+    } catch (permissionError) {
+      console.error('❌ Error checking unlock permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate unlock permission',
+        error: permissionError.message 
+      });
+    }
+
+    // Check if recruiter exists
+    const recruiterCheckQuery = `SELECT id, first_name, last_name FROM recruiters WHERE id = $1`;
+    const recruiterResult = await pool.query(recruiterCheckQuery, [recruiterId]);
+
+    if (recruiterResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Recruiter not found'
+      });
+    }
+
+    // Check if already unlocked
+    const unlockCheckQuery = `
+      SELECT unlocked_at FROM recruiter_unlocks 
+      WHERE recruiter_id = $1 AND mongodb_user_id = $2
+    `;
+    const unlockResult = await pool.query(unlockCheckQuery, [recruiterId, userId.toString()]);
+
+    if (unlockResult.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Recruiter already unlocked',
+        alreadyUnlocked: true,
+        unlockedAt: unlockResult.rows[0].unlocked_at
+      });
+    }
+
+    // 🔒 FEATURE GATING: Check recruiter unlock limits for casual users
+    try {
+      const unlockPermission = await usageService.checkUsageLimit(userId, 'recruiterUnlocks', 1);
+      
+      if (!unlockPermission.allowed) {
+        console.log('❌ Recruiter unlock limit exceeded:', unlockPermission.reason);
+        return res.status(403).json({ 
+          message: 'Recruiter unlock limit reached',
+          error: unlockPermission.reason,
+          current: unlockPermission.current,
+          limit: unlockPermission.limit,
+          plan: unlockPermission.plan,
+          upgradeRequired: true,
+          feature: 'recruiterUnlocks'
+        });
+      }
+      
+      console.log('✅ Recruiter unlock permission granted:', {
+        current: unlockPermission.current,
+        limit: unlockPermission.limit,
+        remaining: unlockPermission.remaining
+      });
+      
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter unlock permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter unlock permission',
+        error: permissionError.message 
+      });
+    }
+
+    // Create unlock record
+    const insertUnlockQuery = `
+      INSERT INTO recruiter_unlocks (recruiter_id, mongodb_user_id, unlocked_at)
+      VALUES ($1, $2, NOW())
+      RETURNING unlocked_at
+    `;
+
+    const insertResult = await pool.query(insertUnlockQuery, [recruiterId, userId.toString()]);
+    const unlockedAt = insertResult.rows[0].unlocked_at;
+
+    // 🔒 FEATURE GATING: Track successful recruiter unlock
+    try {
+      await usageService.trackUsage(userId, 'recruiterUnlocks', 1, {
+        recruiterId: recruiterId,
+        recruiterName: `${recruiterResult.rows[0].first_name} ${recruiterResult.rows[0].last_name}`,
+        unlockMethod: 'manual'
+      });
+      console.log('✅ Recruiter unlock usage tracked successfully');
+    } catch (trackingError) {
+      console.error('❌ Error tracking recruiter unlock usage (non-critical):', trackingError);
+      // Don't fail the request if tracking fails
+    }
+
+    const recruiter = recruiterResult.rows[0];
+    console.log(`✅ Successfully unlocked recruiter: ${recruiter.first_name} ${recruiter.last_name}`);
+
+    res.json({
+      success: true,
+      message: 'Recruiter unlocked successfully',
+      recruiter: {
+        id: recruiterId,
+        name: `${recruiter.first_name} ${recruiter.last_name}`,
+        unlockedAt: unlockedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Unlock recruiter error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to unlock recruiter',
+      details: process.env.NODE_ENV !== 'production' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get filter options for recruiter search - WITH ACCESS CONTROL
  */
 exports.getFilterOptions = async (req, res) => {
   try {
+    const userId = req.user._id;
+
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          upgradeRequired: true,
+          feature: 'recruiterAccess'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
+
     console.log('📊 Getting filter options for recruiter search');
 
     // Get top companies
@@ -435,12 +851,37 @@ exports.getFilterOptions = async (req, res) => {
   }
 };
 
+// ... (rest of the existing methods remain the same)
+// Including: createOutreach, updateOutreach, deleteOutreach, sendOutreach, 
+// getUserOutreach, generatePersonalizedMessage, getOutreachAnalytics
+
 /**
- * Create outreach campaign
+ * Create outreach campaign - WITH ACCESS CONTROL
  */
 exports.createOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          upgradeRequired: true,
+          feature: 'recruiterAccess'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
+
     const {
       recruiterId,
       jobId,
@@ -534,13 +975,33 @@ exports.createOutreach = async (req, res) => {
 };
 
 /**
- * Update outreach campaign - NEW METHOD
+ * Update outreach campaign - WITH ACCESS CONTROL
  */
 exports.updateOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
     const { outreachId } = req.params;
     const updates = req.body;
+
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          upgradeRequired: true,
+          feature: 'recruiterAccess'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
 
     console.log(`📝 Updating outreach ${outreachId} for user ${userId}`);
 
@@ -590,12 +1051,32 @@ exports.updateOutreach = async (req, res) => {
 };
 
 /**
- * Delete outreach campaign - NEW METHOD
+ * Delete outreach campaign - WITH ACCESS CONTROL
  */
 exports.deleteOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
     const { outreachId } = req.params;
+
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          upgradeRequired: true,
+          feature: 'recruiterAccess'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
 
     console.log(`🗑️ Deleting outreach ${outreachId} for user ${userId}`);
 
@@ -634,12 +1115,32 @@ exports.deleteOutreach = async (req, res) => {
 };
 
 /**
- * Send outreach message
+ * Send outreach message - WITH ACCESS CONTROL
  */
 exports.sendOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
     const { outreachId } = req.params;
+
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          upgradeRequired: true,
+          feature: 'recruiterAccess'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
 
     console.log(`📤 Sending outreach ${outreachId} for user ${userId}`);
 
@@ -694,11 +1195,32 @@ exports.sendOutreach = async (req, res) => {
 };
 
 /**
- * Get user's outreach campaigns
+ * Get user's outreach campaigns - WITH ACCESS CONTROL
  */
 exports.getUserOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          upgradeRequired: true,
+          feature: 'recruiterAccess'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
+
     const { status, limit = 20, offset = 0 } = req.query;
 
     console.log(`📋 Getting outreach campaigns for user ${userId}`);
@@ -787,11 +1309,32 @@ exports.getUserOutreach = async (req, res) => {
 };
 
 /**
- * Generate AI-powered personalized message
+ * Generate AI-powered personalized message - WITH ACCESS CONTROL
  */
 exports.generatePersonalizedMessage = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          upgradeRequired: true,
+          feature: 'recruiterAccess'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
+
     const {
       recruiterId,
       resumeId,
@@ -883,11 +1426,32 @@ exports.generatePersonalizedMessage = async (req, res) => {
 };
 
 /**
- * Get outreach analytics
+ * Get outreach analytics - WITH ACCESS CONTROL
  */
 exports.getOutreachAnalytics = async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // 🔒 FEATURE GATING: Check recruiter access permissions
+    try {
+      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
+      
+      if (!recruiterAccessAllowed) {
+        return res.status(403).json({ 
+          message: 'Recruiter access not available on your current plan',
+          upgradeRequired: true,
+          feature: 'recruiterAccess'
+        });
+      }
+    } catch (permissionError) {
+      console.error('❌ Error checking recruiter access permission:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate recruiter access permission',
+        error: permissionError.message 
+      });
+    }
+
     const { timeframe = '30d' } = req.query;
 
     console.log(`📊 Getting outreach analytics for user ${userId}`);
@@ -918,112 +1482,129 @@ exports.getOutreachAnalytics = async (req, res) => {
         $group: {
           _id: null,
           totalOutreach: { $sum: 1 },
-sent: { $sum: { $cond: [{ $eq: ['$status', 'sent'] }, 1, 0] } },
-         replied: { $sum: { $cond: [{ $eq: ['$status', 'replied'] }, 1, 0] } },
-         drafted: { $sum: { $cond: [{ $eq: ['$status', 'drafted'] }, 1, 0] } },
-         totalReplies: { $sum: { $size: { $ifNull: ['$replies', []] } } },
-         totalFollowUps: { $sum: { $size: { $ifNull: ['$followUps', []] } } }
-       }
-     }
-   ]);
+          sent: { $sum: { $cond: [{ $eq: ['$status', 'sent'] }, 1, 0] } },
+          replied: { $sum: { $cond: [{ $eq: ['$status', 'replied'] }, 1, 0] } },
+          drafted: { $sum: { $cond: [{ $eq: ['$status', 'drafted'] }, 1, 0] } },
+          totalReplies: { $sum: { $size: { $ifNull: ['$replies', []] } } },
+          totalFollowUps: { $sum: { $size: { $ifNull: ['$followUps', []] } } }
+        }
+      }
+    ]);
 
-   const stats = analytics[0] || {
-     totalOutreach: 0,
-     sent: 0,
-     replied: 0,
-     drafted: 0,
-     totalReplies: 0,
-     totalFollowUps: 0
-   };
+    const stats = analytics[0] || {
+      totalOutreach: 0,
+      sent: 0,
+      replied: 0,
+      drafted: 0,
+      totalReplies: 0,
+      totalFollowUps: 0
+    };
 
-   // Calculate rates
-   const responseRate = stats.sent > 0 ? (stats.replied / stats.sent) * 100 : 0;
-   const sendRate = stats.totalOutreach > 0 ? (stats.sent / stats.totalOutreach) * 100 : 0;
+    // Calculate rates
+    const responseRate = stats.sent > 0 ? (stats.replied / stats.sent) * 100 : 0;
+    const sendRate = stats.totalOutreach > 0 ? (stats.sent / stats.totalOutreach) * 100 : 0;
 
-   res.json({
-     success: true,
-     analytics: {
-       ...stats,
-       responseRate: Math.round(responseRate * 100) / 100,
-       sendRate: Math.round(sendRate * 100) / 100,
-       timeframe
-     }
-   });
+    // 🔒 FEATURE GATING: Get usage statistics to include in response
+    let usageStats = null;
+    try {
+      const userUsage = await usageService.getUserUsageStats(userId);
+      usageStats = {
+        recruiterUnlocks: userUsage.usageStats.recruiterUnlocks,
+        plan: userUsage.plan,
+        planLimits: {
+          recruiterAccess: userUsage.planLimits.recruiterAccess,
+          recruiterUnlocks: userUsage.planLimits.recruiterUnlocks
+        }
+      };
+    } catch (usageError) {
+      console.error('❌ Error fetching usage stats (non-critical):', usageError);
+    }
 
- } catch (error) {
-   console.error('Get outreach analytics error:', error);
-   res.status(500).json({
-     success: false,
-     error: 'Failed to get outreach analytics',
-     details: process.env.NODE_ENV !== 'production' ? error.message : undefined
-   });
- }
+    res.json({
+      success: true,
+      analytics: {
+        ...stats,
+        responseRate: Math.round(responseRate * 100) / 100,
+        sendRate: Math.round(sendRate * 100) / 100,
+        timeframe
+      },
+      usageStats: usageStats
+    });
+
+  } catch (error) {
+    console.error('Get outreach analytics error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get outreach analytics',
+      details: process.env.NODE_ENV !== 'production' ? error.message : undefined
+    });
+  }
 };
 
 // Helper function to build AI prompt
 function buildPersonalizedMessagePrompt(recruiter, resume, job, messageType, tone, customRequirements) {
- const recruiterName = `${recruiter.first_name} ${recruiter.last_name}`;
- const company = recruiter.company_name;
- 
- let prompt = `Generate a ${tone} ${messageType} message to ${recruiterName}, a ${recruiter.title} at ${company}.\n\n`;
- 
- prompt += `RECRUITER CONTEXT:\n`;
- prompt += `- Name: ${recruiterName}\n`;
- prompt += `- Title: ${recruiter.title}\n`;
- prompt += `- Company: ${company}\n`;
- if (recruiter.specializations) {
-   prompt += `- Specializations: ${recruiter.specializations.join(', ')}\n`;
- }
- if (recruiter.industry_name) {
-   prompt += `- Industry: ${recruiter.industry_name}\n`;
- }
- 
- if (resume) {
-   prompt += `\nUSER BACKGROUND:\n`;
-   prompt += `- Name: ${resume.parsedData?.contactInfo?.name || 'Professional'}\n`;
-   if (resume.parsedData?.summary) {
-     prompt += `- Summary: ${resume.parsedData.summary}\n`;
-   }
-   if (resume.parsedData?.experience?.length > 0) {
-     const currentRole = resume.parsedData.experience[0];
-     prompt += `- Current Role: ${currentRole.title} at ${currentRole.company}\n`;
-   }
-   if (resume.parsedData?.skills?.length > 0) {
-     const topSkills = resume.parsedData.skills.slice(0, 5).map(s => typeof s === 'string' ? s : s.name);
-     prompt += `- Key Skills: ${topSkills.join(', ')}\n`;
-   }
- }
- 
- if (job) {
-   prompt += `\nTARGET POSITION:\n`;
-   prompt += `- Title: ${job.title}\n`;
-   prompt += `- Company: ${job.company}\n`;
-   if (job.description) {
-     prompt += `- Description: ${job.description.substring(0, 200)}...\n`;
-   }
- }
- 
- if (customRequirements) {
-   prompt += `\nCUSTOM REQUIREMENTS:\n${customRequirements}\n`;
- }
- 
- prompt += `\nGUIDELINES:\n`;
- prompt += `- Keep the message concise (2-3 paragraphs)\n`;
- prompt += `- Make it personal and specific to ${recruiterName}\n`;
- prompt += `- Use a ${tone} tone\n`;
- prompt += `- Include a clear call-to-action\n`;
- prompt += `- Avoid overly salesy language\n`;
- prompt += `- Make it authentic and professional\n`;
- 
- if (messageType === 'introduction') {
-   prompt += `- Focus on introducing yourself and expressing interest in their company\n`;
- } else if (messageType === 'follow_up') {
-   prompt += `- Reference previous contact and provide additional value\n`;
- } else if (messageType === 'application') {
-   prompt += `- Express interest in a specific role and highlight relevant qualifications\n`;
- }
- 
- return prompt;
+  const recruiterName = `${recruiter.first_name} ${recruiter.last_name}`;
+  const company = recruiter.company_name;
+  
+  let prompt = `Generate a ${tone} ${messageType} message to ${recruiterName}, a ${recruiter.title} at ${company}.\n\n`;
+  
+  prompt += `RECRUITER CONTEXT:\n`;
+  prompt += `- Name: ${recruiterName}\n`;
+  prompt += `- Title: ${recruiter.title}\n`;
+  prompt += `- Company: ${company}\n`;
+  if (recruiter.specializations) {
+    prompt += `- Specializations: ${recruiter.specializations.join(', ')}\n`;
+  }
+  if (recruiter.industry_name) {
+    prompt += `- Industry: ${recruiter.industry_name}\n`;
+  }
+  
+  if (resume) {
+    prompt += `\nUSER BACKGROUND:\n`;
+    prompt += `- Name: ${resume.parsedData?.contactInfo?.name || 'Professional'}\n`;
+    if (resume.parsedData?.summary) {
+      prompt += `- Summary: ${resume.parsedData.summary}\n`;
+    }
+    if (resume.parsedData?.experience?.length > 0) {
+      const currentRole = resume.parsedData.experience[0];
+      prompt += `- Current Role: ${currentRole.title} at ${currentRole.company}\n`;
+    }
+    if (resume.parsedData?.skills?.length > 0) {
+      const topSkills = resume.parsedData.skills.slice(0, 5).map(s => typeof s === 'string' ? s : s.name);
+      prompt += `- Key Skills: ${topSkills.join(', ')}\n`;
+    }
+  }
+  
+  if (job) {
+    prompt += `\nTARGET POSITION:\n`;
+    prompt += `- Title: ${job.title}\n`;
+    prompt += `- Company: ${job.company}\n`;
+    if (job.description) {
+      prompt += `- Description: ${job.description.substring(0, 200)}...\n`;
+    }
+  }
+  
+  if (customRequirements) {
+    prompt += `\nCUSTOM REQUIREMENTS:\n${customRequirements}\n`;
+  }
+  
+  prompt += `\nGUIDELINES:\n`;
+  prompt += `- Keep the message concise (2-3 paragraphs)\n`;
+  prompt += `- Make it personal and specific to ${recruiterName}\n`;
+  prompt += `- Use a ${tone} tone\n`;
+  prompt += `- Include a clear call-to-action\n`;
+  prompt += `- Avoid overly salesy language\n`;
+  prompt += `- Make it authentic and professional\n`;
+  
+  if (messageType === 'introduction') {
+    prompt += `- Focus on introducing yourself and expressing interest in their company\n`;
+  } else if (messageType === 'follow_up') {
+    prompt += `- Reference previous contact and provide additional value\n`;
+  } else if (messageType === 'application') {
+    prompt += `- Express interest in a specific role and highlight relevant qualifications\n`;
+  }
+  
+  return prompt;
 }
 
 module.exports = exports;

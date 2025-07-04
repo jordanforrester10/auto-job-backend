@@ -1,4 +1,4 @@
-// src/components/layout/Header.js - UPDATED WITHOUT NOTIFICATIONS
+// frontend/src/components/layout/Header.js - REMOVED SUBSCRIPTION BADGES
 import React, { useState } from 'react';
 import {
   AppBar,
@@ -13,6 +13,7 @@ import {
   alpha,
   ListItemIcon,
   ListItemText,
+  Divider,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -76,14 +77,19 @@ const Header = ({ onToggleSidebar }) => {
             marginRight: 2,
             marginLeft: 0,
             width: '100%',
-            maxWidth: { xs: '100%', sm: 400, md: 500 },
+            maxWidth: { xs: '100%', sm: 300, md: 400, lg: 500 },
           }}
         />
 
         <Box sx={{ flexGrow: 1 }} />
 
         {/* Action Buttons */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: { xs: 0.5, sm: 1 },
+          ml: 1
+        }}>
           {/* Help */}
           <Tooltip title="Help & Support" arrow>
             <IconButton

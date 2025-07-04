@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { AiAssistantProvider } from './context/AiAssistantContext';
+import { SubscriptionProvider } from './context/SubscriptionContext';
 import ThemeProvider from './ThemeProvider';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Login from './components/auth/Login';
@@ -35,29 +36,45 @@ import GlobalAiAssistant from './components/assistant/GlobalAiAssistant';
 const ApplicationsPage = () => <div>Applications Page (Coming Soon)</div>;
 const AISettingsPage = () => <div>AI Settings Page (Coming Soon)</div>;
 
+// Conditional AI Assistant wrapper component
+const ConditionalAiAssistant = () => {
+  // This component will only render the AI Assistant if the user has access
+  // The subscription context will be available here
+  return <GlobalAiAssistant />;
+};
+
+// Wrapper component for protected routes with subscription context
+const ProtectedRouteWithSubscription = ({ children }) => (
+  <ProtectedRoute>
+    <SubscriptionProvider>
+      <AiAssistantProvider>
+        {children}
+        <ConditionalAiAssistant />
+      </AiAssistantProvider>
+    </SubscriptionProvider>
+  </ProtectedRoute>
+);
+
 function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <Router>
           <Routes>
-            {/* Public Auth Routes - NO AiAssistantProvider wrapper */}
+            {/* Public Auth Routes - NO providers wrapper */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password/:token" element={<ResetPassword />} />
             <Route path="/verify-email/:token" element={<EmailVerification />} />
             
-            {/* Protected Routes - WITH AiAssistantProvider wrapper */}
+            {/* Protected Routes - WITH SubscriptionProvider and conditional AiAssistantProvider wrapper */}
             <Route
               path="/dashboard"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <Dashboard />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <Dashboard />
+                </ProtectedRouteWithSubscription>
               }
             />
             
@@ -65,34 +82,25 @@ function App() {
             <Route
               path="/resumes"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <ResumesPage />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <ResumesPage />
+                </ProtectedRouteWithSubscription>
               }
             />
             <Route
               path="/resumes/upload"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <ResumeUploadDialog />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <ResumeUploadDialog />
+                </ProtectedRouteWithSubscription>
               }
             />
             <Route
               path="/resumes/:id"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <ResumeDetail />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <ResumeDetail />
+                </ProtectedRouteWithSubscription>
               }
             />
             
@@ -100,45 +108,33 @@ function App() {
             <Route
               path="/jobs"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <JobsPage />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <JobsPage />
+                </ProtectedRouteWithSubscription>
               }
             />
             <Route
               path="/jobs/:id"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <JobDetail />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <JobDetail />
+                </ProtectedRouteWithSubscription>
               }
             />
             <Route
               path="/jobs/:jobId/tailor/:resumeId"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <ResumeTailoring />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <ResumeTailoring />
+                </ProtectedRouteWithSubscription>
               }
             />
             <Route
               path="/jobs/ai-searches"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <AiSearchesPage />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <AiSearchesPage />
+                </ProtectedRouteWithSubscription>
               }
             />
             
@@ -146,34 +142,25 @@ function App() {
             <Route
               path="/recruiters"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <RecruiterPage />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <RecruiterPage />
+                </ProtectedRouteWithSubscription>
               }
             />
             <Route
               path="/recruiters/:id"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <RecruiterDetails />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <RecruiterDetails />
+                </ProtectedRouteWithSubscription>
               }
             />
             <Route
               path="/recruiters/outreach"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <OutreachTracker />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <OutreachTracker />
+                </ProtectedRouteWithSubscription>
               }
             />
             
@@ -181,12 +168,9 @@ function App() {
             <Route
               path="/settings"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <SettingsPage />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <SettingsPage />
+                </ProtectedRouteWithSubscription>
               }
             />
             
@@ -194,23 +178,17 @@ function App() {
             <Route
               path="/applications"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <ApplicationsPage />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <ApplicationsPage />
+                </ProtectedRouteWithSubscription>
               }
             />
             <Route
               path="/ai-settings"
               element={
-                <ProtectedRoute>
-                  <AiAssistantProvider>
-                    <AISettingsPage />
-                    <GlobalAiAssistant />
-                  </AiAssistantProvider>
-                </ProtectedRoute>
+                <ProtectedRouteWithSubscription>
+                  <AISettingsPage />
+                </ProtectedRouteWithSubscription>
               }
             />
             

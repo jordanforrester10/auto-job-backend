@@ -1,5 +1,5 @@
-// src/components/recruiters/RecruiterList.js - FIXED PAGINATION
-import React, { useState } from 'react';
+// src/components/recruiters/RecruiterList.js - UPDATED WITH SUBSCRIPTION LOCKING
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -28,15 +28,38 @@ import {
   Visibility as VisibilityIcon,
   CheckCircle as CheckCircleIcon,
   Person as PersonIcon,
-  Work as WorkIcon
+  Work as WorkIcon,
+  Lock as LockIcon,
+  Upgrade as UpgradeIcon,
+  CreditCard as CreditCardIcon
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
+import { useSubscription } from '../../context/SubscriptionContext';
 import recruiterService from '../../utils/recruiterService';
 import AutoJobLogo from '../common/AutoJobLogo';
 
 const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }) => {
   const theme = useTheme();
   const [isLoading, setIsLoading] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
+  const [localIsUnlocked, setLocalIsUnlocked] = useState(recruiter.isUnlocked || false); // Local state for unlock status
+  
+  const {
+    planInfo,
+    hasFeatureAccess,
+    canPerformAction,
+    trackUsage,
+    isFreePlan,
+    isCasualPlan,
+    isHunterPlan,
+    usage,
+    planLimits
+  } = useSubscription();
+
+  // Update local state when recruiter prop changes
+  useEffect(() => {
+    setLocalIsUnlocked(recruiter.isUnlocked || false);
+  }, [recruiter.isUnlocked]);
 
   // Format recruiter data for display
   const formattedRecruiter = recruiterService.formatRecruiterForDisplay ? 
@@ -53,6 +76,48 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }
       console.error('Failed to start outreach:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleUnlock = async () => {
+    if (!isCasualPlan) return;
+    
+    // Check if user has enough unlock credits
+    const permission = canPerformAction('recruiterUnlocks', 1);
+    if (!permission.allowed) {
+      // Show upgrade prompt when out of unlocks
+      console.log('❌ No unlocks remaining - showing upgrade prompt');
+      // You could trigger an upgrade modal here or show a toast
+      // For now, we'll just prevent the unlock
+      return;
+    }
+
+    try {
+      setUnlocking(true);
+      
+      console.log('🔓 Unlocking recruiter from tile:', recruiter.id);
+      
+      // Call the unlock API directly
+      const response = await recruiterService.unlockRecruiter(recruiter.id);
+      
+      if (response && response.success) {
+        console.log('✅ Recruiter unlocked successfully from tile');
+        
+        // IMMEDIATELY update local state to show unlocked buttons
+        setLocalIsUnlocked(true);
+        
+        console.log('🎉 Local tile state updated - recruiter now shows as unlocked');
+      } else {
+        console.error('❌ Unlock failed:', response);
+        throw new Error(response?.message || 'Failed to unlock recruiter');
+      }
+      
+    } catch (error) {
+      console.error('Error unlocking recruiter:', error);
+      // Reset local state if unlock failed
+      setLocalIsUnlocked(false);
+    } finally {
+      setUnlocking(false);
     }
   };
 
@@ -99,29 +164,87 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }
     return colors[colorIndex];
   };
 
+  // Get current usage for display
+  const getRecruiterUnlocksUsage = () => {
+    if (!usage || !planLimits) return { used: 0, limit: 0 };
+    
+    const used = usage.recruiterUnlocks?.used || 0;
+    const limit = planLimits.recruiterUnlocks;
+    
+    return { used, limit };
+  };
+
+  // Check if recruiter is unlocked - use local state for immediate updates
+  const isUnlocked = localIsUnlocked;
+  
+  console.log(`🔍 RecruiterCard render - ID: ${recruiter.id}, localIsUnlocked: ${localIsUnlocked}, plan: ${planInfo?.tier}`);
+
+  // Determine card styling based on plan and unlock status
+  const getCardStyling = () => {
+    if (isFreePlan) {
+      return {
+        border: `1px solid ${theme.palette.grey[300]}`,
+        backgroundColor: theme.palette.grey[50],
+        opacity: 0.7
+      };
+    }
+    
+    if (isCasualPlan && !isUnlocked) {
+      return {
+        border: `1px solid ${theme.palette.warning.light}`,
+        backgroundColor: `${theme.palette.warning.main}08`,
+        opacity: 0.8
+      };
+    }
+    
+    return {
+      border: `1px solid ${theme.palette.divider}`,
+      backgroundColor: 'white',
+      ...(recruiter.outreach?.hasContacted && {
+        borderColor: theme.palette.success.light,
+        backgroundColor: `${theme.palette.success.main}08`
+      })
+    };
+  };
+
   return (
     <Card 
       elevation={0}
       sx={{ 
         height: '100%',
         transition: 'all 0.2s ease-in-out',
-        border: `1px solid ${theme.palette.divider}`,
         borderRadius: 2,
+        ...getCardStyling(),
         '&:hover': {
           elevation: 2,
-          transform: 'translateY(-2px)',
-          boxShadow: theme.shadows[4],
-          borderColor: theme.palette.primary.light
-        },
-        ...(recruiter.outreach?.hasContacted && {
-          borderColor: theme.palette.success.light,
-          backgroundColor: `${theme.palette.success.main}08`
-        })
+          transform: (isFreePlan || (isCasualPlan && !isUnlocked)) ? 'none' : 'translateY(-2px)',
+          boxShadow: (isFreePlan || (isCasualPlan && !isUnlocked)) ? 'none' : theme.shadows[4],
+          borderColor: (isFreePlan || (isCasualPlan && !isUnlocked)) ? undefined : theme.palette.primary.light
+        }
       }}
     >
       <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
         {/* Header with Avatar and Basic Info */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
+          {/* Lock Overlay for Free/Casual Users */}
+          {(isFreePlan || (isCasualPlan && !isUnlocked)) && (
+            <Box sx={{ 
+              position: 'absolute',
+              top: 12,
+              right: 12,
+              zIndex: 2
+            }}>
+              <Avatar sx={{ 
+                width: 32, 
+                height: 32, 
+                bgcolor: isFreePlan ? theme.palette.grey[600] : theme.palette.warning.main,
+                fontSize: '0.875rem'
+              }}>
+                <LockIcon sx={{ fontSize: '1rem' }} />
+              </Avatar>
+            </Box>
+          )}
+
           <Avatar
             sx={{
               width: 48,
@@ -129,7 +252,8 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }
               mr: 2,
               bgcolor: getAvatarColor(),
               fontSize: '1.1rem',
-              fontWeight: 'bold'
+              fontWeight: 'bold',
+              opacity: (isFreePlan || (isCasualPlan && !isUnlocked)) ? 0.6 : 1
             }}
           >
             {recruiter.firstName?.[0]}{recruiter.lastName?.[0]}
@@ -145,13 +269,14 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
-                  color: theme.palette.text.primary
+                  color: theme.palette.text.primary,
+                  opacity: (isFreePlan || (isCasualPlan && !isUnlocked)) ? 0.7 : 1
                 }}
               >
                 {formattedRecruiter.displayName}
               </Typography>
               
-              {recruiter.outreach?.hasContacted && (
+              {recruiter.outreach?.hasContacted && isUnlocked && (
                 <Tooltip title={`Status: ${getContactStatusText(recruiter)}`}>
                   <CheckCircleIcon 
                     sx={{ 
@@ -163,20 +288,39 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }
               )}
             </Box>
             
-            <Typography variant="body2" sx={{ color: theme.palette.primary.main, fontWeight: 500, mb: 0.5 }}>
-              {recruiter.title}
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: theme.palette.primary.main, 
+                fontWeight: 500, 
+                mb: 0.5,
+                opacity: (isFreePlan || (isCasualPlan && !isUnlocked)) ? 0.7 : 1
+              }}
+            >
+              {/* FIXED: Show actual title for unlocked, generic for locked */}
+              {(isHunterPlan || (isCasualPlan && isUnlocked)) ? recruiter.title : 'Senior Recruiter'}
             </Typography>
             
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <BusinessIcon sx={{ fontSize: 16, color: theme.palette.text.secondary }} />
-              <Typography variant="body2" color="text.secondary" noWrap>
+              <BusinessIcon sx={{ 
+                fontSize: 16, 
+                color: theme.palette.text.secondary,
+                opacity: (isFreePlan || (isCasualPlan && !isUnlocked)) ? 0.5 : 1
+              }} />
+              <Typography 
+                variant="body2" 
+                color="text.secondary" 
+                noWrap
+                sx={{ opacity: (isFreePlan || (isCasualPlan && !isUnlocked)) ? 0.7 : 1 }}
+              >
+                {/* FIXED: Always show company name */}
                 {formattedRecruiter.companyDisplay}
               </Typography>
             </Box>
           </Box>
 
-          {/* Rating */}
-          {recruiter.rating && (
+          {/* Rating - Hidden for locked recruiters */}
+          {recruiter.rating && (isHunterPlan || (isCasualPlan && isUnlocked)) && (
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <Rating
                 value={recruiter.rating}
@@ -191,80 +335,86 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }
           )}
         </Box>
 
-        {/* Company Logo and Info */}
-        {recruiter.company?.logo && (
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Avatar
-              src={recruiter.company.logo}
-              variant="square"
-              sx={{ width: 20, height: 20, mr: 1 }}
-            />
-            <Typography variant="body2" color="text.secondary">
-              {recruiter.company.size && `${recruiter.company.size} company`}
-            </Typography>
-          </Box>
-        )}
-
-        {/* Industry and Specializations */}
-        {recruiter.industry && (
-          <Box sx={{ mb: 2 }}>
+        {/* Industry and Specializations - Limited for locked recruiters */}
+        <Box sx={{ mb: 2 }}>
+          {(isHunterPlan || (isCasualPlan && isUnlocked)) ? (
+            <>
+              {recruiter.industry && (
+                <Chip
+                  label={recruiter.industry}
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  sx={{ mr: 1, mb: 1, borderRadius: 1 }}
+                />
+              )}
+              {recruiter.specializations && recruiter.specializations.slice(0, 2).map((spec, index) => (
+                <Chip
+                  key={index}
+                  label={spec}
+                  size="small"
+                  variant="outlined"
+                  sx={{ mr: 1, mb: 1, borderRadius: 1 }}
+                />
+              ))}
+            </>
+          ) : (
             <Chip
-              label={recruiter.industry}
+              label="Technology"
               size="small"
               variant="outlined"
               color="primary"
-              sx={{ mr: 1, mb: 1, borderRadius: 1 }}
+              sx={{ mr: 1, mb: 1, borderRadius: 1, opacity: 0.6 }}
             />
-            {recruiter.specializations && recruiter.specializations.slice(0, 2).map((spec, index) => (
-              <Chip
-                key={index}
-                label={spec}
-                size="small"
-                variant="outlined"
-                sx={{ mr: 1, mb: 1, borderRadius: 1 }}
-              />
-            ))}
-          </Box>
-        )}
-
-        {/* Contact Status */}
-        <Box sx={{ mb: 2 }}>
-          <Chip
-            label={getContactStatusText(recruiter)}
-            size="small"
-            color={getContactStatusColor(recruiter.outreach?.status)}
-            variant={recruiter.outreach?.hasContacted ? 'filled' : 'outlined'}
-            sx={{ fontWeight: 500, borderRadius: 1 }}
-          />
-          
-          {recruiter.outreach?.lastContactDate && (
-            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-              Last contact: {new Date(recruiter.outreach.lastContactDate).toLocaleDateString()}
-            </Typography>
           )}
         </Box>
 
-        {/* Contact Information */}
+        {/* Contact Status - Modified for locked state */}
+        <Box sx={{ mb: 2 }}>
+          {(isHunterPlan || (isCasualPlan && isUnlocked)) ? (
+            <>
+              <Chip
+                label={getContactStatusText(recruiter)}
+                size="small"
+                color={getContactStatusColor(recruiter.outreach?.status)}
+                variant={recruiter.outreach?.hasContacted ? 'filled' : 'outlined'}
+                sx={{ fontWeight: 500, borderRadius: 1 }}
+              />
+              
+              {recruiter.outreach?.lastContactDate && (
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  Last contact: {new Date(recruiter.outreach.lastContactDate).toLocaleDateString()}
+                </Typography>
+              )}
+            </>
+          ) : (
+            <Chip
+              label={isFreePlan ? "Upgrade Required" : "Unlock Required"}
+              size="small"
+              color={isFreePlan ? "default" : "warning"}
+              variant="outlined"
+              sx={{ fontWeight: 500, borderRadius: 1, opacity: 0.8 }}
+            />
+          )}
+        </Box>
+
+        {/* Contact Information - Hidden for locked recruiters */}
         <Box sx={{ mb: 2, flex: 1 }}>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {recruiter.email && (
-              <Tooltip title={`Email: ${recruiter.email}`}>
+          {(isHunterPlan || (isCasualPlan && isUnlocked)) ? (
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {recruiter.email && (
                 <IconButton size="small" sx={{ color: theme.palette.primary.main }}>
                   <EmailIcon fontSize="small" />
                 </IconButton>
-              </Tooltip>
-            )}
-            
-            {recruiter.phone && (
-              <Tooltip title={`Phone: ${recruiter.phone}`}>
+              )}
+              
+              {recruiter.phone && (
                 <IconButton size="small" sx={{ color: theme.palette.primary.main }}>
                   <PhoneIcon fontSize="small" />
                 </IconButton>
-              </Tooltip>
-            )}
-            
-            {recruiter.linkedinUrl && (
-              <Tooltip title="LinkedIn Profile">
+              )}
+              
+              {recruiter.linkedinUrl && (
                 <IconButton 
                   size="small" 
                   sx={{ color: theme.palette.primary.main }}
@@ -275,39 +425,180 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }
                 >
                   <LinkedInIcon fontSize="small" />
                 </IconButton>
-              </Tooltip>
-            )}
-          </Box>
+              )}
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <IconButton size="small" sx={{ color: theme.palette.grey[400] }} disabled>
+                <EmailIcon fontSize="small" />
+              </IconButton>
+              <IconButton size="small" sx={{ color: theme.palette.grey[400] }} disabled>
+                <PhoneIcon fontSize="small" />
+              </IconButton>
+              <IconButton size="small" sx={{ color: theme.palette.grey[400] }} disabled>
+                <LinkedInIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          )}
         </Box>
 
         <Divider sx={{ mb: 2 }} />
 
-        {/* Action Buttons */}
+        {/* Action Buttons - Different for each plan */}
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            startIcon={<VisibilityIcon />}
-            onClick={() => onViewDetails(recruiter)}
-            size="small"
-            sx={{ flex: 1, borderRadius: 2 }}
-          >
-            View Details
-          </Button>
-          
-          <Button
-            variant="contained"
-            startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : 
-              <AutoJobLogo variant="icon-only" size="small" sx={{ width: 24, height: 24 }} />
-            }
-            onClick={handleStartOutreach}
-            disabled={isLoading}
-            size="small"
-            color={recruiter.outreach?.hasContacted ? 'secondary' : 'primary'}
-            sx={{ flex: 1, borderRadius: 2 }}
-          >
-            {isLoading ? 'Loading...' : 'Contact Recruiter'}
-          </Button>
+          {/* Free Plan - Upgrade Required */}
+          {isFreePlan && (
+            <>
+              <Button
+                variant="outlined"
+                startIcon={<UpgradeIcon />}
+                size="small"
+                fullWidth
+                sx={{ 
+                  borderRadius: 2,
+                  borderColor: theme.palette.primary.main,
+                  color: theme.palette.primary.main,
+                  '&:hover': {
+                    backgroundColor: theme.palette.primary.main + '08'
+                  }
+                }}
+              >
+                Upgrade Plan
+              </Button>
+            </>
+          )}
+
+          {/* Casual Plan - Unlock or Access */}
+          {isCasualPlan && (
+            <>
+              {!isUnlocked ? (
+                // Show unlock button
+                <Button
+                  variant="contained"
+                  startIcon={unlocking ? <CircularProgress size={16} color="inherit" /> : <CreditCardIcon />}
+                  onClick={handleUnlock}
+                  disabled={unlocking || (() => {
+                    const { used, limit } = getRecruiterUnlocksUsage();
+                    return (limit - used) <= 0;
+                  })()}
+                  size="small"
+                  fullWidth
+                  sx={{ 
+                    borderRadius: 2,
+                    background: (() => {
+                      const { used, limit } = getRecruiterUnlocksUsage();
+                      const remaining = limit - used;
+                      if (remaining <= 0) {
+                        return theme.palette.grey[400];
+                      }
+                      return `linear-gradient(45deg, ${theme.palette.warning.main}, ${theme.palette.warning.dark})`;
+                    })(),
+                    color: '#ffffff !important',
+                    fontWeight: 600,
+                    '&:hover': {
+                      background: (() => {
+                        const { used, limit } = getRecruiterUnlocksUsage();
+                        const remaining = limit - used;
+                        if (remaining <= 0) {
+                          return theme.palette.grey[400];
+                        }
+                        return `linear-gradient(45deg, ${theme.palette.warning.dark}, ${theme.palette.warning.main})`;
+                      })()
+                    },
+                    '&:disabled': {
+                      background: theme.palette.grey[300],
+                      color: theme.palette.grey[500] + ' !important'
+                    }
+                  }}
+                >
+                  {(() => {
+                    if (unlocking) return 'Unlocking...';
+                    const { used, limit } = getRecruiterUnlocksUsage();
+                    const remaining = limit - used;
+                    if (remaining <= 0) return 'Upgrade Required';
+                    return 'Unlock Recruiter';
+                  })()}
+                </Button>
+              ) : (
+                // Show normal buttons after unlock
+                <>
+                  <Button
+                    variant="outlined"
+                    startIcon={<VisibilityIcon />}
+                    onClick={() => onViewDetails(recruiter)}
+                    size="small"
+                    sx={{ flex: 1, borderRadius: 2 }}
+                  >
+                    View Details
+                  </Button>
+                  
+                  <Button
+                    variant="contained"
+                    startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : 
+                      <AutoJobLogo variant="icon-only" size="small" sx={{ width: 24, height: 24 }} />
+                    }
+                    onClick={handleStartOutreach}
+                    disabled={isLoading}
+                    size="small"
+                    color={recruiter.outreach?.hasContacted ? 'secondary' : 'primary'}
+                    sx={{ flex: 1, borderRadius: 2 }}
+                  >
+                    {isLoading ? 'Loading...' : 'Contact Recruiter'}
+                  </Button>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Hunter Plan - Full Access */}
+          {isHunterPlan && (
+            <>
+              <Button
+                variant="outlined"
+                startIcon={<VisibilityIcon />}
+                onClick={() => onViewDetails(recruiter)}
+                size="small"
+                sx={{ flex: 1, borderRadius: 2 }}
+              >
+                View Details
+              </Button>
+              
+              <Button
+                variant="contained"
+                startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : 
+                  <AutoJobLogo variant="icon-only" size="small" sx={{ width: 24, height: 24 }} />
+                }
+                onClick={handleStartOutreach}
+                disabled={isLoading}
+                size="small"
+                color={recruiter.outreach?.hasContacted ? 'secondary' : 'primary'}
+                sx={{ flex: 1, borderRadius: 2 }}
+              >
+                {isLoading ? 'Loading...' : 'Contact Recruiter'}
+              </Button>
+            </>
+          )}
         </Box>
+
+        {/* Usage indicator for Casual users */}
+        {isCasualPlan && !isUnlocked && (
+          <Box sx={{ mt: 2, textAlign: 'center' }}>
+            <Typography variant="caption" color="text.secondary">
+              {(() => {
+                const { used, limit } = getRecruiterUnlocksUsage();
+                const remaining = limit - used;
+                if (remaining <= 0) {
+                  return (
+                    <Box sx={{ color: theme.palette.error.main, fontWeight: 600 }}>
+                      ⚠️ No unlocks remaining - Upgrade to Hunter plan
+                    </Box>
+                  );
+                }
+                return `${remaining} unlock${remaining !== 1 ? 's' : ''} remaining this month`;
+              })()}
+            </Typography>
+          </Box>
+        )}
       </CardContent>
     </Card>
   );
@@ -322,9 +613,19 @@ const RecruiterList = ({
   onStartOutreach,
   onLoadMore,
   onPageChange
+  // Removed onRecruiterUnlocked - not needed anymore
 }) => {
   const theme = useTheme();
   const [currentPage, setCurrentPage] = useState(1);
+  const {
+    planInfo,
+    hasFeatureAccess,
+    canPerformAction,
+    trackUsage,
+    isFreePlan,
+    isCasualPlan,
+    isHunterPlan
+  } = useSubscription();
 
   const handlePageChange = (event, newPage) => {
     console.log(`📄 Page change requested: ${newPage}`);
@@ -354,6 +655,9 @@ const RecruiterList = ({
       onLoadMore(nextPage, offset);
     }
   };
+
+  // Remove the complex unlock handler - not needed anymore
+  // Each RecruiterCard now manages its own unlock state
 
   // Show loading state
   if (loading) {
@@ -432,6 +736,35 @@ const RecruiterList = ({
           <WorkIcon sx={{ color: theme.palette.primary.main }} />
           {pagination.total.toLocaleString()} Recruiters Found
         </Typography>
+        
+        {/* Plan-specific info */}
+        {(isFreePlan || isCasualPlan) && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {isFreePlan && (
+              <Chip
+                label="Upgrade for access"
+                size="small"
+                color="primary"
+                variant="outlined"
+                icon={<UpgradeIcon sx={{ fontSize: '0.875rem' }} />}
+                sx={{ borderRadius: 2 }}
+              />
+            )}
+            {isCasualPlan && (
+              <Chip
+                label={`${(() => {
+                  const permission = canPerformAction('recruiterUnlocks', 1);
+                  return permission.remaining;
+                })()} unlocks remaining`}
+                size="small"
+                color="warning"
+                variant="outlined"
+                icon={<CreditCardIcon sx={{ fontSize: '0.875rem' }} />}
+                sx={{ borderRadius: 2 }}
+              />
+            )}
+          </Box>
+        )}
       </Box>
 
       {/* Recruiter Grid */}
@@ -468,10 +801,7 @@ const RecruiterList = ({
         </Box>
       )}
 
-      {/* Load More Button (Alternative to pagination) - REMOVED */}
-      {/* This section has been removed as requested */}
-
-      {/* Results Summary - SIMPLIFIED */}
+      {/* Results Summary */}
       <Paper 
         elevation={0}
         sx={{ 
@@ -485,6 +815,19 @@ const RecruiterList = ({
       >
         <Typography variant="body2" color="text.secondary">
           Showing {recruiters.length} of {pagination.total.toLocaleString()} recruiters
+          {isFreePlan && (
+            <Typography component="span" sx={{ ml: 1, fontWeight: 600, color: theme.palette.primary.main }}>
+              • Upgrade for full access
+            </Typography>
+          )}
+          {isCasualPlan && (
+            <Typography component="span" sx={{ ml: 1, fontWeight: 600, color: theme.palette.warning.main }}>
+              • {(() => {
+                const permission = canPerformAction('recruiterUnlocks', 1);
+                return permission.remaining;
+              })()} unlocks remaining
+            </Typography>
+          )}
         </Typography>
       </Paper>
     </Box>

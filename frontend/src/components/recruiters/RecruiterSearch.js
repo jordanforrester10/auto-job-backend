@@ -1,4 +1,4 @@
-// src/components/recruiters/RecruiterSearch.js - FIXED WITH PAGINATION SUPPORT
+// src/components/recruiters/RecruiterSearch.js - UPDATED WITH SHOW UNLOCKED ONLY FILTER
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -16,7 +16,10 @@ import {
   Divider,
   Alert,
   CircularProgress,
-  Badge
+  Badge,
+  FormControlLabel,
+  Switch,
+  Tooltip
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -27,13 +30,25 @@ import {
   Work as WorkIcon,
   Business as BusinessIcon,
   Person as PersonIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Lock as LockIcon,
+  LockOpen as LockOpenIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
+import { useSubscription } from '../../context/SubscriptionContext';
 import recruiterService from '../../utils/recruiterService';
 
-const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateChange }) => {
+const RecruiterSearch = ({ 
+  onSearchResults, 
+  onLoading, 
+  onError, 
+  onSearchStateChange,
+  showUnlockedOnly = false,
+  onShowUnlockedOnlyChange
+}) => {
   const theme = useTheme();
+  const { isCasualPlan, isHunterPlan, canPerformAction } = useSubscription();
   
   // Search state - NO LOCATION FILTER
   const [searchQuery, setSearchQuery] = useState('');
@@ -76,7 +91,7 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
     }
   };
 
-  // Debounced search function with pagination support
+  // Debounced search function with pagination support - UPDATED WITH UNLOCK FILTER
   const performSearch = useCallback(async (searchParams = {}, page = 1, offset = 0) => {
     try {
       setIsSearching(true);
@@ -88,20 +103,22 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
         company: filters.company?.name || '',
         industry: filters.industry?.name || '',
         title: filters.title || '',
+        showUnlockedOnly: showUnlockedOnly, // NEW: Include unlock filter
         ...searchParams, // This should override the above if provided
         limit: 20,
         offset: offset
       };
 
-      console.log('🔍 Performing search with filters:', searchFilters);
+      console.log('🔍 Performing search with filters (including unlock filter):', searchFilters);
       console.log(`📄 Page: ${page}, Offset: ${offset}`);
       
-      // Store current search params for pagination (FIXED)
+      // Store current search params for pagination (UPDATED)
       const paramsToStore = {
         query: searchFilters.query,
         company: searchFilters.company,
         industry: searchFilters.industry,
-        title: searchFilters.title
+        title: searchFilters.title,
+        showUnlockedOnly: searchFilters.showUnlockedOnly // NEW: Store unlock filter
       };
       setCurrentSearchParams(paramsToStore);
       
@@ -109,7 +126,7 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
       
       setSearchCount(response.pagination.total);
       
-      // Pass search parameters along with results (FIXED)
+      // Pass search parameters along with results (UPDATED)
       if (onSearchResults) {
         // Add the search parameters to the callback
         onSearchResults(response, paramsToStore);
@@ -122,7 +139,7 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
       setIsSearching(false);
       onLoading?.(false);
     }
-  }, [searchQuery, filters, onSearchResults, onLoading, onError, onSearchStateChange]);
+  }, [searchQuery, filters, showUnlockedOnly, onSearchResults, onLoading, onError, onSearchStateChange]);
 
   // Handle search button click
   const handleSearch = () => {
@@ -142,19 +159,6 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
     }
   }, [currentSearchParams, performSearch]);
 
-  // Expose pagination handler to parent component
-  React.useImperativeHandle(React.forwardRef(() => null), () => ({
-    handlePageChange
-  }));
-
-  // Make pagination handler available to parent
-  React.useEffect(() => {
-    if (onSearchResults && typeof onSearchResults === 'function') {
-      // Add pagination handler as a property to the callback
-      onSearchResults.handlePageChange = handlePageChange;
-    }
-  }, [handlePageChange, onSearchResults]);
-
   // Handle filter changes with proper null handling
   const handleFilterChange = (filterName, value) => {
     setFilters(prev => ({
@@ -163,7 +167,23 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
     }));
   };
 
-  // Reset entire search state
+  // NEW: Handle show unlocked only change
+  const handleShowUnlockedOnlyChange = (event) => {
+    const enabled = event.target.checked;
+    console.log('🔍 RecruiterSearch: Show unlocked only changed:', enabled);
+    
+    // Update parent component
+    if (onShowUnlockedOnlyChange) {
+      onShowUnlockedOnlyChange(enabled);
+    }
+    
+    // If we have active search results, automatically re-search
+    if (hasActiveFilters() || searchQuery) {
+      // The parent will handle the re-search through the callback
+    }
+  };
+
+  // Reset entire search state - UPDATED
   const resetSearchState = () => {
     setSearchQuery('');
     setFilters({
@@ -174,6 +194,12 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
     setSearchCount(0);
     setShowAdvancedFilters(false);
     setCurrentSearchParams(null);
+    
+    // Reset unlock filter if applicable
+    if (isCasualPlan && onShowUnlockedOnlyChange) {
+      onShowUnlockedOnlyChange(false);
+    }
+    
     onSearchStateChange?.(false);
     onSearchResults?.(null);
   };
@@ -192,31 +218,32 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
     performSearch({}, 1, 0); // Reset to page 1
   };
 
-  // Check if any filters are applied (excluding search query)
+  // Check if any filters are applied (excluding search query) - UPDATED
   const hasActiveFiltersExceptQuery = () => {
     return filters.company || 
            filters.industry || 
-           filters.title;
+           filters.title ||
+           (isCasualPlan && showUnlockedOnly); // NEW: Include unlock filter
   };
 
-  // Check if any filters are applied (including search query)
+  // Check if any filters are applied (including search query) - UPDATED
   const hasActiveFilters = () => {
     return searchQuery || hasActiveFiltersExceptQuery();
   };
 
-  // Expose the pagination handler to parent components
-  React.useEffect(() => {
-    // Create a custom property on the component to expose pagination
-    if (typeof window !== 'undefined') {
-      window.recruiterSearchPagination = handlePageChange;
-    }
+  // Get usage info for Casual users
+  const getUnlockUsageInfo = () => {
+    if (!isCasualPlan) return null;
     
-    return () => {
-      if (typeof window !== 'undefined') {
-        delete window.recruiterSearchPagination;
-      }
+    const permission = canPerformAction('recruiterUnlocks', 1);
+    return {
+      remaining: permission.remaining || 0,
+      total: permission.limit || 0,
+      used: (permission.limit || 0) - (permission.remaining || 0)
     };
-  }, [handlePageChange]);
+  };
+
+  const unlockUsage = getUnlockUsageInfo();
 
   return (
     <Paper elevation={0} sx={{ mb: 3, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
@@ -232,6 +259,17 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
                 size="small" 
                 color="primary" 
                 variant="outlined"
+                sx={{ borderRadius: 1 }}
+              />
+            )}
+            {/* NEW: Show unlock filter status for Casual users */}
+            {isCasualPlan && showUnlockedOnly && (
+              <Chip 
+                label="Unlocked Only" 
+                size="small" 
+                color="warning" 
+                variant="filled"
+                icon={<LockOpenIcon sx={{ fontSize: '0.875rem' }} />}
                 sx={{ borderRadius: 1 }}
               />
             )}
@@ -293,6 +331,70 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
             </Grid>
           </Grid>
         </Box>
+
+        {/* NEW: Show Unlocked Only Filter for Casual Users */}
+        {isCasualPlan && (
+          <Box sx={{ mb: 3 }}>
+            <Paper 
+              elevation={0} 
+              sx={{ 
+                p: 2, 
+                borderRadius: 2, 
+                bgcolor: showUnlockedOnly ? theme.palette.warning.main + '08' : theme.palette.grey[50],
+                border: `1px solid ${showUnlockedOnly ? theme.palette.warning.light : theme.palette.divider}`
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={showUnlockedOnly}
+                        onChange={handleShowUnlockedOnlyChange}
+                        color="warning"
+                        size="medium"
+                      />
+                    }
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <LockOpenIcon sx={{ color: theme.palette.warning.main, fontSize: '1.2rem' }} />
+                        <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                          Show Unlocked Only
+                        </Typography>
+                        <Tooltip title="Filter to show only recruiters you have already unlocked. This helps you quickly find your previously accessed recruiter contacts.">
+                          <InfoIcon sx={{ color: 'text.secondary', fontSize: '1rem' }} />
+                        </Tooltip>
+                      </Box>
+                    }
+                    sx={{ m: 0 }}
+                  />
+                </Box>
+                
+                {/* Usage indicator for Casual users */}
+                {unlockUsage && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {unlockUsage.remaining} unlocks remaining this month
+                    </Typography>
+                    <Chip
+                      label={`${unlockUsage.used}/${unlockUsage.total}`}
+                      size="small"
+                      color="warning"
+                      variant="outlined"
+                      sx={{ fontSize: '0.75rem', height: 24 }}
+                    />
+                  </Box>
+                )}
+              </Box>
+              
+              {showUnlockedOnly && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  💡 Showing only recruiters you've unlocked. Turn off this filter to see all available recruiters.
+                </Typography>
+              )}
+            </Paper>
+          </Box>
+        )}
 
         {/* Advanced Filters */}
         <Collapse in={showAdvancedFilters}>
@@ -424,7 +526,7 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
               </Button>
             </Box>
 
-            {/* Active Filters Display */}
+            {/* Active Filters Display - UPDATED */}
             {hasActiveFilters() && (
               <Box sx={{ mt: 2 }}>
                 <Typography variant="caption" color="text.secondary" gutterBottom display="block" sx={{ mb: 1 }}>
@@ -467,13 +569,24 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
                       sx={{ borderRadius: 1 }}
                     />
                   )}
+                  {/* NEW: Show unlocked only filter chip */}
+                  {isCasualPlan && showUnlockedOnly && (
+                    <Chip
+                      label="Unlocked Only"
+                      size="small"
+                      onDelete={() => onShowUnlockedOnlyChange?.(false)}
+                      color="warning"
+                      icon={<LockOpenIcon sx={{ fontSize: '0.75rem' }} />}
+                      sx={{ borderRadius: 1 }}
+                    />
+                  )}
                 </Box>
               </Box>
             )}
           </Paper>
         </Collapse>
 
-        {/* Search Tips */}
+        {/* Search Tips - UPDATED */}
         {!hasActiveFilters() && (
           <Alert 
             severity="info" 
@@ -487,7 +600,12 @@ const RecruiterSearch = ({ onSearchResults, onLoading, onError, onSearchStateCha
           >
             <Typography variant="body2">
               💡 <strong>Search Tips:</strong> Use specific keywords like "Technical Recruiter", company names, or job titles. 
-              Try filtering by industry for better results.
+              {isCasualPlan && (
+                <span> You can also filter to show only your unlocked recruiters using the toggle above.</span>
+              )}
+              {!isCasualPlan && !isHunterPlan && (
+                <span> Upgrade to Casual plan to unlock recruiter contact details.</span>
+              )}
             </Typography>
           </Alert>
         )}
