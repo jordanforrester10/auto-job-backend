@@ -1,4 +1,4 @@
-// backend/server.js - FIXED WEBHOOK BODY PARSING
+// backend/server.js - FIXED WEBHOOK BODY PARSING + ADMIN ROUTES
 const express = require('express');
 
 const cors = require('cors');
@@ -21,6 +21,7 @@ const recruiterRoutes = require('./routes/recruiter.routes');
 const searchRoutes = require('./routes/search.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
+const adminRoutes = require('./routes/admin.routes'); // NEW: Admin routes
 
 // Initialize Express
 const app = express();
@@ -201,12 +202,25 @@ const subscriptionLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Special rate limiter for Admin API (very restrictive)
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // Very limited admin operations
+  message: {
+    success: false,
+    error: 'Admin rate limit exceeded. Please wait before making more admin requests.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.use('/api/', generalLimiter);
 app.use('/api/assistant', aiLimiter);
 app.use('/api/recruiters', recruiterLimiter);
 app.use('/api/search', searchLimiter);
 app.use('/api/settings', settingsLimiter);
 app.use('/api/subscriptions', subscriptionLimiter);
+app.use('/api/admin', adminLimiter); // NEW: Admin rate limiting
 
 // Request logging middleware (development only)
 if (process.env.NODE_ENV !== 'production') {
@@ -279,7 +293,8 @@ app.get('/', (req, res) => {
       'User Settings & Security',
       '💳 Subscription & Billing System',
       '📊 Usage Tracking & Limits',
-      '⚡ Feature Gating'
+      '⚡ Feature Gating',
+      '👑 Admin Dashboard' // NEW: Admin feature
     ]
   });
 });
@@ -299,7 +314,8 @@ app.get('/api/health', (req, res) => {
       database_status: {
         mongodb: 'connected',
         postgresql: 'connected'
-      }
+      },
+      admin_status: 'configured' // NEW: Admin status
     }
   });
 });
@@ -313,6 +329,7 @@ app.use('/api/recruiters', recruiterRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/admin', adminRoutes); // NEW: Mount admin routes
 
 // Catch-all route for undefined API endpoints
 app.all('/api/*', (req, res) => {
@@ -375,6 +392,12 @@ app.all('/api/*', (req, res) => {
         'PUT /api/subscriptions/change-plan',
         'GET /api/subscriptions/billing-history',
         'POST /api/subscriptions/webhook'
+      ],
+      admin: [ // NEW: Admin endpoints
+        'GET /api/admin/dashboard',
+        'GET /api/admin/users/:userId',
+        'PUT /api/admin/users/:userId/subscription',
+        'GET /api/admin/stats'
       ]
     }
   });
@@ -480,6 +503,7 @@ const server = app.listen(PORT, () => {
   console.log(`🔍 Global Search: ✅ Configured with cross-platform search`);
   console.log(`⚙️ Settings API: ✅ Configured with profile & security management`);
   console.log(`📈 Subscription System: ✅ Configured with usage tracking & limits`);
+  console.log(`👑 Admin Dashboard: ✅ Configured with user management & analytics`); // NEW: Admin logging
 });
 
 // Graceful shutdown handlers

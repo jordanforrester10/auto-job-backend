@@ -32,6 +32,9 @@ import SettingsPage from './components/SettingsPage';
 // Import Global AI Assistant
 import GlobalAiAssistant from './components/assistant/GlobalAiAssistant';
 
+// Import Admin Dashboard
+import AdminDashboard from './components/admin/AdminDashboard';
+
 // Placeholder components for other sections
 const ApplicationsPage = () => <div>Applications Page (Coming Soon)</div>;
 const AISettingsPage = () => <div>AI Settings Page (Coming Soon)</div>;
@@ -74,6 +77,16 @@ function App() {
               element={
                 <ProtectedRouteWithSubscription>
                   <Dashboard />
+                </ProtectedRouteWithSubscription>
+              }
+            />
+            
+            {/* Admin Dashboard Route - ADMIN ONLY */}
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRouteWithSubscription>
+                  <AdminDashboard />
                 </ProtectedRouteWithSubscription>
               }
             />
