@@ -1,4 +1,4 @@
-// src/components/jobs/JobsPage.js - Enhanced with Complete Usage Integration AND Plan-Based Discover Jobs Restrictions
+// src/components/jobs/JobsPage.js - Enhanced with Collapsible Usage Summary
 import React, { useState, useEffect } from 'react';
 import { 
   Box, 
@@ -23,7 +23,8 @@ import {
   Snackbar,
   Dialog,
   useTheme,
-  alpha
+  alpha,
+  Collapse
 } from '@mui/material';
 import { 
   Add as AddIcon, 
@@ -43,7 +44,9 @@ import {
   Info as InfoIcon,
   Warning as WarningIcon,
   Upgrade as UpgradeIcon,
-  Lock as LockIcon
+  Lock as LockIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import jobService from '../../utils/jobService';
@@ -426,6 +429,9 @@ const JobsPage = () => {
   });
   const [activeResumes, setActiveResumes] = useState([]);
   const [pollingJobs, setPollingJobs] = useState(new Set());
+  
+  // NEW: State for collapsible usage summary
+  const [usageSummaryExpanded, setUsageSummaryExpanded] = useState(false);
 
   // Safe AutoJobLogo wrapper component
   const SafeAutoJobLogo = ({ size = 'small' }) => {
@@ -660,6 +666,11 @@ const JobsPage = () => {
     setOpenAiDiscoveryLimitDialog(false);
   };
 
+  // NEW: Toggle usage summary expanded state
+  const toggleUsageSummary = () => {
+    setUsageSummaryExpanded(!usageSummaryExpanded);
+  };
+
   // Calculate usage statistics
   const jobImportUsage = usage?.jobImports || { used: 0, limit: planLimits?.jobImports || 0 };
   const usagePercentage = getUsagePercentage('jobImports');
@@ -711,6 +722,7 @@ const JobsPage = () => {
 
   const aiDiscoveryButtonState = getAiDiscoveryButtonState();
 
+  // UPDATED: Render usage card with collapsible functionality
   const renderUsageCard = () => (
     <Card 
       sx={{ 
@@ -720,98 +732,123 @@ const JobsPage = () => {
         backgroundColor: `${theme.palette[getUsageColor()].main}08`
       }}
     >
-      <CardContent sx={{ p: 2.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+      {/* Header with toggle button */}
+      <CardContent sx={{ p: 2.5, pb: usageSummaryExpanded ? 2.5 : 2.5 }}>
+        <Box 
+          sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            cursor: 'pointer'
+          }}
+          onClick={toggleUsageSummary}
+        >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <InfoIcon color={getUsageColor()} />
             <Typography variant="subtitle1" fontWeight={600}>
               Usage Summary - {planInfo?.displayName || 'Current Plan'}
             </Typography>
           </Box>
-          <Chip 
-            label={planLimits?.jobImports === -1 ? 'Unlimited' : `${jobImportUsage.used || 0}/${planLimits?.jobImports || 0}`}
-            color={getUsageColor()}
-            sx={{ fontWeight: 500 }}
-          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Chip 
+              label={planLimits?.jobImports === -1 ? 'Unlimited' : `${jobImportUsage.used || 0}/${planLimits?.jobImports || 0}`}
+              color={getUsageColor()}
+              sx={{ fontWeight: 500 }}
+            />
+            <IconButton 
+              size="small"
+              sx={{ 
+                transition: 'transform 0.2s',
+                transform: usageSummaryExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
+              }}
+            >
+              <ExpandMoreIcon />
+            </IconButton>
+          </Box>
         </Box>
         
-        {/* Job Imports Progress */}
-        {planLimits?.jobImports !== -1 && (
-          <Box sx={{ mb: 2 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-              <Typography variant="body2" color="text.secondary">
-                Job Imports
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {jobImportUsage.used || 0}/{planLimits?.jobImports || 0}
-              </Typography>
-            </Box>
-            <LinearProgress 
-              variant="determinate" 
-              value={Math.min(usagePercentage, 100)}
-              color={getUsageColor()}
-              sx={{ height: 6, borderRadius: 3 }}
-            />
-          </Box>
-        )}
+        {/* Collapsible content */}
+        <Collapse in={usageSummaryExpanded}>
+          <Box sx={{ mt: 2 }}>
+            {/* Job Imports Progress */}
+            {planLimits?.jobImports !== -1 && (
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Job Imports
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {jobImportUsage.used || 0}/{planLimits?.jobImports || 0}
+                  </Typography>
+                </Box>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={Math.min(usagePercentage, 100)}
+                  color={getUsageColor()}
+                  sx={{ height: 6, borderRadius: 3 }}
+                />
+              </Box>
+            )}
 
-        {/* AI Job Discovery Progress */}
-        {hasAiDiscoveryAccess && planLimits?.aiJobDiscovery !== -1 && (
-          <Box sx={{ mb: 2 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-              <Typography variant="body2" color="text.secondary">
-                AI Job Discovery
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {aiDiscoveryUsage.used || 0}/{planLimits?.aiJobDiscovery || 0}
-              </Typography>
-            </Box>
-            <LinearProgress 
-              variant="determinate" 
-              value={Math.min(aiDiscoveryPercentage, 100)}
-              color={isAiDiscoveryAtLimit ? 'error' : 'info'}
-              sx={{ height: 6, borderRadius: 3 }}
-            />
-          </Box>
-        )}
-        
-        <Typography variant="body2" color="text.secondary">
-          {planLimits?.jobImports === -1 
-            ? '✨ You have unlimited job imports with your Hunter plan!'
-            : isAtLimit 
-              ? '⚠️ You\'ve reached your monthly job import limit. Upgrade for more capacity.'
-              : isApproachingLimit
-                ? '⚠️ You\'re approaching your monthly job import limit.'
-                : `🎯 ${planLimits?.jobImports - (jobImportUsage.used || 0)} job imports remaining this month.`
-          }
-          {currentPlan === 'free' && (
-            <><br/>🔒 AI Job Discovery requires Casual plan or higher.</>
-          )}
-          {currentPlan === 'casual' && isAiDiscoveryAtLimit && (
-            <><br/>🔒 AI Job Discovery limit reached. Upgrade to Hunter for unlimited searches.</>
-          )}
-        </Typography>
-
-        {(isAtLimit || isApproachingLimit || currentPlan === 'free' || isAiDiscoveryAtLimit) && (
-          <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              <strong>Upgrade for more capacity:</strong>
-            </Typography>
+            {/* AI Job Discovery Progress */}
+            {hasAiDiscoveryAccess && planLimits?.aiJobDiscovery !== -1 && (
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    AI Job Discovery
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {aiDiscoveryUsage.used || 0}/{planLimits?.aiJobDiscovery || 0}
+                  </Typography>
+                </Box>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={Math.min(aiDiscoveryPercentage, 100)}
+                  color={isAiDiscoveryAtLimit ? 'error' : 'info'}
+                  sx={{ height: 6, borderRadius: 3 }}
+                />
+              </Box>
+            )}
+            
             <Typography variant="body2" color="text.secondary">
-              • <strong>Casual Plan ($19.99/month):</strong> 25 job imports, 1 AI job discovery<br/>
-              • <strong>Hunter Plan ($34.99/month):</strong> Unlimited job imports & AI discoveries
+              {planLimits?.jobImports === -1 
+                ? '✨ You have unlimited job imports with your Hunter plan!'
+                : isAtLimit 
+                  ? '⚠️ You\'ve reached your monthly job import limit. Upgrade for more capacity.'
+                  : isApproachingLimit
+                    ? '⚠️ You\'re approaching your monthly job import limit.'
+                    : `🎯 ${planLimits?.jobImports - (jobImportUsage.used || 0)} job imports remaining this month.`
+              }
+              {currentPlan === 'free' && (
+                <><br/>🔒 AI Job Discovery requires Casual plan or higher.</>
+              )}
+              {currentPlan === 'casual' && isAiDiscoveryAtLimit && (
+                <><br/>🔒 AI Job Discovery limit reached. Upgrade to Hunter for unlimited searches.</>
+              )}
             </Typography>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<UpgradeIcon />}
-              onClick={() => setOpenLimitDialog(true)}
-              sx={{ mt: 1, borderRadius: 2 }}
-            >
-              View Plans
-            </Button>
+
+            {(isAtLimit || isApproachingLimit || currentPlan === 'free' || isAiDiscoveryAtLimit) && (
+              <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  <strong>Upgrade for more capacity:</strong>
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  • <strong>Casual Plan ($19.99/month):</strong> 25 job imports, 1 AI job discovery<br/>
+                  • <strong>Hunter Plan ($34.99/month):</strong> Unlimited job imports & AI discoveries
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<UpgradeIcon />}
+                  onClick={() => setOpenLimitDialog(true)}
+                  sx={{ mt: 1, borderRadius: 2 }}
+                >
+                  View Plans
+                </Button>
+              </Box>
+            )}
           </Box>
-        )}
+        </Collapse>
       </CardContent>
     </Card>
   );
@@ -837,7 +874,7 @@ const JobsPage = () => {
         <Typography variant="h5" gutterBottom fontWeight={600}>
           Find Your Perfect Job Match
         </Typography>
-        <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 560, lineHeight: 1.5 }}>
+<Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 560, lineHeight: 1.5 }}>
           Add jobs manually or let our AI find opportunities that match your resume.
           Our platform will help you analyze matches, tailor your application materials,
           and track your job search progress.
@@ -1464,8 +1501,8 @@ const JobsPage = () => {
           )}
         </Box>
 
-        {/* Usage Statistics Card */}
-        {renderUsageCard()}
+        {/* UPDATED: Only show Usage Summary when jobs exist, hide in empty state */}
+        {!loading && !error && jobs.length > 0 && renderUsageCard()}
 
         {loading ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '300px' }}>
