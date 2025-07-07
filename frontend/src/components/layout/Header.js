@@ -1,4 +1,4 @@
-// frontend/src/components/layout/Header.js - REMOVED SUBSCRIPTION BADGES
+// frontend/src/components/layout/Header.js - REMOVED FAQ OPTION
 import React, { useState } from 'react';
 import {
   AppBar,
@@ -40,6 +40,11 @@ const Header = ({ onToggleSidebar }) => {
 
   const handleMenuClose = (setState) => () => {
     setState(null);
+  };
+
+  const handleMenuItemClick = (path) => () => {
+    navigate(path);
+    setHelpAnchorEl(null);
   };
 
   return (
@@ -109,7 +114,7 @@ const Header = ({ onToggleSidebar }) => {
         </Box>
       </Toolbar>
 
-      {/* Help Menu */}
+      {/* Help Menu - FAQ REMOVED */}
       <Menu
         anchorEl={helpAnchorEl}
         anchorOrigin={{
@@ -130,7 +135,7 @@ const Header = ({ onToggleSidebar }) => {
           }
         }}
       >
-        <MenuItem onClick={handleMenuClose(setHelpAnchorEl)} sx={{ py: 1.5 }}>
+        <MenuItem onClick={handleMenuItemClick('/getting-started')} sx={{ py: 1.5 }}>
           <ListItemIcon>
             <QuizIcon color="primary" />
           </ListItemIcon>
@@ -141,18 +146,7 @@ const Header = ({ onToggleSidebar }) => {
             secondaryTypographyProps={{ variant: 'caption' }}
           />
         </MenuItem>
-        <MenuItem onClick={handleMenuClose(setHelpAnchorEl)} sx={{ py: 1.5 }}>
-          <ListItemIcon>
-            <HelpOutlineIcon color="primary" />
-          </ListItemIcon>
-          <ListItemText
-            primary="FAQ"
-            secondary="Find answers to common questions"
-            primaryTypographyProps={{ variant: 'body2', fontWeight: 500 }}
-            secondaryTypographyProps={{ variant: 'caption' }}
-          />
-        </MenuItem>
-        <MenuItem onClick={handleMenuClose(setHelpAnchorEl)} sx={{ py: 1.5 }}>
+        <MenuItem onClick={handleMenuItemClick('/contact-support')} sx={{ py: 1.5 }}>
           <ListItemIcon>
             <SupportIcon color="primary" />
           </ListItemIcon>

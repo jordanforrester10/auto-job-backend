@@ -29,6 +29,10 @@ import OutreachTracker from './components/recruiters/OutreachTracker';
 // Import Settings
 import SettingsPage from './components/SettingsPage';
 
+// Import Help Components
+import GettingStartedGuide from './components/help/GettingStartedGuide';
+import ContactSupport from './components/help/ContactSupport';
+
 // Import Global AI Assistant
 import GlobalAiAssistant from './components/assistant/GlobalAiAssistant';
 
@@ -70,6 +74,24 @@ function App() {
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password/:token" element={<ResetPassword />} />
             <Route path="/verify-email/:token" element={<EmailVerification />} />
+            
+            {/* Help Pages - WITH full provider wrapper */}
+            <Route
+              path="/getting-started"
+              element={
+                <ProtectedRouteWithSubscription>
+                  <GettingStartedGuide />
+                </ProtectedRouteWithSubscription>
+              }
+            />
+            <Route
+              path="/contact-support"
+              element={
+                <ProtectedRouteWithSubscription>
+                  <ContactSupport />
+                </ProtectedRouteWithSubscription>
+              }
+            />
             
             {/* Protected Routes - WITH SubscriptionProvider and conditional AiAssistantProvider wrapper */}
             <Route

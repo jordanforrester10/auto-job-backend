@@ -22,6 +22,7 @@ const searchRoutes = require('./routes/search.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
 const adminRoutes = require('./routes/admin.routes'); // NEW: Admin routes
+const supportRoutes = require('./routes/support.routes');
 
 // Initialize Express
 const app = express();
@@ -221,6 +222,7 @@ app.use('/api/search', searchLimiter);
 app.use('/api/settings', settingsLimiter);
 app.use('/api/subscriptions', subscriptionLimiter);
 app.use('/api/admin', adminLimiter); // NEW: Admin rate limiting
+app.use('/api/support', supportRoutes);
 
 // Request logging middleware (development only)
 if (process.env.NODE_ENV !== 'production') {
