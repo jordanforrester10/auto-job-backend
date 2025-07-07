@@ -1,4 +1,4 @@
-// backend/middleware/auth.middleware.js
+// backend/middleware/auth.middleware.js - Updated with Impersonation Support
 const jwt = require('jsonwebtoken');
 const User = require('../models/mongodb/user.model');
 
@@ -32,7 +32,51 @@ exports.protect = async (req, res, next) => {
       // Verify the token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       
-      // Find the user by ID
+      // Check if this is an impersonation token
+      if (decoded.isImpersonating) {
+        // For impersonation tokens, use the decoded data directly
+        // but still verify the target user exists
+        const targetUser = await User.findById(decoded.id);
+        
+        if (!targetUser) {
+          return res.status(401).json({
+            success: false,
+            error: 'Impersonated user no longer exists'
+          });
+        }
+        
+        if (!targetUser.active) {
+          return res.status(401).json({
+            success: false,
+            error: 'Impersonated user account has been deactivated'
+          });
+        }
+        
+        // Create impersonation user object with special properties
+        req.user = {
+          _id: targetUser._id,
+          id: targetUser._id,
+          email: targetUser.email,
+          firstName: targetUser.firstName,
+          lastName: targetUser.lastName,
+          role: targetUser.role,
+          subscriptionTier: targetUser.subscriptionTier,
+          currentUsage: targetUser.currentUsage,
+          active: targetUser.active,
+          isEmailVerified: targetUser.isEmailVerified,
+          // Impersonation specific fields
+          isImpersonating: true,
+          impersonatedBy: decoded.impersonatedBy,
+          originalAdminId: decoded.originalAdminId
+        };
+        
+        req.userId = targetUser._id;
+        
+        console.log(`🔐 Impersonation request: ${decoded.impersonatedBy} acting as ${targetUser.email}`);
+        return next();
+      }
+      
+      // For normal tokens, find the user by ID
       const user = await User.findById(decoded.id);
       
       if (!user) {
@@ -138,13 +182,38 @@ exports.optionalAuth = async (req, res, next) => {
         // Verify the token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Find the user by ID
-        const user = await User.findById(decoded.id);
-        
-        if (user && user.active) {
-          req.user = user;
-          req.userId = user._id;
-          req.isAuthenticated = true;
+        // Handle impersonation tokens in optional auth too
+        if (decoded.isImpersonating) {
+          const targetUser = await User.findById(decoded.id);
+          
+          if (targetUser && targetUser.active) {
+            req.user = {
+              _id: targetUser._id,
+              id: targetUser._id,
+              email: targetUser.email,
+              firstName: targetUser.firstName,
+              lastName: targetUser.lastName,
+              role: targetUser.role,
+              subscriptionTier: targetUser.subscriptionTier,
+              currentUsage: targetUser.currentUsage,
+              active: targetUser.active,
+              isEmailVerified: targetUser.isEmailVerified,
+              isImpersonating: true,
+              impersonatedBy: decoded.impersonatedBy,
+              originalAdminId: decoded.originalAdminId
+            };
+            req.userId = targetUser._id;
+            req.isAuthenticated = true;
+          }
+        } else {
+          // Find the user by ID for normal tokens
+          const user = await User.findById(decoded.id);
+          
+          if (user && user.active) {
+            req.user = user;
+            req.userId = user._id;
+            req.isAuthenticated = true;
+          }
         }
       } catch (jwtError) {
         // Token is invalid, but that's okay for optional auth

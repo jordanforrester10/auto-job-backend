@@ -429,6 +429,7 @@ const JobsPage = () => {
   });
   const [activeResumes, setActiveResumes] = useState([]);
   const [pollingJobs, setPollingJobs] = useState(new Set());
+  const [allResumes, setAllResumes] = useState([]);
   
   // NEW: State for collapsible usage summary
   const [usageSummaryExpanded, setUsageSummaryExpanded] = useState(false);
@@ -485,6 +486,7 @@ const JobsPage = () => {
     try {
       const resumesData = await resumeService.getUserResumes();
       setActiveResumes(resumesData.filter(r => r.isActive) || []);
+      setAllResumes(resumesData || []); // Add this line
     } catch (err) {
       console.error('Error fetching active resumes:', err);
     }
@@ -922,12 +924,12 @@ const JobsPage = () => {
             </span>
           </Tooltip>
         </Box>
-        {activeResumes.length === 0 && (
-          <Alert severity="info" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
-            You need at least one resume to use the AI job search feature.
-            Please upload a resume first.
-          </Alert>
-        )}
+          {allResumes.length === 0 && (
+            <Alert severity="info" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
+              You need at least one resume to use the AI job search feature.
+              Please upload a resume first.
+            </Alert>
+          )}
         {currentPlan === 'free' && (
           <Alert severity="warning" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
             <strong>Upgrade to unlock AI Job Discovery:</strong> Let our AI agent find relevant job opportunities automatically.

@@ -1,4 +1,4 @@
-// src/components/Dashboard.js - Updated with Embedded Getting Started Guide
+// src/components/Dashboard.js - Updated with Fixed Resume Detection and Tailoring Step
 import React, { useState, useEffect, useContext } from 'react';
 import {
   Box,
@@ -46,7 +46,9 @@ import {
   Upgrade,
   Star,
   ExpandMore,
-  ExpandLess
+  ExpandLess,
+  Edit as EditIcon,
+  Build as BuildIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
@@ -72,7 +74,9 @@ const Dashboard = () => {
     applications: 0,
     resumeScore: 0,
     hasActiveResume: false,
-    hasAnalyzedResumes: false
+    hasAnalyzedResumes: false,
+    hasTailoredResumes: false,
+    tailoredResumeCount: 0
   });
 
   // Getting Started Guide state
@@ -86,39 +90,103 @@ const Dashboard = () => {
       try {
         setLoading(true);
         
+        console.log('🔍 Loading dashboard data...');
+        
         // Load resumes and jobs in parallel
         const [resumesData, jobsData] = await Promise.all([
-          resumeService.getUserResumes().catch(() => []),
-          jobService.getUserJobs().catch(() => [])
+          resumeService.getUserResumes().catch((err) => {
+            console.error('Error loading resumes:', err);
+            return [];
+          }),
+          jobService.getUserJobs().catch((err) => {
+            console.error('Error loading jobs:', err);
+            return [];
+          })
         ]);
+        
+        console.log('📄 Loaded resumes:', resumesData);
+        console.log('💼 Loaded jobs:', jobsData);
         
         setResumes(resumesData);
         setJobs(jobsData);
         
-        // Calculate stats
+        // Calculate stats with better detection logic
         const activeResume = resumesData.find(r => r.isActive);
         const completedJobs = jobsData.filter(j => j.analysisStatus?.status === 'completed');
         const applications = jobsData.filter(j => j.applicationStatus && j.applicationStatus !== 'Not Applied');
         
+        // Better resume analysis detection - check multiple possible structures
+        const analyzedResumes = resumesData.filter(r => {
+          return r.analysis?.overallScore || 
+                 r.analysisData?.overallScore || 
+                 r.atsScore || 
+                 r.analysis?.atsCompatibility ||
+                 (r.analysis && Object.keys(r.analysis).length > 0) ||
+                 r.parsed; // If resume is parsed, it's been analyzed
+        });
+        
+        console.log('✅ Analyzed resumes detected:', analyzedResumes);
+        
         // Calculate average resume score from all analyzed resumes
         let resumeScore = 0;
-        const analyzedResumes = resumesData.filter(r => r.analysis?.overallScore);
         if (analyzedResumes.length > 0) {
-          const totalScore = analyzedResumes.reduce((sum, r) => sum + r.analysis.overallScore, 0);
-          resumeScore = Math.round(totalScore / analyzedResumes.length);
+          const scoredResumes = analyzedResumes.filter(r => 
+            r.analysis?.overallScore || r.analysisData?.overallScore || r.atsScore
+          );
+          
+          if (scoredResumes.length > 0) {
+            const totalScore = scoredResumes.reduce((sum, r) => {
+              return sum + (r.analysis?.overallScore || r.analysisData?.overallScore || r.atsScore || 0);
+            }, 0);
+            resumeScore = Math.round(totalScore / scoredResumes.length);
+          }
         }
         
-        setStats({
+        // Check for tailored resumes - look for resumes with job-specific tailoring
+        // Make this detection more strict - only count as tailored if explicitly tailored to jobs
+        const tailoredResumes = resumesData.filter(r => {
+          return (r.tailoredTo && r.tailoredTo !== null) || 
+                 (r.tailoredForJob && r.tailoredForJob !== null) || 
+                 (r.jobId && r.jobId !== null) || 
+                 (r.versions && r.versions.length > 1) ||
+                 (r.tailoring && Object.keys(r.tailoring).length > 0 && r.tailoring.jobId);
+        });
+        
+        console.log('🎯 Tailored resumes detected (strict):', tailoredResumes);
+        
+        // Also check jobs for tailored resumes - but only if there are jobs
+        const jobsWithTailoredResumes = jobsData.length > 0 ? jobsData.filter(j => 
+          j.tailoredResume || j.resumeTailoring || j.tailoredResumeId
+        ) : [];
+        
+        console.log('💼 Jobs with tailored resumes:', jobsWithTailoredResumes);
+        
+        // Only consider tailoring complete if we have both jobs AND tailored resumes
+        const hasTailoredResumesActual = jobsData.length > 0 && (tailoredResumes.length > 0 || jobsWithTailoredResumes.length > 0);
+        
+        console.log('🔍 Tailoring completion check:', {
+          hasJobs: jobsData.length > 0,
+          tailoredResumeCount: tailoredResumes.length,
+          jobsWithTailoredCount: jobsWithTailoredResumes.length,
+          finalResult: hasTailoredResumesActual
+        });
+        
+        const finalStats = {
           resumeCount: resumesData.length,
           jobMatches: completedJobs.length,
           applications: applications.length,
           resumeScore: resumeScore,
           hasActiveResume: !!activeResume,
-          hasAnalyzedResumes: analyzedResumes.length > 0
-        });
+          hasAnalyzedResumes: analyzedResumes.length > 0,
+          hasTailoredResumes: hasTailoredResumesActual,
+          tailoredResumeCount: Math.max(tailoredResumes.length, jobsWithTailoredResumes.length)
+        };
+        
+        console.log('📊 Final calculated stats:', finalStats);
+        setStats(finalStats);
         
       } catch (error) {
-        console.error('Error loading dashboard data:', error);
+        console.error('❌ Error loading dashboard data:', error);
       } finally {
         setLoading(false);
       }
@@ -129,7 +197,7 @@ const Dashboard = () => {
 
   // Helper functions for Getting Started Guide
   const getFeatureStatus = (feature) => {
-    const hasAccess = hasFeatureAccess(feature);
+    const hasAccess = hasFeatureAccess ? hasFeatureAccess(feature) : true; // Default to true if context not available
     const requiredPlan = getRequiredPlan(feature);
     
     return {
@@ -183,11 +251,12 @@ const Dashboard = () => {
   // Get user's first name
   const firstName = currentUser?.firstName || 'there';
   
-  // Determine user journey stage
+  // Determine user journey stage with better logic
   const isFirstTimeUser = stats.resumeCount === 0;
   const hasResumes = stats.resumeCount > 0;
   const hasJobs = stats.jobMatches > 0;
   const hasApplications = stats.applications > 0;
+  const hasTailoredResumes = stats.hasTailoredResumes;
 
   // Show embedded guide for first-time users or those with minimal activity
   const shouldShowEmbeddedGuide = isFirstTimeUser || (!hasJobs && stats.resumeCount < 2);
@@ -240,7 +309,7 @@ const Dashboard = () => {
     );
   };
 
-  // Getting Started Steps for Embedded Guide
+  // Getting Started Steps for Embedded Guide - Updated with Tailoring Step
   const getEmbeddedSteps = () => [
     {
       label: 'Welcome to auto-job.ai',
@@ -376,6 +445,55 @@ const Dashboard = () => {
           </Button>
         </Box>
       ),
+    },
+    {
+      label: 'Tailor Resume to Jobs',
+      content: (
+        <Box>
+          <Alert severity="success" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              <strong>All Plans:</strong> Tailor your resume to specific job opportunities for better matches!
+            </Typography>
+          </Alert>
+          <List>
+            <ListItem>
+              <ListItemIcon>
+                <CheckCircleIcon color="primary" />
+              </ListItemIcon>
+              <ListItemText 
+                primary="Open a job opportunity" 
+                secondary="Go to any job you've imported and click 'Tailor Resume'"
+              />
+            </ListItem>
+            <ListItem>
+              <ListItemIcon>
+                <CheckCircleIcon color="primary" />
+              </ListItemIcon>
+              <ListItemText 
+                primary="Get AI optimization suggestions" 
+                secondary="See specific improvements to increase your match score"
+              />
+            </ListItem>
+            <ListItem>
+              <ListItemIcon>
+                <CheckCircleIcon color="primary" />
+              </ListItemIcon>
+              <ListItemText 
+                primary="Download tailored version" 
+                secondary="Get a customized resume optimized for that specific role"
+              />
+            </ListItem>
+          </List>
+          <Button 
+            variant="contained" 
+            startIcon={<EditIcon />}
+            href="/jobs"
+            sx={{ mt: 2 }}
+          >
+            Start Tailoring
+          </Button>
+        </Box>
+      ),
     }
   ];
 
@@ -404,7 +522,7 @@ const Dashboard = () => {
       };
     }
     
-    if (!stats.hasAnalyzedResumes) {
+    if (!stats.hasAnalyzedResumes && stats.resumeCount > 0) {
       return {
         title: `Hi ${firstName}! Let's analyze your resumes`,
         message: "I see you have resumes uploaded. Let me analyze them with AI to identify strengths and optimization opportunities."
@@ -457,6 +575,35 @@ const Dashboard = () => {
     );
   };
 
+  // Auto-advance stepper based on completion status
+  useEffect(() => {
+    if (!shouldShowEmbeddedGuide || loading) return;
+    
+    console.log('🎯 Checking stepper advancement...', {
+      hasResumes,
+      hasAnalyzedResumes: stats.hasAnalyzedResumes,
+      hasJobs,
+      hasTailoredResumes,
+      currentStep: activeStep,
+      loading,
+      shouldShowGuide: shouldShowEmbeddedGuide,
+      stats
+    });
+    
+    // Auto-advance based on completion - but don't go backwards and be more careful
+    if (activeStep === 0 && hasResumes) {
+      console.log('✅ Auto-advancing from step 0 to step 1 - resume uploaded');
+      setActiveStep(1);
+    } else if (activeStep === 1 && hasJobs) {
+      console.log('✅ Auto-advancing from step 1 to step 2 - jobs found');
+      setActiveStep(2);
+    } else if (activeStep === 2 && hasTailoredResumes && hasJobs) {
+      console.log('✅ Auto-advancing from step 2 to step 3 - resumes tailored');
+      setActiveStep(3);
+    }
+    // Don't auto-advance to tailoring step if no jobs exist
+  }, [hasResumes, stats.hasAnalyzedResumes, hasJobs, hasTailoredResumes, activeStep, shouldShowEmbeddedGuide, loading, stats]);
+
   // Embedded Getting Started Guide Component
   const EmbeddedGettingStartedGuide = () => (
     <Box sx={{ mb: 4 }}>
@@ -465,35 +612,68 @@ const Dashboard = () => {
       </Typography>
       <Paper sx={{ p: 3 }}>
         <Stepper activeStep={activeStep} orientation="vertical">
-          {getEmbeddedSteps().map((step, index) => (
-            <Step key={step.label}>
-              <StepLabel>
-                <Typography variant="h6">{step.label}</Typography>
-              </StepLabel>
-              <StepContent>
-                {step.content}
-                <Box sx={{ mb: 2, mt: 2 }}>
-                  <div>
-                    <Button
-                      variant="contained"
-                      onClick={handleNext}
-                      sx={{ mt: 1, mr: 1 }}
-                      startIcon={index === getEmbeddedSteps().length - 1 ? <CheckCircleIcon /> : <PlayArrow />}
-                    >
-                      {index === getEmbeddedSteps().length - 1 ? 'Complete Setup' : 'Continue'}
-                    </Button>
-                    <Button
-                      disabled={index === 0}
-                      onClick={handleBack}
-                      sx={{ mt: 1, mr: 1 }}
-                    >
-                      Back
-                    </Button>
-                  </div>
-                </Box>
-              </StepContent>
-            </Step>
-          ))}
+          {getEmbeddedSteps().map((step, index) => {
+            // Determine if this step should be marked as completed
+            let stepCompleted = false;
+            if (index === 0) { // Welcome step - always completed once you start
+              stepCompleted = true;
+            } else if (index === 1) { // Upload Resume step
+              stepCompleted = hasResumes;
+              console.log(`Step ${index} (Upload Resume) completion check:`, { hasResumes, stepCompleted });
+            } else if (index === 2) { // Find Jobs step  
+              stepCompleted = hasJobs;
+              console.log(`Step ${index} (Find Jobs) completion check:`, { hasJobs, stepCompleted });
+            } else if (index === 3) { // Tailor Resume step
+              stepCompleted = hasTailoredResumes && hasJobs; // Require BOTH jobs and tailored resumes
+              console.log(`Step ${index} (Tailor Resume) completion check:`, { hasTailoredResumes, hasJobs, stepCompleted });
+            }
+            
+            return (
+              <Step key={step.label} completed={stepCompleted}>
+                <StepLabel>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="h6">{step.label}</Typography>
+                    {stepCompleted && <CheckCircleIcon color="success" fontSize="small" />}
+                  </Box>
+                </StepLabel>
+                <StepContent>
+                  {step.content}
+                  <Box sx={{ mb: 2, mt: 2 }}>
+                    <div>
+                      {/* Show different buttons based on completion status */}
+                      {stepCompleted ? (
+                        <Button
+                          variant="outlined"
+                          onClick={handleNext}
+                          sx={{ mt: 1, mr: 1 }}
+                          startIcon={<CheckCircleIcon />}
+                          color="success"
+                        >
+                          ✅ Step Complete - Continue
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="contained"
+                          onClick={handleNext}
+                          sx={{ mt: 1, mr: 1 }}
+                          startIcon={index === getEmbeddedSteps().length - 1 ? <CheckCircleIcon /> : <PlayArrow />}
+                        >
+                          {index === getEmbeddedSteps().length - 1 ? 'Complete Setup' : 'Continue'}
+                        </Button>
+                      )}
+                      <Button
+                        disabled={index === 0}
+                        onClick={handleBack}
+                        sx={{ mt: 1, mr: 1 }}
+                      >
+                        Back
+                      </Button>
+                    </div>
+                  </Box>
+                </StepContent>
+              </Step>
+            );
+          })}
         </Stepper>
         {activeStep === getEmbeddedSteps().length && (
           <Paper square elevation={0} sx={{ p: 3 }}>
@@ -534,7 +714,7 @@ const Dashboard = () => {
     </Box>
   );
 
-  // Progress Steps Component (for users with some data)
+  // Progress Steps Component (for users with some data) - Updated with Tailoring Step
   const ProgressSteps = () => {
     const steps = [
       {
@@ -563,6 +743,15 @@ const Dashboard = () => {
         action: () => hasJobs ? navigate('/jobs') : navigate('/jobs'),
         icon: <SearchIcon />,
         actionText: hasJobs ? 'View Matches' : 'Start Job Search'
+      },
+      {
+        id: 'tailor',
+        title: 'Tailor Resume',
+        description: 'Optimize for specific jobs',
+        completed: hasTailoredResumes,
+        action: () => navigate('/jobs'),
+        icon: <EditIcon />,
+        actionText: hasTailoredResumes ? `View ${stats.tailoredResumeCount} Tailored` : 'Start Tailoring'
       },
       {
         id: 'apply',
@@ -610,7 +799,7 @@ const Dashboard = () => {
           
           <Grid container spacing={2}>
             {steps.map((step, index) => (
-              <Grid item xs={12} sm={6} md={3} key={step.id}>
+              <Grid item xs={12} sm={6} md={2.4} key={step.id}>
                 <Box
                   sx={{
                     display: 'flex',

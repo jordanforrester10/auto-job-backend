@@ -1,9 +1,14 @@
-// backend/controllers/auth.controller.js - FIXED RESET PASSWORD URL
+// backend/controllers/auth.controller.js - COMPLETE FILE WITH IMPERSONATION
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/mongodb/user.model');
 const sendEmail = require('../utils/send-email');
 const emailTemplates = require('../utils/email-templates');
+
+// Admin emails for impersonation feature
+const ADMIN_EMAILS = [
+  'jordforrester@gmail.com'
+];
 
 /**
  * Generate JWT token for a user
@@ -624,6 +629,194 @@ exports.deleteAccount = async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to delete account'
+    });
+  }
+};
+
+/**
+ * Admin impersonate user
+ * @route POST /api/auth/admin/impersonate/:userId
+ * @access Private (Admin only)
+ */
+exports.impersonateUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const adminUser = req.user; // From auth middleware
+
+    // Verify admin privileges
+    if (!ADMIN_EMAILS.includes(adminUser.email)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin privileges required'
+      });
+    }
+
+    // Find the user to impersonate
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Create impersonation token with special claims
+    const impersonationPayload = {
+      id: targetUser._id,
+      email: targetUser.email,
+      role: targetUser.role,
+      isImpersonating: true,
+      impersonatedBy: adminUser.email,
+      originalAdminId: adminUser.id
+    };
+
+    const impersonationToken = jwt.sign(
+      impersonationPayload,
+      process.env.JWT_SECRET,
+      { expiresIn: '2h' } // Shorter expiry for security
+    );
+
+    // Log impersonation for audit trail
+    console.log(`🔐 ADMIN IMPERSONATION: ${adminUser.email} is impersonating ${targetUser.email} at ${new Date().toISOString()}`);
+
+    res.status(200).json({
+      success: true,
+      token: impersonationToken,
+      data: {
+        user: {
+          _id: targetUser._id,
+          email: targetUser.email,
+          firstName: targetUser.firstName,
+          lastName: targetUser.lastName,
+          subscriptionTier: targetUser.subscriptionTier,
+          currentUsage: targetUser.currentUsage,
+          isImpersonating: true,
+          impersonatedBy: adminUser.email
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Impersonation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to impersonate user'
+    });
+  }
+};
+
+/**
+ * End admin impersonation
+ * @route POST /api/auth/admin/end-impersonation
+ * @access Private (Admin impersonation only)
+ */
+exports.endImpersonation = async (req, res) => {
+  try {
+    const currentUser = req.user;
+
+    // Verify this is an impersonation session
+    if (!currentUser.isImpersonating || !currentUser.originalAdminId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Not in impersonation mode'
+      });
+    }
+
+    // Find the original admin user
+    const adminUser = await User.findById(currentUser.originalAdminId);
+    if (!adminUser) {
+      return res.status(404).json({
+        success: false,
+        error: 'Original admin user not found'
+      });
+    }
+
+    // Create new admin token
+    const adminToken = generateToken(adminUser);
+
+    // Log end of impersonation
+    console.log(`🔐 END IMPERSONATION: ${currentUser.impersonatedBy} ended impersonation of ${currentUser.email} at ${new Date().toISOString()}`);
+
+    res.status(200).json({
+      success: true,
+      token: adminToken,
+      data: {
+        user: {
+          _id: adminUser._id,
+          email: adminUser.email,
+          firstName: adminUser.firstName,
+          lastName: adminUser.lastName,
+          subscriptionTier: adminUser.subscriptionTier,
+          currentUsage: adminUser.currentUsage
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('End impersonation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to end impersonation'
+    });
+  }
+};
+
+/**
+ * Get users list for admin
+ * @route GET /api/auth/admin/users
+ * @access Private (Admin only)
+ */
+exports.getUsers = async (req, res) => {
+  try {
+    const adminUser = req.user;
+
+    // Verify admin privileges
+    if (!ADMIN_EMAILS.includes(adminUser.email)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin privileges required'
+      });
+    }
+
+    const { page = 1, limit = 20, search = '' } = req.query;
+    const skip = (page - 1) * limit;
+
+    // Build search query
+    const searchQuery = search ? {
+      $or: [
+        { email: { $regex: search, $options: 'i' } },
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } }
+      ]
+    } : {};
+
+    const users = await User.find(searchQuery)
+      .select('_id email firstName lastName subscriptionTier createdAt lastLogin')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await User.countDocuments(searchQuery);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        users,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / limit),
+          totalUsers: total,
+          hasNext: skip + users.length < total,
+          hasPrev: page > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users'
     });
   }
 };

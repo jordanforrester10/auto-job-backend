@@ -1,4 +1,4 @@
-// backend/routes/auth.routes.js (updated)
+// backend/routes/auth.routes.js (updated with admin impersonation)
 const express = require('express');
 const authController = require('../controllers/auth.controller');
 const { protect } = require('../middleware/auth.middleware');
@@ -28,5 +28,10 @@ router.post('/resend-verification', authController.resendVerification);
 router.put('/update-details', validateUpdateDetails, handleValidationErrors, authController.updateDetails);
 router.put('/update-password', validateUpdatePassword, handleValidationErrors, authController.updatePassword);
 router.delete('/delete-account', authController.deleteAccount);
+
+// Admin impersonation routes (protected by admin check in controller)
+router.get('/admin/users', authController.getUsers);
+router.post('/admin/impersonate/:userId', authController.impersonateUser);
+router.post('/admin/end-impersonation', authController.endImpersonation);
 
 module.exports = router;
