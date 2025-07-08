@@ -2,7 +2,7 @@
 import { createTheme, ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
-// Define the auto-job.ai theme with 90% scaling
+// Define the auto-job.ai theme with 80% scaling
 const theme = createTheme({
   palette: {
     primary: {
@@ -49,8 +49,8 @@ const theme = createTheme({
     divider: 'rgba(0, 0, 0, 0.12)',
   },
   typography: {
-    // Apply 90% scaling to the base font size
-    fontSize: 14 * 0.9,
+    // Apply 80% scaling to the base font size
+    fontSize: 14 * 0.85,
     fontFamily: [
       'Inter',
       'Roboto',
@@ -121,9 +121,9 @@ const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         html: {
-          fontSize: '90%', // Set root font size to 90%
-          WebkitTextSizeAdjust: '90%',
-          MsTextSizeAdjust: '90%',
+          fontSize: '85%', // Set root font size to 80%
+          WebkitTextSizeAdjust: '85%',
+          MsTextSizeAdjust: '85%',
         },
         '*, *::before, *::after': {
           boxSizing: 'border-box',
@@ -302,22 +302,22 @@ const theme = createTheme({
         },
       },
     },
-    // Adjust container widths to compensate for 90% scaling
+    // Adjust container widths to compensate for 80% scaling
     MuiContainer: {
       styleOverrides: {
         root: {
-          // Counter the 90% scaling by making containers slightly larger
+          // Counter the 80% scaling by making containers slightly larger
           '@media (min-width:600px)': {
-            maxWidth: 'calc(600px * 1.11)',
+            maxWidth: 'calc(600px * 1.25)',
           },
           '@media (min-width:900px)': {
-            maxWidth: 'calc(900px * 1.11)',
+            maxWidth: 'calc(900px * 1.25)',
           },
           '@media (min-width:1200px)': {
-            maxWidth: 'calc(1200px * 1.11)',
+            maxWidth: 'calc(1200px * 1.25)',
           },
           '@media (min-width:1536px)': {
-            maxWidth: 'calc(1536px * 1.11)',
+            maxWidth: 'calc(1536px * 1.25)',
           },
         },
       },

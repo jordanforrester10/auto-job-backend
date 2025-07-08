@@ -1,8 +1,8 @@
 /* src/index.css */
 html {
-  font-size: 90%;
-  -webkit-text-size-adjust: 90%;
-  -ms-text-size-adjust: 90%;
+  font-size: 85%;
+  -webkit-text-size-adjust: 85%;
+  -ms-text-size-adjust: 85%;
   height: 100%;
   overflow: hidden; /* Prevent body scroll */
 }
@@ -31,16 +31,16 @@ body {
 
 /* Adjust any fixed pixel sizes that might need manual adjustment */
 .MuiDialog-paper {
-  max-width: calc(600px * 1.11) !important;
+  max-width: calc(600px * 1.25) !important;
 }
 
 /* For any components with fixed dimensions that need adjustment */
 .fixed-width-element {
-  width: calc(300px * 1.11) !important;
+  width: calc(300px * 1.25) !important;
 }
 
 .fixed-height-element {
-  height: calc(200px * 1.11) !important;
+  height: calc(200px * 1.25) !important;
 }
 
 /* Ensure proper scrollbar styling globally */
