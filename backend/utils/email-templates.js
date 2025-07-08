@@ -1,4 +1,4 @@
-// backend/utils/email-templates.js - COMPREHENSIVE BRANDED EMAIL SYSTEM
+// backend/utils/email-templates.js - COMPLETE ORIGINAL FILE WITH ALL TEMPLATES FIXED
 /**
  * Auto-Job.ai Branded Email Templates
  * Professional email templates with consistent branding and responsive design
@@ -272,7 +272,7 @@ const createEmailTemplate = (content, title = "Auto-Job.ai") => `
 `;
 
 /**
- * 1. ACCOUNT CREATION & WELCOME EMAIL
+ * 1. ACCOUNT CREATION & WELCOME EMAIL - FIXED (NO VERIFICATION BUTTON)
  */
 exports.generateWelcomeEmail = (firstName, verificationUrl = null) => {
   const content = `
@@ -282,16 +282,6 @@ exports.generateWelcomeEmail = (firstName, verificationUrl = null) => {
       We're thrilled to have you join thousands of job seekers who are securing interviews faster with AI-powered automation.
     </p>
     
-    ${verificationUrl ? `
-    <div class="info-box">
-      <p style="margin: 0; font-weight: 600;">📧 First, let's verify your email address</p>
-      <p style="margin: 8px 0 0 0; font-size: 14px;">Click the button below to verify your email and unlock all features.</p>
-    </div>
-    
-    <div class="button-container">
-      <a href="${verificationUrl}" class="primary-button">Verify Email Address</a>
-    </div>
-    ` : `
     <div class="success-box">
       <p style="margin: 0; font-weight: 600;">✅ Your account is ready to go!</p>
     </div>
@@ -299,7 +289,6 @@ exports.generateWelcomeEmail = (firstName, verificationUrl = null) => {
     <div class="button-container">
       <a href="https://app.auto-job.ai/dashboard" class="primary-button">Start Using Auto-Job.ai</a>
     </div>
-    `}
     
     <h3 style="color: #202124; margin: 30px 0 15px 0;">What you can do right now:</h3>
     <ul class="features-list">
@@ -315,8 +304,7 @@ exports.generateWelcomeEmail = (firstName, verificationUrl = null) => {
     </div>
     
     <p class="email-text">
-      Questions? Reply to this email or visit our <a href="https://auto-job.ai/help" style="color: #1a73e8;">Help Center</a>. 
-      Our team is here to help you succeed.
+      Ready to transform your job search? Your AI-powered career assistant is waiting for you in the dashboard.
     </p>
     
     <p class="email-text" style="margin-bottom: 0;">
@@ -466,11 +454,6 @@ exports.generateSubscriptionUpgradeEmail = (firstName, planName, features, nextB
       })}
     </p>
     
-    <p class="email-text">
-      Need help getting started? Check out our <a href="https://auto-job.ai/help" style="color: #1a73e8;">Help Center</a> 
-      or reply to this email with any questions.
-    </p>
-    
     <p class="email-text" style="margin-bottom: 0;">
       Thank you for choosing Auto-Job.ai!<br>
       <strong>The Auto-Job.ai Team</strong>
@@ -526,11 +509,6 @@ exports.generateSubscriptionDowngradeEmail = (firstName, oldPlan, newPlan, effec
       <a href="https://app.auto-job.ai/pricing" class="primary-button">View Upgrade Options</a>
     </div>
     ` : ''}
-    
-    <p class="email-text">
-      We appreciate your continued use of Auto-Job.ai. If you have any questions about your subscription 
-      or need assistance, please don't hesitate to reach out.
-    </p>
     
     <p class="email-text" style="margin-bottom: 0;">
       Best regards,<br>

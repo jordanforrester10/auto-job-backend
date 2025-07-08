@@ -1,4 +1,4 @@
-// backend/controllers/auth.controller.js - COMPLETE FILE WITH IMPERSONATION
+// backend/controllers/auth.controller.js - COMPLETE FILE WITH WELCOME EMAIL FIX
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/mongodb/user.model');
@@ -67,16 +67,31 @@ exports.register = async (req, res) => {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const verificationUrl = `${frontendUrl}/verify-email/${verificationToken}`;
     
-    // Try to send verification email, but don't fail registration if it fails
+    // SEND WELCOME EMAIL (SEPARATE FROM VERIFICATION)
     try {
+      console.log(`📧 Sending welcome email to ${user.email}...`);
       await sendEmail({
         email: user.email,
-        subject: 'Email Verification',
-        html: emailTemplates.generateVerificationEmail(user.firstName, verificationUrl)
+        subject: `🎉 Welcome to Auto-Job.ai, ${user.firstName}!`,
+        html: emailTemplates.generateWelcomeEmail(user.firstName)
       });
-      console.log('Verification email sent successfully');
+      console.log('✅ Welcome email sent successfully');
+    } catch (welcomeEmailError) {
+      console.error('❌ Failed to send welcome email:', welcomeEmailError.message);
+      // Don't fail registration due to welcome email issues
+    }
+    
+    // Try to send verification email, but don't fail registration if it fails
+    try {
+      console.log(`📧 Sending verification email to ${user.email}...`);
+      await sendEmail({
+        email: user.email,
+        subject: 'Email Verification - Auto-Job.ai',
+        html: emailTemplates.generateEmailVerificationEmail(user.firstName, verificationUrl)
+      });
+      console.log('✅ Verification email sent successfully');
     } catch (emailError) {
-      console.error('Failed to send verification email:', emailError.message);
+      console.error('❌ Failed to send verification email:', emailError.message);
       // Don't fail registration due to email issues
     }
     
@@ -103,7 +118,7 @@ exports.register = async (req, res) => {
       token,
       data: {
         user,
-        message: 'Registration successful'
+        message: 'Registration successful! Welcome email and verification email sent to your inbox.'
       }
     });
   } catch (error) {
@@ -323,7 +338,7 @@ exports.resendVerification = async (req, res) => {
       await sendEmail({
         email: user.email,
         subject: 'Email Verification',
-        html: emailTemplates.generateVerificationEmail(user.firstName, verificationUrl)
+        html: emailTemplates.generateEmailVerificationEmail(user.firstName, verificationUrl)
       });
       
       res.status(200).json({
