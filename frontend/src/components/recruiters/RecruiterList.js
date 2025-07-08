@@ -1,4 +1,4 @@
-// src/components/recruiters/RecruiterList.js - UPDATED WITH SUBSCRIPTION LOCKING
+// src/components/recruiters/RecruiterList.js - UPDATED WITH UPGRADE PROMPT FUNCTIONALITY
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -35,10 +35,12 @@ import {
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { useSubscription } from '../../context/SubscriptionContext';
+import { useUpgrade } from '../../hooks/useUpgrade';
 import recruiterService from '../../utils/recruiterService';
 import AutoJobLogo from '../common/AutoJobLogo';
+import UpgradePrompt from '../subscription/shared/UpgradePrompt';
 
-const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }) => {
+const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, onUpgrade }) => {
   const theme = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -118,6 +120,18 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }
       setLocalIsUnlocked(false);
     } finally {
       setUnlocking(false);
+    }
+  };
+
+  // NEW: Handle upgrade button click for free users
+  const handleUpgradeClick = () => {
+    console.log('🔄 Free user clicked upgrade button on recruiter card');
+    if (onUpgrade) {
+      onUpgrade('recruiterAccess', {
+        recruiterId: recruiter.id,
+        recruiterName: formattedRecruiter.displayName,
+        context: 'recruiter_card'
+      });
     }
   };
 
@@ -454,6 +468,7 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore }
                 startIcon={<UpgradeIcon />}
                 size="small"
                 fullWidth
+                onClick={handleUpgradeClick}
                 sx={{ 
                   borderRadius: 2,
                   borderColor: theme.palette.primary.main,
@@ -617,6 +632,12 @@ const RecruiterList = ({
 }) => {
   const theme = useTheme();
   const [currentPage, setCurrentPage] = useState(1);
+  
+  // NEW: Add upgrade prompt state and hook
+  const [upgradePromptOpen, setUpgradePromptOpen] = useState(false);
+  const [upgradeContext, setUpgradeContext] = useState(null);
+  const { showUpgradePrompt } = useUpgrade();
+  
   const {
     planInfo,
     hasFeatureAccess,
@@ -656,8 +677,33 @@ const RecruiterList = ({
     }
   };
 
-  // Remove the complex unlock handler - not needed anymore
-  // Each RecruiterCard now manages its own unlock state
+  // NEW: Handle upgrade button clicks from recruiter cards
+  const handleUpgrade = (feature, context) => {
+    console.log('🔄 Upgrade requested:', { feature, context });
+    
+    setUpgradeContext({
+      feature,
+      context,
+      triggerSource: 'recruiter_card'
+    });
+    
+    setUpgradePromptOpen(true);
+  };
+
+  // NEW: Handle upgrade prompt close
+  const handleUpgradePromptClose = () => {
+    setUpgradePromptOpen(false);
+    setUpgradeContext(null);
+  };
+
+  // NEW: Handle successful upgrade
+  const handleUpgradeSuccess = () => {
+    console.log('🎉 Upgrade successful - refreshing page');
+    setUpgradePromptOpen(false);
+    setUpgradeContext(null);
+    // Optionally refresh the page or trigger a re-render
+    window.location.reload();
+  };
 
   // Show loading state
   if (loading) {
@@ -729,108 +775,121 @@ const RecruiterList = ({
   });
 
   return (
-    <Box>
-      {/* Results Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <WorkIcon sx={{ color: theme.palette.primary.main }} />
-          {pagination.total.toLocaleString()} Recruiters Found
-        </Typography>
-        
-        {/* Plan-specific info */}
-        {(isFreePlan || isCasualPlan) && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {isFreePlan && (
-              <Chip
-                label="Upgrade for access"
-                size="small"
-                color="primary"
-                variant="outlined"
-                icon={<UpgradeIcon sx={{ fontSize: '0.875rem' }} />}
-                sx={{ borderRadius: 2 }}
+    <>
+      <Box>
+        {/* Results Header */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WorkIcon sx={{ color: theme.palette.primary.main }} />
+            {pagination.total.toLocaleString()} Recruiters Found
+          </Typography>
+          
+          {/* Plan-specific info */}
+          {(isFreePlan || isCasualPlan) && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {isFreePlan && (
+                <Chip
+                  label="Upgrade for access"
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  icon={<UpgradeIcon sx={{ fontSize: '0.875rem' }} />}
+                  sx={{ borderRadius: 2 }}
+                />
+              )}
+              {isCasualPlan && (
+                <Chip
+                  label={`${(() => {
+                    const permission = canPerformAction('recruiterUnlocks', 1);
+                    return permission.remaining;
+                  })()} unlocks remaining`}
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                  icon={<CreditCardIcon sx={{ fontSize: '0.875rem' }} />}
+                  sx={{ borderRadius: 2 }}
+                />
+              )}
+            </Box>
+          )}
+        </Box>
+
+        {/* Recruiter Grid */}
+        <Grid container spacing={3}>
+          {recruiters.map((recruiter) => (
+            <Grid item xs={12} sm={6} lg={4} key={recruiter.id}>
+              <RecruiterCard
+                recruiter={recruiter}
+                onViewDetails={onViewDetails}
+                onStartOutreach={onStartOutreach}
+                onLoadMore={onLoadMore}
+                onUpgrade={handleUpgrade}
               />
-            )}
-            {isCasualPlan && (
-              <Chip
-                label={`${(() => {
-                  const permission = canPerformAction('recruiterUnlocks', 1);
-                  return permission.remaining;
-                })()} unlocks remaining`}
-                size="small"
-                color="warning"
-                variant="outlined"
-                icon={<CreditCardIcon sx={{ fontSize: '0.875rem' }} />}
-                sx={{ borderRadius: 2 }}
-              />
-            )}
+            </Grid>
+          ))}
+        </Grid>
+
+        {/* Pagination - Only show if more than one page */}
+        {totalPages > 1 && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+            <Pagination
+              count={totalPages}
+              page={currentPage}
+              onChange={handlePageChange}
+              color="primary"
+              size="large"
+              showFirstButton
+              showLastButton
+              sx={{
+                '& .MuiPaginationItem-root': {
+                  borderRadius: 2
+                }
+              }}
+            />
           </Box>
         )}
+
+        {/* Results Summary */}
+        <Paper 
+          elevation={0}
+          sx={{ 
+            mt: 3, 
+            p: 2, 
+            borderRadius: 2, 
+            textAlign: 'center',
+            border: `1px solid ${theme.palette.divider}`,
+            bgcolor: theme.palette.grey[50]
+          }}
+        >
+          <Typography variant="body2" color="text.secondary">
+            Showing {recruiters.length} of {pagination.total.toLocaleString()} recruiters
+            {isFreePlan && (
+              <Typography component="span" sx={{ ml: 1, fontWeight: 600, color: theme.palette.primary.main }}>
+                • Upgrade for full access
+              </Typography>
+            )}
+            {isCasualPlan && (
+              <Typography component="span" sx={{ ml: 1, fontWeight: 600, color: theme.palette.warning.main }}>
+                • {(() => {
+                  const permission = canPerformAction('recruiterUnlocks', 1);
+                  return permission.remaining;
+                })()} unlocks remaining
+              </Typography>
+            )}
+          </Typography>
+        </Paper>
       </Box>
 
-      {/* Recruiter Grid */}
-      <Grid container spacing={3}>
-        {recruiters.map((recruiter) => (
-          <Grid item xs={12} sm={6} lg={4} key={recruiter.id}>
-            <RecruiterCard
-              recruiter={recruiter}
-              onViewDetails={onViewDetails}
-              onStartOutreach={onStartOutreach}
-              onLoadMore={onLoadMore}
-            />
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* Pagination - Only show if more than one page */}
-      {totalPages > 1 && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-          <Pagination
-            count={totalPages}
-            page={currentPage}
-            onChange={handlePageChange}
-            color="primary"
-            size="large"
-            showFirstButton
-            showLastButton
-            sx={{
-              '& .MuiPaginationItem-root': {
-                borderRadius: 2
-              }
-            }}
-          />
-        </Box>
-      )}
-
-      {/* Results Summary */}
-      <Paper 
-        elevation={0}
-        sx={{ 
-          mt: 3, 
-          p: 2, 
-          borderRadius: 2, 
-          textAlign: 'center',
-          border: `1px solid ${theme.palette.divider}`,
-          bgcolor: theme.palette.grey[50]
-        }}
-      >
-        <Typography variant="body2" color="text.secondary">
-          Showing {recruiters.length} of {pagination.total.toLocaleString()} recruiters
-          {isFreePlan && (
-            <Typography component="span" sx={{ ml: 1, fontWeight: 600, color: theme.palette.primary.main }}>
-              • Upgrade for full access
-            </Typography>
-          )}
-          {isCasualPlan && (
-            <Typography component="span" sx={{ ml: 1, fontWeight: 600, color: theme.palette.warning.main }}>
-              • {(() => {
-                const permission = canPerformAction('recruiterUnlocks', 1);
-                return permission.remaining;
-              })()} unlocks remaining
-            </Typography>
-          )}
-        </Typography>
-      </Paper>
-    </Box>
+      {/* NEW: Upgrade Prompt Dialog */}
+      <UpgradePrompt
+        open={upgradePromptOpen}
+        onClose={handleUpgradePromptClose}
+        feature={upgradeContext?.feature || 'recruiterAccess'}
+        title="Unlock Recruiter Access"
+        description="Upgrade to Casual plan to unlock recruiter details and start building your professional network."
+        currentPlan={planInfo?.tier || 'free'}
+      />
+    </>
   );
 };
 

@@ -1,4 +1,4 @@
-// backend/controllers/recruiter.controller.js - COMPLETE UPDATED VERSION WITH FEATURE GATING AND UNLOCK
+// backend/controllers/recruiter.controller.js - UPDATED TO ALLOW FREE USER BASIC ACCESS
 const { Pool } = require('pg');
 const Outreach = require('../models/mongodb/outreach.model');
 const Resume = require('../models/mongodb/resume.model');
@@ -17,31 +17,18 @@ exports.searchRecruiters = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔒 FEATURE GATING: Check recruiter access permissions
-    console.log('🔒 Checking recruiter access permissions for user:', userId);
+    // 🔓 UPDATED: Allow free users basic access to recruiter search
+    console.log('🔍 Free user access granted for recruiter search - user:', userId);
     
+    // Get user's subscription info for response context
+    let currentSubscription;
     try {
-      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
-      
-      if (!recruiterAccessAllowed) {
-        console.log('❌ Recruiter access not available on current plan:', currentSubscription.user.subscriptionTier);
-        return res.status(403).json({ 
-          message: 'Recruiter access not available on your current plan',
-          error: 'This feature requires Casual plan or higher',
-          currentPlan: currentSubscription.user.subscriptionTier,
-          upgradeRequired: true,
-          feature: 'recruiterAccess',
-          availableOn: ['casual', 'hunter']
-        });
-      }
-      
-      console.log('✅ Recruiter access permission granted for plan:', currentSubscription.user.subscriptionTier);
-      
+      currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      console.log('✅ User plan:', currentSubscription.user.subscriptionTier);
     } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
+      console.error('❌ Error getting subscription info:', permissionError);
       return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
+        message: 'Failed to validate subscription information',
         error: permissionError.message 
       });
     }
@@ -52,12 +39,11 @@ exports.searchRecruiters = async (req, res) => {
       industry = '',
       location = '',
       title = '',
-      show_unlocked_only = false, // NEW: Show unlocked only filter
+      show_unlocked_only = false,
       limit = 20,
       offset = 0
     } = req.query;
 
-    // NEW: Log the unlock filter
     const showUnlockedOnly = show_unlocked_only === 'true' || show_unlocked_only === true;
     
     console.log(`🔍 Searching recruiters for user ${userId}:`, {
@@ -66,11 +52,11 @@ exports.searchRecruiters = async (req, res) => {
       industry, 
       location, 
       title, 
-      showUnlockedOnly, // NEW: Include in logs
+      showUnlockedOnly,
+      userPlan: currentSubscription.user.subscriptionTier,
       limit: parseInt(limit)
     });
 
-    // NEW: Log special message for unlocked filter
     if (showUnlockedOnly) {
       console.log('🔓 Filtering to show ONLY unlocked recruiters');
     }
@@ -114,7 +100,7 @@ exports.searchRecruiters = async (req, res) => {
     const queryParams = [userId.toString()];
     let paramIndex = 2;
 
-    // NEW: Add unlocked only filter
+    // Add unlocked only filter
     if (showUnlockedOnly) {
       sqlQuery += ` AND ru.unlocked_at IS NOT NULL`;
       console.log('🔓 Added SQL filter for unlocked recruiters only');
@@ -171,7 +157,7 @@ exports.searchRecruiters = async (req, res) => {
     // Execute the query
     const result = await pool.query(sqlQuery, queryParams);
 
-    // Get total count for pagination - UPDATED TO INCLUDE UNLOCK FILTER
+    // Get total count for pagination
     let countQuery = `
       SELECT COUNT(*) as count
       FROM recruiters r
@@ -186,7 +172,7 @@ exports.searchRecruiters = async (req, res) => {
     const countParams = [userId.toString()];
     let countParamIndex = 2;
 
-    // NEW: Add unlocked filter to count query too
+    // Add unlocked filter to count query too
     if (showUnlockedOnly) {
       countQuery += ` AND ru.unlocked_at IS NOT NULL`;
     }
@@ -232,40 +218,65 @@ exports.searchRecruiters = async (req, res) => {
 
     const countResult = await pool.query(countQuery, countParams);
 
-    const recruiters = result.rows.map(row => ({
-      id: row.id,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
-      email: row.email,
-      phone: row.phone,
-      title: row.title,
-      linkedinUrl: row.linkedin_url,
-      experienceYears: row.experience_years,
-      lastActiveDate: row.last_active_date,
-      rating: row.rating,
-      company: {
-        name: row.company_name,
-        website: row.company_website,
-        size: row.company_size,
-        logo: row.company_logo
-      },
-      industry: row.industry_name,
-      location: {
-        city: row.city,
-        state: row.state,
-        country: row.country
-      },
-      outreach: {
-        hasContacted: !!row.last_contact_date,
-        lastContactDate: row.last_contact_date,
-        status: row.outreach_status
-      },
-      isUnlocked: row.is_unlocked,
-      unlockedAt: row.unlocked_at
-    }));
+    // 🔓 UPDATED: Format recruiter data based on user's plan
+    const recruiters = result.rows.map(row => {
+      const baseRecruiter = {
+        id: row.id,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+        company: {
+          name: row.company_name,
+          website: row.company_website,
+          size: row.company_size,
+          logo: row.company_logo
+        },
+        industry: row.industry_name,
+        location: {
+          city: row.city,
+          state: row.state,
+          country: row.country
+        },
+        outreach: {
+          hasContacted: !!row.last_contact_date,
+          lastContactDate: row.last_contact_date,
+          status: row.outreach_status
+        },
+        isUnlocked: row.is_unlocked,
+        unlockedAt: row.unlocked_at
+      };
 
-    // 🔒 FEATURE GATING: Get usage statistics to include in response
+      // For free users, limit the data returned
+      if (currentSubscription.user.subscriptionTier === 'free') {
+        return {
+          ...baseRecruiter,
+          // Hide sensitive contact information for free users
+          email: null,
+          phone: null,
+          linkedinUrl: null,
+          title: 'Senior Recruiter', // Generic title
+          experienceYears: null,
+          lastActiveDate: null,
+          rating: null,
+          accessLevel: 'limited'
+        };
+      }
+
+      // For paid users, return full data
+      return {
+        ...baseRecruiter,
+        email: row.email,
+        phone: row.phone,
+        title: row.title,
+        linkedinUrl: row.linkedin_url,
+        experienceYears: row.experience_years,
+        lastActiveDate: row.last_active_date,
+        rating: row.rating,
+        accessLevel: 'full'
+      };
+    });
+
+    // Get usage statistics to include in response
     let usageStats = null;
     try {
       const userUsage = await usageService.getUserUsageStats(userId);
@@ -273,7 +284,7 @@ exports.searchRecruiters = async (req, res) => {
         recruiterUnlocks: userUsage.usageStats.recruiterUnlocks,
         plan: userUsage.plan,
         planLimits: {
-          recruiterAccess: userUsage.planLimits.recruiterAccess,
+          recruiterAccess: currentSubscription.user.subscriptionTier !== 'free', // Free users have basic access
           recruiterUnlocks: userUsage.planLimits.recruiterUnlocks
         }
       };
@@ -281,11 +292,10 @@ exports.searchRecruiters = async (req, res) => {
       console.error('❌ Error fetching usage stats (non-critical):', usageError);
     }
 
-    // NEW: Enhanced logging for unlock filter results
     if (showUnlockedOnly) {
       console.log(`✅ Found ${recruiters.length} UNLOCKED recruiters (Total unlocked: ${countResult.rows[0].count})`);
     } else {
-      console.log(`✅ Found ${recruiters.length} recruiters (Total: ${countResult.rows[0].count})`);
+      console.log(`✅ Found ${recruiters.length} recruiters (Total: ${countResult.rows[0].count}) for ${currentSubscription.user.subscriptionTier} user`);
     }
 
     res.json({
@@ -297,16 +307,16 @@ exports.searchRecruiters = async (req, res) => {
         offset: parseInt(offset),
         hasMore: parseInt(offset) + parseInt(limit) < parseInt(countResult.rows[0].count)
       },
-      // NEW: Include filter state in response for debugging
       filters: {
         query,
         company,
         industry,
         location,
         title,
-        showUnlockedOnly // NEW: Return the filter state
+        showUnlockedOnly
       },
-      usageStats: usageStats
+      usageStats: usageStats,
+      userPlan: currentSubscription.user.subscriptionTier // Include plan info in response
     });
 
   } catch (error) {
@@ -320,38 +330,24 @@ exports.searchRecruiters = async (req, res) => {
 };
 
 /**
- * Get recruiter details by ID - WITH UNLOCK LIMITS AND STATUS CHECK
+ * Get recruiter details by ID - UPDATED TO ALLOW FREE USER BASIC ACCESS
  */
 exports.getRecruiterById = async (req, res) => {
   try {
     const userId = req.user._id;
     const { recruiterId } = req.params;
 
-    // 🔒 FEATURE GATING: Check recruiter access permissions
-    console.log('🔒 Checking recruiter access permissions for user:', userId);
+    // 🔓 UPDATED: Allow free users basic access to recruiter details
+    console.log('🔍 Free user access granted for recruiter details - user:', userId);
     
     let currentSubscription;
     try {
       currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
-      
-      if (!recruiterAccessAllowed) {
-        console.log('❌ Recruiter access not available on current plan:', currentSubscription.user.subscriptionTier);
-        return res.status(403).json({ 
-          message: 'Recruiter access not available on your current plan',
-          error: 'This feature requires Casual plan or higher',
-          currentPlan: currentSubscription.user.subscriptionTier,
-          upgradeRequired: true,
-          feature: 'recruiterAccess'
-        });
-      }
-      
-      console.log('✅ Recruiter access permission granted');
-      
+      console.log('✅ User plan for recruiter details:', currentSubscription.user.subscriptionTier);
     } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
+      console.error('❌ Error checking subscription info:', permissionError);
       return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
+        message: 'Failed to validate subscription information',
         error: permissionError.message 
       });
     }
@@ -376,12 +372,16 @@ exports.getRecruiterById = async (req, res) => {
           r.id,
           r.first_name,
           r.last_name,
-          r.title,
           c.name as company_name,
-          i.name as industry_name
+          c.employee_range as company_size,
+          i.name as industry_name,
+          l.city,
+          l.state,
+          l.country
         FROM recruiters r
         LEFT JOIN companies c ON r.current_company_id = c.id
         LEFT JOIN industries i ON r.industry_id = i.id
+        LEFT JOIN locations l ON r.location_id = l.id
         WHERE r.id = $1
       `;
 
@@ -400,11 +400,17 @@ exports.getRecruiterById = async (req, res) => {
         firstName: row.first_name,
         lastName: row.last_name,
         fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
-        title: row.title,
+        title: 'Senior Recruiter', // Generic title for free users
         company: {
-          name: row.company_name
+          name: row.company_name,
+          size: row.company_size
         },
         industry: row.industry_name,
+        location: {
+          city: row.city,
+          state: row.state,
+          country: row.country
+        },
         isUnlocked: false,
         accessLevel: 'basic' // Indicate this is basic access
       };
@@ -413,7 +419,8 @@ exports.getRecruiterById = async (req, res) => {
         success: true,
         recruiter: basicRecruiter,
         accessLevel: 'basic',
-        upgradeRequired: true
+        upgradeRequired: true,
+        userPlan: 'free'
       });
     }
 
@@ -473,7 +480,8 @@ exports.getRecruiterById = async (req, res) => {
         success: true,
         recruiter: limitedRecruiter,
         accessLevel: 'limited',
-        unlockRequired: true
+        unlockRequired: true,
+        userPlan: 'casual'
       });
     }
 
@@ -588,7 +596,8 @@ exports.getRecruiterById = async (req, res) => {
     res.json({
       success: true,
       recruiter,
-      accessLevel: 'full'
+      accessLevel: 'full',
+      userPlan: currentSubscription.user.subscriptionTier
     });
 
   } catch (error) {
@@ -599,10 +608,10 @@ exports.getRecruiterById = async (req, res) => {
       details: process.env.NODE_ENV !== 'production' ? error.message : undefined
     });
   }
-};
+}
 
 /**
- * NEW: Unlock recruiter for casual users
+ * Unlock recruiter for casual users - NO CHANGES NEEDED
  */
 exports.unlockRecruiter = async (req, res) => {
   try {
@@ -611,7 +620,7 @@ exports.unlockRecruiter = async (req, res) => {
 
     console.log(`🔓 Unlocking recruiter ${recruiterId} for user ${userId}`);
 
-    // 🔒 FEATURE GATING: Check if user can unlock recruiters
+    // Check if user can unlock recruiters
     let currentSubscription;
     try {
       currentSubscription = await subscriptionService.getCurrentSubscription(userId);
@@ -669,7 +678,7 @@ exports.unlockRecruiter = async (req, res) => {
       });
     }
 
-    // 🔒 FEATURE GATING: Check recruiter unlock limits for casual users
+    // Check recruiter unlock limits for casual users
     try {
       const unlockPermission = await usageService.checkUsageLimit(userId, 'recruiterUnlocks', 1);
       
@@ -710,7 +719,7 @@ exports.unlockRecruiter = async (req, res) => {
     const insertResult = await pool.query(insertUnlockQuery, [recruiterId, userId.toString()]);
     const unlockedAt = insertResult.rows[0].unlocked_at;
 
-    // 🔒 FEATURE GATING: Track successful recruiter unlock
+    // Track successful recruiter unlock
     try {
       await usageService.trackUsage(userId, 'recruiterUnlocks', 1, {
         recruiterId: recruiterId,
@@ -746,34 +755,17 @@ exports.unlockRecruiter = async (req, res) => {
   }
 };
 
+// Continuation of recruiter.controller.js - Outreach methods with free user restrictions
+
 /**
- * Get filter options for recruiter search - WITH ACCESS CONTROL
+ * Get filter options for recruiter search - UPDATED TO ALLOW FREE USER ACCESS
  */
 exports.getFilterOptions = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // 🔒 FEATURE GATING: Check recruiter access permissions
-    try {
-      const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
-      
-      if (!recruiterAccessAllowed) {
-        return res.status(403).json({ 
-          message: 'Recruiter access not available on your current plan',
-          upgradeRequired: true,
-          feature: 'recruiterAccess'
-        });
-      }
-    } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
-      return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
-        error: permissionError.message 
-      });
-    }
-
-    console.log('📊 Getting filter options for recruiter search');
+    // 🔓 UPDATED: Allow free users access to filter options
+    console.log('📊 Getting filter options for recruiter search - allowing free user access');
 
     // Get top companies
     const companiesQuery = `
@@ -851,22 +843,27 @@ exports.getFilterOptions = async (req, res) => {
   }
 };
 
-// ... (rest of the existing methods remain the same)
-// Including: createOutreach, updateOutreach, deleteOutreach, sendOutreach, 
-// getUserOutreach, generatePersonalizedMessage, getOutreachAnalytics
-
 /**
- * Create outreach campaign - WITH ACCESS CONTROL
+ * Create outreach campaign - UPDATED TO BLOCK FREE USERS
  */
 exports.createOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔒 FEATURE GATING: Check recruiter access permissions
+    // 🔒 UPDATED: Block free users from creating outreach
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
       
+      if (currentSubscription.user.subscriptionTier === 'free') {
+        return res.status(403).json({ 
+          message: 'Outreach features require Casual plan or higher',
+          currentPlan: 'free',
+          upgradeRequired: true,
+          feature: 'outreach'
+        });
+      }
+      
+      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
       if (!recruiterAccessAllowed) {
         return res.status(403).json({ 
           message: 'Recruiter access not available on your current plan',
@@ -875,9 +872,9 @@ exports.createOutreach = async (req, res) => {
         });
       }
     } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
+      console.error('❌ Error checking outreach permission:', permissionError);
       return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
+        message: 'Failed to validate outreach permission',
         error: permissionError.message 
       });
     }
@@ -975,7 +972,7 @@ exports.createOutreach = async (req, res) => {
 };
 
 /**
- * Update outreach campaign - WITH ACCESS CONTROL
+ * Update outreach campaign - UPDATED TO BLOCK FREE USERS
  */
 exports.updateOutreach = async (req, res) => {
   try {
@@ -983,22 +980,21 @@ exports.updateOutreach = async (req, res) => {
     const { outreachId } = req.params;
     const updates = req.body;
 
-    // 🔒 FEATURE GATING: Check recruiter access permissions
+    // 🔒 Block free users from updating outreach
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
-      
-      if (!recruiterAccessAllowed) {
+      if (currentSubscription.user.subscriptionTier === 'free') {
         return res.status(403).json({ 
-          message: 'Recruiter access not available on your current plan',
+          message: 'Outreach features require Casual plan or higher',
+          currentPlan: 'free',
           upgradeRequired: true,
-          feature: 'recruiterAccess'
+          feature: 'outreach'
         });
       }
     } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
+      console.error('❌ Error checking outreach permission:', permissionError);
       return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
+        message: 'Failed to validate outreach permission',
         error: permissionError.message 
       });
     }
@@ -1051,29 +1047,28 @@ exports.updateOutreach = async (req, res) => {
 };
 
 /**
- * Delete outreach campaign - WITH ACCESS CONTROL
+ * Delete outreach campaign - UPDATED TO BLOCK FREE USERS
  */
 exports.deleteOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
     const { outreachId } = req.params;
 
-    // 🔒 FEATURE GATING: Check recruiter access permissions
+    // 🔒 Block free users from deleting outreach
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
-      
-      if (!recruiterAccessAllowed) {
+      if (currentSubscription.user.subscriptionTier === 'free') {
         return res.status(403).json({ 
-          message: 'Recruiter access not available on your current plan',
+          message: 'Outreach features require Casual plan or higher',
+          currentPlan: 'free',
           upgradeRequired: true,
-          feature: 'recruiterAccess'
+          feature: 'outreach'
         });
       }
     } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
+      console.error('❌ Error checking outreach permission:', permissionError);
       return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
+        message: 'Failed to validate outreach permission',
         error: permissionError.message 
       });
     }
@@ -1115,29 +1110,28 @@ exports.deleteOutreach = async (req, res) => {
 };
 
 /**
- * Send outreach message - WITH ACCESS CONTROL
+ * Send outreach message - UPDATED TO BLOCK FREE USERS
  */
 exports.sendOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
     const { outreachId } = req.params;
 
-    // 🔒 FEATURE GATING: Check recruiter access permissions
+    // 🔒 Block free users from sending outreach
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
-      
-      if (!recruiterAccessAllowed) {
+      if (currentSubscription.user.subscriptionTier === 'free') {
         return res.status(403).json({ 
-          message: 'Recruiter access not available on your current plan',
+          message: 'Outreach features require Casual plan or higher',
+          currentPlan: 'free',
           upgradeRequired: true,
-          feature: 'recruiterAccess'
+          feature: 'outreach'
         });
       }
     } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
+      console.error('❌ Error checking outreach permission:', permissionError);
       return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
+        message: 'Failed to validate outreach permission',
         error: permissionError.message 
       });
     }
@@ -1195,28 +1189,27 @@ exports.sendOutreach = async (req, res) => {
 };
 
 /**
- * Get user's outreach campaigns - WITH ACCESS CONTROL
+ * Get user's outreach campaigns - UPDATED TO BLOCK FREE USERS
  */
 exports.getUserOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔒 FEATURE GATING: Check recruiter access permissions
+    // 🔒 Block free users from accessing outreach campaigns
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
-      
-      if (!recruiterAccessAllowed) {
+      if (currentSubscription.user.subscriptionTier === 'free') {
         return res.status(403).json({ 
-          message: 'Recruiter access not available on your current plan',
+          message: 'Outreach features require Casual plan or higher',
+          currentPlan: 'free',
           upgradeRequired: true,
-          feature: 'recruiterAccess'
+          feature: 'outreach'
         });
       }
     } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
+      console.error('❌ Error checking outreach permission:', permissionError);
       return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
+        message: 'Failed to validate outreach permission',
         error: permissionError.message 
       });
     }
@@ -1309,28 +1302,27 @@ exports.getUserOutreach = async (req, res) => {
 };
 
 /**
- * Generate AI-powered personalized message - WITH ACCESS CONTROL
+ * Generate AI-powered personalized message - UPDATED TO BLOCK FREE USERS
  */
 exports.generatePersonalizedMessage = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔒 FEATURE GATING: Check recruiter access permissions
+    // 🔒 Block free users from generating personalized messages
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
-      
-      if (!recruiterAccessAllowed) {
+      if (currentSubscription.user.subscriptionTier === 'free') {
         return res.status(403).json({ 
-          message: 'Recruiter access not available on your current plan',
+          message: 'AI message generation requires Casual plan or higher',
+          currentPlan: 'free',
           upgradeRequired: true,
-          feature: 'recruiterAccess'
+          feature: 'aiMessageGeneration'
         });
       }
     } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
+      console.error('❌ Error checking AI message permission:', permissionError);
       return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
+        message: 'Failed to validate AI message permission',
         error: permissionError.message 
       });
     }
@@ -1426,28 +1418,27 @@ exports.generatePersonalizedMessage = async (req, res) => {
 };
 
 /**
- * Get outreach analytics - WITH ACCESS CONTROL
+ * Get outreach analytics - UPDATED TO BLOCK FREE USERS
  */
 exports.getOutreachAnalytics = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔒 FEATURE GATING: Check recruiter access permissions
+    // 🔒 Block free users from accessing outreach analytics
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
-      const recruiterAccessAllowed = currentSubscription.planLimits.recruiterAccess;
-      
-      if (!recruiterAccessAllowed) {
+      if (currentSubscription.user.subscriptionTier === 'free') {
         return res.status(403).json({ 
-          message: 'Recruiter access not available on your current plan',
+          message: 'Outreach analytics require Casual plan or higher',
+          currentPlan: 'free',
           upgradeRequired: true,
-          feature: 'recruiterAccess'
+          feature: 'outreachAnalytics'
         });
       }
     } catch (permissionError) {
-      console.error('❌ Error checking recruiter access permission:', permissionError);
+      console.error('❌ Error checking analytics permission:', permissionError);
       return res.status(500).json({ 
-        message: 'Failed to validate recruiter access permission',
+        message: 'Failed to validate analytics permission',
         error: permissionError.message 
       });
     }
@@ -1504,7 +1495,7 @@ exports.getOutreachAnalytics = async (req, res) => {
     const responseRate = stats.sent > 0 ? (stats.replied / stats.sent) * 100 : 0;
     const sendRate = stats.totalOutreach > 0 ? (stats.sent / stats.totalOutreach) * 100 : 0;
 
-    // 🔒 FEATURE GATING: Get usage statistics to include in response
+    // Get usage statistics to include in response
     let usageStats = null;
     try {
       const userUsage = await usageService.getUserUsageStats(userId);

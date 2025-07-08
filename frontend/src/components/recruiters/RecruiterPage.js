@@ -1,20 +1,20 @@
-// src/components/recruiters/RecruiterPage.js - UPDATED WITH SHOW UNLOCKED ONLY FILTER
+// src/components/recruiters/RecruiterPage.js - UPDATED TO ALLOW FREE USER ACCESS BUT WITH LIMITATIONS
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Box,
-  Container,
-  Typography,
-  Tabs,
-  Tab,
-  Alert,
-  Snackbar,
-  Tooltip,
-  Badge
+ Box,
+ Container,
+ Typography,
+ Tabs,
+ Tab,
+ Alert,
+ Snackbar,
+ Tooltip,
+ Badge
 } from '@mui/material';
 import {
-  Search as SearchIcon,
-  Message as MessageIcon,
-  People as PeopleIcon
+ Search as SearchIcon,
+ Message as MessageIcon,
+ People as PeopleIcon
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import MainLayout from '../layout/MainLayout';
@@ -25,454 +25,511 @@ import RecruiterDetails from './RecruiterDetails';
 import OutreachComposer from './OutreachComposer';
 import OutreachTracker from './OutreachTracker';
 import recruiterService from '../../utils/recruiterService';
+import { useSubscription } from '../../context/SubscriptionContext';
 
 const TabPanel = ({ children, value, index, ...other }) => (
-  <div
-    role="tabpanel"
-    hidden={value !== index}
-    id={`recruiter-tabpanel-${index}`}
-    aria-labelledby={`recruiter-tab-${index}`}
-    {...other}
-  >
-    {value === index && <Box sx={{ py: 3 }}>{children}</Box>}
-  </div>
+ <div
+   role="tabpanel"
+   hidden={value !== index}
+   id={`recruiter-tabpanel-${index}`}
+   aria-labelledby={`recruiter-tab-${index}`}
+   {...other}
+ >
+   {value === index && <Box sx={{ py: 3 }}>{children}</Box>}
+ </div>
 );
 
 const RecruiterPage = () => {
-  const theme = useTheme();
-  
-  // Tab state
-  const [activeTab, setActiveTab] = useState(0);
-  
-  // Search state - UPDATED WITH NEW FILTER
-  const [searchResults, setSearchResults] = useState(null);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState('');
-  const [hasSearched, setHasSearched] = useState(false);
-  
-  // NEW: Show Unlocked Only filter state
-  const [showUnlockedOnly, setShowUnlockedOnly] = useState(false);
-  
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [currentSearchParams, setCurrentSearchParams] = useState(null);
-  
-  // Dialog state
-  const [selectedRecruiter, setSelectedRecruiter] = useState(null);
-  const [showRecruiterDetails, setShowRecruiterDetails] = useState(false);
-  const [showOutreachComposer, setShowOutreachComposer] = useState(false);
-  
-  // Outreach state - Load immediately for badge count
-  const [outreachCampaigns, setOutreachCampaigns] = useState([]);
-  const [outreachLoading, setOutreachLoading] = useState(false);
-  
-  // Notification state
-  const [notification, setNotification] = useState({
-    open: false,
-    message: '',
-    severity: 'success'
-  });
+ const theme = useTheme();
+ const { isFreePlan, isCasualPlan, isHunterPlan } = useSubscription();
+ 
+ // Tab state
+ const [activeTab, setActiveTab] = useState(0);
+ 
+ // Search state - UPDATED WITH NEW FILTER
+ const [searchResults, setSearchResults] = useState(null);
+ const [searchLoading, setSearchLoading] = useState(false);
+ const [searchError, setSearchError] = useState('');
+ const [hasSearched, setHasSearched] = useState(false);
+ 
+ // NEW: Show Unlocked Only filter state
+ const [showUnlockedOnly, setShowUnlockedOnly] = useState(false);
+ 
+ // Pagination state
+ const [currentPage, setCurrentPage] = useState(1);
+ const [currentSearchParams, setCurrentSearchParams] = useState(null);
+ 
+ // Dialog state
+ const [selectedRecruiter, setSelectedRecruiter] = useState(null);
+ const [showRecruiterDetails, setShowRecruiterDetails] = useState(false);
+ const [showOutreachComposer, setShowOutreachComposer] = useState(false);
+ 
+ // Outreach state - Load immediately for badge count (only for paid users)
+ const [outreachCampaigns, setOutreachCampaigns] = useState([]);
+ const [outreachLoading, setOutreachLoading] = useState(false);
+ 
+ // Notification state
+ const [notification, setNotification] = useState({
+   open: false,
+   message: '',
+   severity: 'success'
+ });
 
-  // Refs for component communication
-  const searchRef = useRef(null);
+ // Refs for component communication
+ const searchRef = useRef(null);
 
-  // Load initial data immediately when component mounts
-  useEffect(() => {
-    // Always load outreach campaigns for badge count
-    loadOutreachCampaigns();
-  }, []);
+ // Load initial data immediately when component mounts
+ useEffect(() => {
+   // Only load outreach campaigns for paid users
+   if (!isFreePlan) {
+     loadOutreachCampaigns();
+   }
+ }, [isFreePlan]);
 
-  // Search handlers - UPDATED TO INCLUDE NEW FILTER
-  const handleSearchResults = (results, searchParams = null) => {
-    console.log('🔍 RecruiterPage: Search results received:', results);
-    console.log('🔍 RecruiterPage: Search params received:', searchParams);
-    
-    setSearchResults(results);
-    setSearchError('');
-    setHasSearched(true);
-    setCurrentPage(1); // Reset to page 1 for new search
-    
-    // Store search params for pagination - UPDATED TO INCLUDE NEW FILTER
-    if (searchParams) {
-      const enhancedParams = {
-        ...searchParams,
-        showUnlockedOnly // Include the new filter in stored params
-      };
-      setCurrentSearchParams(enhancedParams);
-      console.log('✅ RecruiterPage: Stored search params with unlock filter:', enhancedParams);
-    }
-  };
+ // Search handlers - UPDATED TO INCLUDE NEW FILTER
+ const handleSearchResults = (results, searchParams = null) => {
+   console.log('🔍 RecruiterPage: Search results received:', results);
+   console.log('🔍 RecruiterPage: Search params received:', searchParams);
+   
+   setSearchResults(results);
+   setSearchError('');
+   setHasSearched(true);
+   setCurrentPage(1); // Reset to page 1 for new search
+   
+   // Store search params for pagination - UPDATED TO INCLUDE NEW FILTER
+   if (searchParams) {
+     const enhancedParams = {
+       ...searchParams,
+       showUnlockedOnly // Include the new filter in stored params
+     };
+     setCurrentSearchParams(enhancedParams);
+     console.log('✅ RecruiterPage: Stored search params with unlock filter:', enhancedParams);
+   }
+ };
 
-  const handleSearchLoading = (loading) => {
-    setSearchLoading(loading);
-  };
+ const handleSearchLoading = (loading) => {
+   setSearchLoading(loading);
+ };
 
-  const handleSearchError = (error) => {
-    setSearchError(error);
-    setHasSearched(true);
-    showNotification(error, 'error');
-  };
+ const handleSearchError = (error) => {
+   setSearchError(error);
+   setHasSearched(true);
+   showNotification(error, 'error');
+ };
 
-  // NEW: Handle show unlocked only filter change
-  const handleShowUnlockedOnlyChange = (enabled) => {
-    console.log('🔍 RecruiterPage: Show unlocked only filter changed:', enabled);
-    setShowUnlockedOnly(enabled);
-    
-    // If we have current search params, trigger a new search with the updated filter
-    if (currentSearchParams) {
-      const updatedParams = {
-        ...currentSearchParams,
-        showUnlockedOnly: enabled
-      };
-      
-      // Trigger search with updated parameters
-      performSearchWithParams(updatedParams, 1, 0);
-    }
-  };
+ // NEW: Handle show unlocked only filter change
+ const handleShowUnlockedOnlyChange = (enabled) => {
+   console.log('🔍 RecruiterPage: Show unlocked only filter changed:', enabled);
+   setShowUnlockedOnly(enabled);
+   
+   // If we have current search params, trigger a new search with the updated filter
+   if (currentSearchParams) {
+     const updatedParams = {
+       ...currentSearchParams,
+       showUnlockedOnly: enabled
+     };
+     
+     // Trigger search with updated parameters
+     performSearchWithParams(updatedParams, 1, 0);
+   }
+ };
 
-  // NEW: Perform search with specific parameters
-  const performSearchWithParams = async (searchParams, page = 1, offset = 0) => {
-    try {
-      setSearchLoading(true);
-      setCurrentPage(page);
-      
-      const searchFilters = {
-        ...searchParams,
-        limit: 20,
-        offset: offset
-      };
-      
-      console.log('🔍 RecruiterPage: Performing search with updated params:', searchFilters);
-      
-      const response = await recruiterService.searchRecruiters(searchFilters);
-      
-      console.log('✅ RecruiterPage: Updated search results received:', response);
-      setSearchResults(response);
-      setCurrentSearchParams(searchParams); // Update stored params
-      
-    } catch (error) {
-      console.error('❌ RecruiterPage: Search with updated params failed:', error);
-      showNotification('Failed to update search results', 'error');
-    } finally {
-      setSearchLoading(false);
-    }
-  };
+ // NEW: Perform search with specific parameters
+ const performSearchWithParams = async (searchParams, page = 1, offset = 0) => {
+   try {
+     setSearchLoading(true);
+     setCurrentPage(page);
+     
+     const searchFilters = {
+       ...searchParams,
+       limit: 20,
+       offset: offset
+     };
+     
+     console.log('🔍 RecruiterPage: Performing search with updated params:', searchFilters);
+     
+     const response = await recruiterService.searchRecruiters(searchFilters);
+     
+     console.log('✅ RecruiterPage: Updated search results received:', response);
+     setSearchResults(response);
+     setCurrentSearchParams(searchParams); // Update stored params
+     
+   } catch (error) {
+     console.error('❌ RecruiterPage: Search with updated params failed:', error);
+     showNotification('Failed to update search results', 'error');
+   } finally {
+     setSearchLoading(false);
+   }
+ };
 
-  // Pagination handler - UPDATED TO INCLUDE NEW FILTER
-  const handlePageChange = async (page, offset) => {
-    console.log(`📄 RecruiterPage: Page change - Page: ${page}, Offset: ${offset}`);
-    console.log(`🔍 RecruiterPage: Using stored search params:`, currentSearchParams);
-    
-    try {
-      setSearchLoading(true);
-      setCurrentPage(page);
-      
-      // Use the stored search parameters with pagination - NOW INCLUDES showUnlockedOnly
-      const searchFilters = {
-        ...currentSearchParams, // This now includes showUnlockedOnly
-        limit: 20,
-        offset: offset
-      };
-      
-      console.log('🔍 RecruiterPage: Performing paginated search:', searchFilters);
-      
-      const response = await recruiterService.searchRecruiters(searchFilters);
-      
-      console.log('✅ RecruiterPage: Paginated results received:', response);
-      setSearchResults(response);
-      
-    } catch (error) {
-      console.error('❌ RecruiterPage: Pagination failed:', error);
-      showNotification('Failed to load more recruiters', 'error');
-    } finally {
-      setSearchLoading(false);
-    }
-  };
+ // Pagination handler - UPDATED TO INCLUDE NEW FILTER
+ const handlePageChange = async (page, offset) => {
+   console.log(`📄 RecruiterPage: Page change - Page: ${page}, Offset: ${offset}`);
+   console.log(`🔍 RecruiterPage: Using stored search params:`, currentSearchParams);
+   
+   try {
+     setSearchLoading(true);
+     setCurrentPage(page);
+     
+     // Use the stored search parameters with pagination - NOW INCLUDES showUnlockedOnly
+     const searchFilters = {
+       ...currentSearchParams, // This now includes showUnlockedOnly
+       limit: 20,
+       offset: offset
+     };
+     
+     console.log('🔍 RecruiterPage: Performing paginated search:', searchFilters);
+     
+     const response = await recruiterService.searchRecruiters(searchFilters);
+     
+     console.log('✅ RecruiterPage: Paginated results received:', response);
+     setSearchResults(response);
+     
+   } catch (error) {
+     console.error('❌ RecruiterPage: Pagination failed:', error);
+     showNotification('Failed to load more recruiters', 'error');
+   } finally {
+     setSearchLoading(false);
+   }
+ };
 
-  // Enhanced search results handler that stores search params - UPDATED
-  const handleSearchResultsWithParams = (results, searchParams = null) => {
-    console.log('🔍 RecruiterPage: Search results with params:', { results, searchParams });
-    
-    setSearchResults(results);
-    setSearchError('');
-    setHasSearched(true);
-    setCurrentPage(1);
-    
-    // Store search parameters for pagination - INCLUDE NEW FILTER
-    if (searchParams) {
-      const enhancedParams = {
-        ...searchParams,
-        showUnlockedOnly // Always include current filter state
-      };
-      setCurrentSearchParams(enhancedParams);
-    }
-  };
+ // Enhanced search results handler that stores search params - UPDATED
+ const handleSearchResultsWithParams = (results, searchParams = null) => {
+   console.log('🔍 RecruiterPage: Search results with params:', { results, searchParams });
+   
+   setSearchResults(results);
+   setSearchError('');
+   setHasSearched(true);
+   setCurrentPage(1);
+   
+   // Store search parameters for pagination - INCLUDE NEW FILTER
+   if (searchParams) {
+     const enhancedParams = {
+       ...searchParams,
+       showUnlockedOnly // Always include current filter state
+     };
+     setCurrentSearchParams(enhancedParams);
+   }
+ };
 
-  // Load more handler (alternative to pagination)
-  const handleLoadMore = async (page, offset) => {
-    console.log(`📄 RecruiterPage: Load more - Page: ${page}, Offset: ${offset}`);
-    await handlePageChange(page, offset);
-  };
+ // Load more handler (alternative to pagination)
+ const handleLoadMore = async (page, offset) => {
+   console.log(`📄 RecruiterPage: Load more - Page: ${page}, Offset: ${offset}`);
+   await handlePageChange(page, offset);
+ };
 
-  // Recruiter handlers
-  const handleViewRecruiterDetails = (recruiter) => {
-    setSelectedRecruiter(recruiter);
-    setShowRecruiterDetails(true);
-  };
+ // Recruiter handlers
+ const handleViewRecruiterDetails = (recruiter) => {
+   setSelectedRecruiter(recruiter);
+   setShowRecruiterDetails(true);
+ };
 
-  const handleStartOutreach = (recruiter) => {
-    setSelectedRecruiter(recruiter);
-    setShowOutreachComposer(true);
-  };
+ const handleStartOutreach = (recruiter) => {
+   // NEW: For free users, show upgrade prompt instead of opening composer
+   if (isFreePlan) {
+     showNotification('Upgrade to Casual plan to contact recruiters', 'warning');
+     return;
+   }
+   
+   setSelectedRecruiter(recruiter);
+   setShowOutreachComposer(true);
+ };
 
-  // Outreach handlers
-  const handleSendOutreach = async (outreachData) => {
-    try {
-      const response = await recruiterService.createOutreach(outreachData);
-      
-      // Immediately send the outreach
-      await recruiterService.sendOutreach(response.outreach.id);
-      
-      showNotification('Message sent successfully!', 'success');
-      
-      // Reload outreach campaigns to update count
-      loadOutreachCampaigns();
-      
-    } catch (error) {
-      console.error('Failed to send outreach:', error);
-      showNotification('Failed to send message. Please try again.', 'error');
-      throw error;
-    }
-  };
+ // Outreach handlers - UPDATED FOR FREE USER RESTRICTIONS
+ const handleSendOutreach = async (outreachData) => {
+   // NEW: Block free users from sending outreach
+   if (isFreePlan) {
+     showNotification('Upgrade to Casual plan to send messages', 'error');
+     return;
+   }
 
-  // Handle recruiter unlocked callback
-  const handleRecruiterUnlocked = (updatedSearchResults) => {
-    console.log('📱 RecruiterPage: Updating search results after unlock');
-    setSearchResults(updatedSearchResults);
-  };
+   try {
+     const response = await recruiterService.createOutreach(outreachData);
+     
+     // Immediately send the outreach
+     await recruiterService.sendOutreach(response.outreach.id);
+     
+     showNotification('Message sent successfully!', 'success');
+     
+     // Reload outreach campaigns to update count
+     loadOutreachCampaigns();
+     
+   } catch (error) {
+     console.error('Failed to send outreach:', error);
+     showNotification('Failed to send message. Please try again.', 'error');
+     throw error;
+   }
+ };
 
-  const handleSaveOutreach = async (outreachData) => {
-    try {
-      await recruiterService.createOutreach(outreachData);
-      showNotification('Draft saved successfully!', 'success');
-      
-      // Reload outreach campaigns to update count
-      loadOutreachCampaigns();
-      
-    } catch (error) {
-      console.error('Failed to save outreach:', error);
-      showNotification('Failed to save draft. Please try again.', 'error');
-      throw error;
-    }
-  };
+ // Handle recruiter unlocked callback
+ const handleRecruiterUnlocked = (updatedSearchResults) => {
+   console.log('📱 RecruiterPage: Updating search results after unlock');
+   setSearchResults(updatedSearchResults);
+ };
 
-  // Load outreach campaigns
-  const loadOutreachCampaigns = async () => {
-    try {
-      setOutreachLoading(true);
-      console.log('📋 Loading outreach campaigns for badge count...');
-      
-      const response = await recruiterService.getUserOutreach({ limit: 50 });
-      const campaigns = response.outreaches || [];
-      
-      setOutreachCampaigns(campaigns);
-      console.log(`✅ Loaded ${campaigns.length} outreach campaigns`);
-      
-    } catch (error) {
-      console.error('Failed to load outreach campaigns:', error);
-      // Don't show error notification for initial load, just log it
-      if (activeTab === 1) {
-        showNotification('Failed to load outreach campaigns', 'error');
-      }
-    } finally {
-      setOutreachLoading(false);
-    }
-  };
+ const handleSaveOutreach = async (outreachData) => {
+   // NEW: Block free users from saving outreach
+   if (isFreePlan) {
+     showNotification('Upgrade to Casual plan to save drafts', 'error');
+     return;
+   }
 
-  // Notification helper
-  const showNotification = (message, severity = 'success') => {
-    setNotification({
-      open: true,
-      message,
-      severity
-    });
-  };
+   try {
+     await recruiterService.createOutreach(outreachData);
+     showNotification('Draft saved successfully!', 'success');
+     
+     // Reload outreach campaigns to update count
+     loadOutreachCampaigns();
+     
+   } catch (error) {
+     console.error('Failed to save outreach:', error);
+     showNotification('Failed to save draft. Please try again.', 'error');
+     throw error;
+   }
+ };
 
-  // Calculate notification badges
-  const getDraftCount = () => {
-    return outreachCampaigns.filter(campaign => campaign.status === 'drafted').length;
-  };
+ // Load outreach campaigns - UPDATED FOR FREE USER RESTRICTIONS
+ const loadOutreachCampaigns = async () => {
+   // NEW: Don't load outreach for free users
+   if (isFreePlan) {
+     setOutreachCampaigns([]);
+     return;
+   }
 
-  const getTotalOutreachCount = () => {
-    return outreachCampaigns.length;
-  };
+   try {
+     setOutreachLoading(true);
+     console.log('📋 Loading outreach campaigns for badge count...');
+     
+     const response = await recruiterService.getUserOutreach({ limit: 50 });
+     const campaigns = response.outreaches || [];
+     
+     setOutreachCampaigns(campaigns);
+     console.log(`✅ Loaded ${campaigns.length} outreach campaigns`);
+     
+   } catch (error) {
+     console.error('Failed to load outreach campaigns:', error);
+     // Don't show error notification for initial load, just log it
+     if (activeTab === 1) {
+       showNotification('Failed to load outreach campaigns', 'error');
+     }
+   } finally {
+     setOutreachLoading(false);
+   }
+ };
 
-  const getUnrepliedCount = () => {
-    return outreachCampaigns.filter(campaign => 
-      campaign.status === 'sent' && 
-      campaign.repliesCount === 0 &&
-      Date.now() - new Date(campaign.sentAt).getTime() > 7 * 24 * 60 * 60 * 1000 // 7 days old
-    ).length;
-  };
+ // Notification helper
+ const showNotification = (message, severity = 'success') => {
+   setNotification({
+     open: true,
+     message,
+     severity
+   });
+ };
 
-  return (
-    <MainLayout>
-      <Container maxWidth="lg" sx={{ py: 3 }}>
-        {/* Page Header */}
-        <PageHeader
-          title="Recruiter Outreach"
-          subtitle="Find and connect with recruiters to accelerate your job search"
-          icon={<PeopleIcon />}
-        />
+ // Calculate notification badges
+ const getDraftCount = () => {
+   return outreachCampaigns.filter(campaign => campaign.status === 'drafted').length;
+ };
 
-        {/* Main Tabs - Analytics Tab Removed */}
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-          <Tabs
-            value={activeTab}
-            onChange={(e, newValue) => setActiveTab(newValue)}
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{
-              '& .MuiTab-root': {
-                minHeight: 48,
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                textTransform: 'none',
-                color: theme.palette.text.secondary,
-                '&.Mui-selected': {
-                  color: theme.palette.primary.main,
-                  fontWeight: 600
-                }
-              },
-              '& .MuiTabs-indicator': {
-                height: 2,
-                backgroundColor: theme.palette.primary.main
-              }
-            }}
-          >
-            <Tab
-              label="Find Recruiters"
-              icon={<SearchIcon />}
-              iconPosition="start"
-              sx={{ 
-                display: 'flex',
-                flexDirection: 'row',
-                gap: 1
-              }}
-            />
-            <Tab
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <MessageIcon />
-                  Outreach Campaigns
-                  {getTotalOutreachCount() > 0 && (
-                    <Badge 
-                      badgeContent={getTotalOutreachCount()} 
-                      color="warning" 
-                      max={99}
-                      sx={{ 
-                        ml: 0.5,
-                        '& .MuiBadge-badge': {
-                          fontSize: '0.75rem',
-                          height: 18,
-                          minWidth: 18,
-                          borderRadius: '9px'
-                        }
-                      }}
-                    />
-                  )}
-                </Box>
-              }
-            />
-          </Tabs>
-        </Box>
+ const getTotalOutreachCount = () => {
+   return outreachCampaigns.length;
+ };
 
-        {/* Tab Content */}
-        <TabPanel value={activeTab} index={0}>
-          {/* Search Tab - UPDATED WITH NEW FILTER PROPS */}
-          <Box>
-            <RecruiterSearch
-              ref={searchRef}
-              onSearchResults={handleSearchResults}
-              onLoading={handleSearchLoading}
-              onError={handleSearchError}
-              onSearchStateChange={setHasSearched}
-              showUnlockedOnly={showUnlockedOnly}
-              onShowUnlockedOnlyChange={handleShowUnlockedOnlyChange}
-            />
-            
-            <RecruiterList
-              searchResults={searchResults}
-              loading={searchLoading}
-              error={searchError}
-              hasSearched={hasSearched}
-              onViewDetails={handleViewRecruiterDetails}
-              onStartOutreach={handleStartOutreach}
-              onLoadMore={handleLoadMore}
-              onPageChange={handlePageChange}
-              onRecruiterUnlocked={handleRecruiterUnlocked}
-            />
-          </Box>
-        </TabPanel>
+ const getUnrepliedCount = () => {
+   return outreachCampaigns.filter(campaign => 
+     campaign.status === 'sent' && 
+     campaign.repliesCount === 0 &&
+     Date.now() - new Date(campaign.sentAt).getTime() > 7 * 24 * 60 * 60 * 1000 // 7 days old
+   ).length;
+ };
 
-        <TabPanel value={activeTab} index={1}>
-          {/* Outreach Tab */}
-          <OutreachTracker
-            campaigns={outreachCampaigns}
-            loading={outreachLoading}
-            onRefresh={loadOutreachCampaigns}
-            onViewRecruiter={handleViewRecruiterDetails}
-            onEditCampaign={(campaign) => {
-              // Handle editing existing campaign
-              setSelectedRecruiter(campaign.recruiter);
-              setShowOutreachComposer(true);
-            }}
-          />
-        </TabPanel>
+ return (
+   <MainLayout>
+     <Container maxWidth="lg" sx={{ py: 3 }}>
+       {/* Page Header */}
+       <PageHeader
+         title="Recruiter Outreach"
+         subtitle={
+           isFreePlan 
+             ? "Browse recruiters and upgrade to unlock contact features"
+             : "Find and connect with recruiters to accelerate your job search"
+         }
+         icon={<PeopleIcon />}
+       />
 
-        {/* Dialogs */}
-        <RecruiterDetails
-          open={showRecruiterDetails}
-          onClose={() => {
-            setShowRecruiterDetails(false);
-            setSelectedRecruiter(null);
-          }}
-          recruiterId={selectedRecruiter?.id}
-          onStartOutreach={handleStartOutreach}
-        />
+       {/* NEW: Free User Notice */}
+       {isFreePlan && (
+         <Alert 
+           severity="info" 
+           sx={{ 
+             mb: 3, 
+             borderRadius: 2,
+             '& .MuiAlert-icon': {
+               color: theme.palette.info.main
+             }
+           }}
+         >
+           <Typography variant="body2">
+             <strong>Free Plan Access:</strong> You can browse and search recruiters, but need to upgrade to Casual plan to view full details and send messages.
+           </Typography>
+         </Alert>
+       )}
 
-        <OutreachComposer
-          open={showOutreachComposer}
-          onClose={() => {
-            setShowOutreachComposer(false);
-            setSelectedRecruiter(null);
-          }}
-          recruiter={selectedRecruiter}
-          onSend={handleSendOutreach}
-          onSave={handleSaveOutreach}
-        />
+       {/* Main Tabs - UPDATED TO HIDE OUTREACH TAB FOR FREE USERS */}
+       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+         <Tabs
+           value={activeTab}
+           onChange={(e, newValue) => setActiveTab(newValue)}
+           variant="scrollable"
+           scrollButtons="auto"
+           sx={{
+             '& .MuiTab-root': {
+               minHeight: 48,
+               fontSize: '0.875rem',
+               fontWeight: 500,
+               textTransform: 'none',
+               color: theme.palette.text.secondary,
+               '&.Mui-selected': {
+                 color: theme.palette.primary.main,
+                 fontWeight: 600
+               }
+             },
+             '& .MuiTabs-indicator': {
+               height: 2,
+               backgroundColor: theme.palette.primary.main
+             }
+           }}
+         >
+           <Tab
+             label="Find Recruiters"
+             icon={<SearchIcon />}
+             iconPosition="start"
+             sx={{ 
+               display: 'flex',
+               flexDirection: 'row',
+               gap: 1
+             }}
+           />
+           {/* Only show Outreach tab for paid users */}
+           {!isFreePlan && (
+             <Tab
+               label={
+                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                   <MessageIcon />
+                   Outreach Campaigns
+                   {getTotalOutreachCount() > 0 && (
+                     <Badge 
+                       badgeContent={getTotalOutreachCount()} 
+                       color="warning" 
+                       max={99}
+                       sx={{ 
+                         ml: 0.5,
+                         '& .MuiBadge-badge': {
+                           fontSize: '0.75rem',
+                           height: 18,
+                           minWidth: 18,
+                           borderRadius: '9px'
+                         }
+                       }}
+                     />
+                   )}
+                 </Box>
+               }
+             />
+           )}
+         </Tabs>
+       </Box>
 
-        {/* Notifications */}
-        <Snackbar
-          open={notification.open}
-          autoHideDuration={6000}
-          onClose={() => setNotification({ ...notification, open: false })}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        >
-          <Alert
-            onClose={() => setNotification({ ...notification, open: false })}
-            severity={notification.severity}
-            variant="filled"
-            sx={{ borderRadius: 2 }}
-          >
-            {notification.message}
-          </Alert>
-        </Snackbar>
+       {/* Tab Content */}
+       <TabPanel value={activeTab} index={0}>
+         {/* Search Tab - UPDATED WITH NEW FILTER PROPS */}
+         <Box>
+           <RecruiterSearch
+             ref={searchRef}
+             onSearchResults={handleSearchResults}
+             onLoading={handleSearchLoading}
+             onError={handleSearchError}
+             onSearchStateChange={setHasSearched}
+             showUnlockedOnly={showUnlockedOnly}
+             onShowUnlockedOnlyChange={handleShowUnlockedOnlyChange}
+           />
+           
+           <RecruiterList
+             searchResults={searchResults}
+             loading={searchLoading}
+             error={searchError}
+             hasSearched={hasSearched}
+             onViewDetails={handleViewRecruiterDetails}
+             onStartOutreach={handleStartOutreach}
+             onLoadMore={handleLoadMore}
+             onPageChange={handlePageChange}
+             onRecruiterUnlocked={handleRecruiterUnlocked}
+           />
+         </Box>
+       </TabPanel>
 
-        {/* Removed Floating Action Button - conflicts with AI Assistant widget */}
-      </Container>
-    </MainLayout>
-  );
+       {/* Only render Outreach tab for paid users */}
+       {!isFreePlan && (
+         <TabPanel value={activeTab} index={1}>
+           {/* Outreach Tab */}
+           <OutreachTracker
+             campaigns={outreachCampaigns}
+             loading={outreachLoading}
+             onRefresh={loadOutreachCampaigns}
+             onViewRecruiter={handleViewRecruiterDetails}
+             onEditCampaign={(campaign) => {
+               // Handle editing existing campaign
+               setSelectedRecruiter(campaign.recruiter);
+               setShowOutreachComposer(true);
+             }}
+           />
+         </TabPanel>
+       )}
+
+       {/* Dialogs */}
+       <RecruiterDetails
+         open={showRecruiterDetails}
+         onClose={() => {
+           setShowRecruiterDetails(false);
+           setSelectedRecruiter(null);
+         }}
+         recruiterId={selectedRecruiter?.id}
+         onStartOutreach={handleStartOutreach}
+       />
+
+       {/* Only show outreach composer for paid users */}
+       {!isFreePlan && (
+         <OutreachComposer
+           open={showOutreachComposer}
+           onClose={() => {
+             setShowOutreachComposer(false);
+             setSelectedRecruiter(null);
+           }}
+           recruiter={selectedRecruiter}
+           onSend={handleSendOutreach}
+           onSave={handleSaveOutreach}
+         />
+       )}
+
+       {/* Notifications */}
+       <Snackbar
+         open={notification.open}
+         autoHideDuration={6000}
+         onClose={() => setNotification({ ...notification, open: false })}
+         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+       >
+         <Alert
+           onClose={() => setNotification({ ...notification, open: false })}
+           severity={notification.severity}
+           variant="filled"
+           sx={{ borderRadius: 2 }}
+         >
+           {notification.message}
+         </Alert>
+       </Snackbar>
+     </Container>
+   </MainLayout>
+ );
 };
 
 export default RecruiterPage;

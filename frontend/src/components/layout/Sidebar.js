@@ -1,4 +1,4 @@
-// frontend/src/components/layout/Sidebar.js - UPDATED TO OPEN UPGRADE PROMPT DIALOG
+// frontend/src/components/layout/Sidebar.js - UPDATED TO ALLOW FREE USER ACCESS TO RECRUITER OUTREACH
 import React, { useContext, useState } from 'react';
 import { 
   Box, 
@@ -70,7 +70,7 @@ const Sidebar = ({ open, onClose }) => {
   const [openSubMenu, setOpenSubMenu] = React.useState('');
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
 
-  // Navigation items with subscription awareness - REMOVED AI ASSISTANT
+  // Navigation items with subscription awareness - UPDATED: FREE USERS CAN ACCESS RECRUITER OUTREACH
   const getNavItems = () => {
     const baseItems = [
       { 
@@ -119,15 +119,11 @@ const Sidebar = ({ open, onClose }) => {
         path: '/recruiters',
         icon: <PeopleIcon />,
         color: '#00c4b4',
-        available: hasFeatureAccess('recruiterAccess'),
-        requiresPlan: 'casual',
-        featureName: 'Recruiter Access',
-        usageFeature: 'recruiterUnlocks'
+        available: true, // CHANGED: Now available for all users including Free
+        usageFeature: isFreePlan ? null : 'recruiterUnlocks', // Only show usage for paid plans
+        showLimitedBadge: isFreePlan // Show "Limited" badge for free users
       }
     ];
-
-    // NOTE: AI Assistant menu item has been completely removed
-    // Previously it was added here for Hunter users, but per requirements it should not appear in navigation
 
     return baseItems;
   };
@@ -338,7 +334,22 @@ const Sidebar = ({ open, onClose }) => {
                               }}
                             />
                           )}
-                          {item.usageFeature && item.available && (
+                          {/* NEW: Show "Limited" badge for free users on recruiter outreach */}
+                          {item.showLimitedBadge && (
+                            <Chip
+                              label="Limited"
+                              size="small"
+                              sx={{
+                                height: 18,
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                backgroundColor: '#ff980020',
+                                color: '#ff9800',
+                                border: `1px solid #ff980040`
+                              }}
+                            />
+                          )}
+                          {item.usageFeature && item.available && !item.showLimitedBadge && (
                             <Chip
                               label={getUsageDisplay(item.usageFeature)}
                               size="small"
@@ -436,7 +447,22 @@ const Sidebar = ({ open, onClose }) => {
                               }}
                             />
                           )}
-                          {item.usageFeature && item.available && (
+                          {/* NEW: Show "Limited" badge for free users on recruiter outreach */}
+                          {item.showLimitedBadge && (
+                            <Chip
+                              label="Limited"
+                              size="small"
+                              sx={{
+                                height: 18,
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                backgroundColor: '#ff980020',
+                                color: '#ff9800',
+                                border: `1px solid #ff980040`
+                              }}
+                            />
+                          )}
+                          {item.usageFeature && item.available && !item.showLimitedBadge && (
                             <Chip
                               label={getUsageDisplay(item.usageFeature)}
                               size="small"
@@ -570,7 +596,7 @@ const Sidebar = ({ open, onClose }) => {
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
                 {isFreePlan 
-                  ? 'Access recruiter database and AI job discovery'
+                  ? 'Access full recruiter database and AI job discovery'
                   : 'Get unlimited access and AI assistant'
                 }
               </Typography>

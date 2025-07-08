@@ -1,14 +1,11 @@
-// backend/services/subscription.service.js - FIXED TO USE STRIPE'S AUTHORITATIVE DATES
-// test
+// backend/services/subscription.service.js - UPDATED PLAN LIMITS FOR FREE USERS
 const User = require('../models/mongodb/user.model');
 const db = require('../config/postgresql');
 const stripeService = require('./stripe.service');
 
 class SubscriptionService {
   /**
-   * FIXED: Get user's current subscription with authoritative Stripe dates
-   * @param {string} userId - User ID
-   * @returns {Object} Subscription details with fresh Stripe dates
+   * Get user's current subscription with updated plan limits for free users
    */
   async getCurrentSubscription(userId) {
     try {
@@ -33,14 +30,17 @@ class SubscriptionService {
 
       const subscription = subscriptionQuery.rows[0];
 
-      // 🎯 CRITICAL FIX: Always get fresh authoritative dates from Stripe for paid plans
+      // 🔓 UPDATED: Get plan limits with free user recruiter access
+      const planLimits = this.getUpdatedPlanLimits(user.subscriptionTier);
+      const usageStats = user.getUsageStats();
+
+      // Get fresh Stripe data for paid users
       let enhancedUser = { ...user.toObject() };
       
       if (enhancedUser.subscriptionTier !== 'free' && enhancedUser.stripeCustomerId) {
         try {
           console.log(`🔄 Getting authoritative billing dates from Stripe for user ${userId}...`);
           
-          // Get fresh subscription data directly from Stripe
           const freshData = await stripeService.getFreshSubscriptionData(userId);
           
           if (freshData && freshData.current_period_end && freshData.current_period_start) {
@@ -52,7 +52,6 @@ class SubscriptionService {
               console.log(`   Start: ${authoritativeStartDate.toISOString()}`);
               console.log(`   End: ${authoritativeEndDate.toISOString()}`);
               
-              // Update our database with authoritative dates
               await User.findByIdAndUpdate(userId, {
                 subscriptionStartDate: authoritativeStartDate,
                 subscriptionEndDate: authoritativeEndDate,
@@ -60,28 +59,18 @@ class SubscriptionService {
                 cancelAtPeriodEnd: freshData.cancel_at_period_end
               });
               
-              // Use the authoritative dates
               enhancedUser.subscriptionStartDate = authoritativeStartDate;
               enhancedUser.subscriptionEndDate = authoritativeEndDate;
               enhancedUser.subscriptionStatus = freshData.status;
               enhancedUser.cancelAtPeriodEnd = freshData.cancel_at_period_end;
               
               console.log(`📅 Updated user with authoritative Stripe dates`);
-            } else {
-              console.warn(`⚠️ Could not parse Stripe dates for user ${userId}`);
             }
-          } else {
-            console.warn(`⚠️ No fresh period dates from Stripe for user ${userId}`);
           }
         } catch (stripeError) {
           console.error(`❌ Error fetching authoritative dates from Stripe: ${stripeError.message}`);
-          // Continue with existing dates but log the issue
         }
       }
-
-      // Get plan limits and usage
-      const planLimits = user.getPlanLimits();
-      const usageStats = user.getUsageStats();
 
       // Format dates properly for frontend
       if (enhancedUser.subscriptionEndDate) {
@@ -115,6 +104,52 @@ class SubscriptionService {
       console.error('Error getting current subscription:', error);
       throw new Error('Failed to get subscription: ' + error.message);
     }
+  }
+
+  /**
+   * 🔓 NEW: Get updated plan limits that allow free users basic recruiter access
+   */
+  getUpdatedPlanLimits(subscriptionTier) {
+    const UPDATED_PLAN_LIMITS = {
+      free: {
+        resumeUploads: 1,
+        resumeAnalysis: 1,
+        jobImports: 3,
+        resumeTailoring: 1,
+        recruiterAccess: true, // 🔓 CHANGED: Now true for free users (basic access)
+        recruiterUnlocks: 0,   // Still 0 - they can browse but not unlock
+        aiJobDiscovery: false,
+        aiAssistant: false,
+        aiConversations: 0,
+        aiMessagesPerConversation: 0
+      },
+      casual: {
+        resumeUploads: 5,
+        resumeAnalysis: 5,
+        jobImports: 25,
+        resumeTailoring: 25,
+        recruiterAccess: true,
+        recruiterUnlocks: 25,
+        aiJobDiscovery: true, // can create/schedule 1 AI job discovery
+        aiAssistant: false,
+        aiConversations: 0,
+        aiMessagesPerConversation: 0
+      },
+      hunter: {
+        resumeUploads: -1, // unlimited
+        resumeAnalysis: -1, // unlimited
+        jobImports: -1, // unlimited
+        resumeTailoring: 50,
+        recruiterAccess: true,
+        recruiterUnlocks: -1, // unlimited
+        aiJobDiscovery: -1, // unlimited
+        aiAssistant: true,
+        aiConversations: 5,
+        aiMessagesPerConversation: 20
+      }
+    };
+
+    return UPDATED_PLAN_LIMITS[subscriptionTier] || UPDATED_PLAN_LIMITS.free;
   }
 
   /**
@@ -440,8 +475,8 @@ class SubscriptionService {
     }
   }
 
-/**
-   * FIXED: Get user's billing history with enhanced Stripe data
+  /**
+   * Get user's billing history with enhanced Stripe data
    * @param {string} userId - User ID
    * @param {number} limit - Number of records to return
    * @returns {Object} Billing history with enhanced data
@@ -597,7 +632,7 @@ class SubscriptionService {
   }
 
   /**
-   * FIXED: Sync subscription status with authoritative Stripe dates
+   * Sync subscription status with authoritative Stripe dates
    * @param {string} userId - User ID
    * @returns {Object} Updated subscription status
    */
@@ -718,7 +753,7 @@ class SubscriptionService {
   }
 
   /**
-   * FIXED: Get subscription with authoritative Stripe data
+   * Get subscription with authoritative Stripe data
    * @param {string} userId - User ID
    * @returns {Object} Subscription with authoritative dates
    */
@@ -835,162 +870,6 @@ class SubscriptionService {
     } catch (error) {
       console.error('Error fixing subscription data:', error);
       throw new Error('Failed to fix subscription data: ' + error.message);
-    }
-  }
-
-  /**
-   * ADMIN: Get subscription health dashboard data
-   * @returns {Object} Health dashboard data
-   */
-  async getSubscriptionHealthDashboard() {
-    try {
-      // Get counts by subscription tier
-      const tierCounts = await User.aggregate([
-        {
-          $group: {
-            _id: '$subscriptionTier',
-            count: { $sum: 1 }
-          }
-        }
-      ]);
-
-      // Get users with missing billing dates
-      const missingDates = await User.countDocuments({
-        subscriptionTier: { $in: ['casual', 'hunter'] },
-        $or: [
-          { subscriptionEndDate: null },
-          { subscriptionEndDate: { $exists: false } }
-        ]
-      });
-
-      // Get expired subscriptions
-      const expiredSubs = await User.countDocuments({
-        subscriptionTier: { $in: ['casual', 'hunter'] },
-        subscriptionEndDate: { $lt: new Date() }
-      });
-
-      // Get recent payments
-      const recentPayments = await db.query(`
-        SELECT COUNT(*) as count, SUM(amount) as total_amount
-        FROM payment_history 
-        WHERE created_at >= NOW() - INTERVAL '30 days'
-        AND status = 'succeeded'
-      `);
-
-      // Get webhook health
-      const webhookHealth = await db.query(`
-        SELECT 
-          COUNT(*) as total_webhooks,
-          SUM(CASE WHEN processed = true THEN 1 ELSE 0 END) as processed_webhooks,
-          SUM(CASE WHEN error_message IS NOT NULL THEN 1 ELSE 0 END) as failed_webhooks
-        FROM webhook_events 
-        WHERE created_at >= NOW() - INTERVAL '7 days'
-      `);
-
-      return {
-        tierDistribution: tierCounts,
-        healthMetrics: {
-          totalUsers: tierCounts.reduce((sum, tier) => sum + tier.count, 0),
-          paidUsers: tierCounts.filter(t => t._id !== 'free').reduce((sum, tier) => sum + tier.count, 0),
-          freeUsers: tierCounts.find(t => t._id === 'free')?.count || 0,
-          usersWithMissingDates: missingDates,
-          expiredSubscriptions: expiredSubs,
-          dataIntegrityScore: Math.max(0, 100 - (missingDates * 10) - (expiredSubs * 5))
-        },
-        recentActivity: {
-          paymentsLast30Days: parseInt(recentPayments.rows[0]?.count || 0),
-          revenueLast30Days: parseFloat(recentPayments.rows[0]?.total_amount || 0)
-        },
-        webhookHealth: {
-          totalWebhooks: parseInt(webhookHealth.rows[0]?.total_webhooks || 0),
-          processedWebhooks: parseInt(webhookHealth.rows[0]?.processed_webhooks || 0),
-          failedWebhooks: parseInt(webhookHealth.rows[0]?.failed_webhooks || 0),
-          successRate: webhookHealth.rows[0]?.total_webhooks > 0 
-            ? (parseInt(webhookHealth.rows[0]?.processed_webhooks || 0) / parseInt(webhookHealth.rows[0]?.total_webhooks || 0)) * 100
-            : 100
-        }
-      };
-    } catch (error) {
-      console.error('Error getting subscription health dashboard:', error);
-      throw new Error('Failed to get health dashboard: ' + error.message);
-    }
-  }
-
-  /**
-   * UTILITY: Bulk fix subscription data for multiple users
-   * @param {Array} userIds - Array of user IDs (optional)
-   * @returns {Object} Bulk fix results
-   */
-  async bulkFixSubscriptionData(userIds = null) {
-    try {
-      console.log('🔧 Starting bulk subscription data fix with authoritative Stripe dates...');
-
-      let targetUsers;
-      if (userIds && userIds.length > 0) {
-        targetUsers = userIds;
-      } else {
-        // Find all users with potential issues
-        const usersWithIssues = await User.find({
-          $or: [
-            {
-              subscriptionTier: { $in: ['casual', 'hunter'] },
-              subscriptionEndDate: null
-            },
-            {
-              subscriptionTier: { $in: ['casual', 'hunter'] },
-              subscriptionEndDate: { $exists: false }
-            },
-            {
-              subscriptionTier: { $in: ['casual', 'hunter'] },
-              stripeCustomerId: null
-            }
-          ]
-        }).select('_id');
-
-        targetUsers = usersWithIssues.map(user => user._id.toString());
-      }
-
-      console.log(`📊 Found ${targetUsers.length} users to process`);
-
-      const results = {
-        total: targetUsers.length,
-        fixed: 0,
-        failed: 0,
-        details: []
-      };
-
-      for (const userId of targetUsers) {
-        try {
-          console.log(`🔄 Processing user ${userId}...`);
-          
-          const fixResult = await this.fixSubscriptionData(userId);
-          
-          results.fixed++;
-          results.details.push({
-            userId,
-            status: 'success',
-            result: fixResult
-          });
-
-          console.log(`✅ Fixed subscription data for user ${userId}`);
-        } catch (userError) {
-          console.error(`❌ Failed to fix user ${userId}:`, userError.message);
-          
-          results.failed++;
-          results.details.push({
-            userId,
-            status: 'failed',
-            error: userError.message
-          });
-        }
-      }
-
-      console.log(`🎉 Bulk fix completed: ${results.fixed} fixed, ${results.failed} failed`);
-      return results;
-
-    } catch (error) {
-      console.error('Error in bulk fix:', error);
-      throw new Error('Failed to bulk fix subscription data: ' + error.message);
     }
   }
 }

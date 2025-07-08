@@ -256,7 +256,7 @@ userSchema.methods.getPlanLimits = function() {
       resumeAnalysis: 1,
       jobImports: 3,
       resumeTailoring: 1,
-      recruiterAccess: false,
+      recruiterAccess: true,
       recruiterUnlocks: 0,
       aiJobDiscovery: false,
       aiAssistant: false,
