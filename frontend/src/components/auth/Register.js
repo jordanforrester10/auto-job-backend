@@ -507,13 +507,23 @@ const Register = () => {
               }}
             >
               By creating an account, you agree to our{' '}
-              <Link to="/terms" style={{ color: 'inherit', textDecoration: 'underline' }}>
+              <a 
+                href="https://auto-job.ai/terms" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ color: 'inherit', textDecoration: 'underline' }}
+              >
                 Terms of Service
-              </Link>
+              </a>
               {' '}and{' '}
-              <Link to="/privacy" style={{ color: 'inherit', textDecoration: 'underline' }}>
+              <a 
+                href="https://auto-job.ai/privacy" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ color: 'inherit', textDecoration: 'underline' }}
+              >
                 Privacy Policy
-              </Link>
+              </a>
             </Typography>
             <Box sx={{ 
               display: 'flex', 

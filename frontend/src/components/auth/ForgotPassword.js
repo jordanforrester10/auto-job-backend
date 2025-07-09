@@ -342,9 +342,14 @@ const ForgotPassword = () => {
                   color="text.secondary"
                   sx={{ fontSize: '0.75rem' }}
                 >
-                  <Link to="/help" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                  <a 
+                    href="https://auto-job.ai/contact" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ color: 'inherit', textDecoration: 'underline' }}
+                  >
                     Contact Support
-                  </Link>
+                  </a>
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

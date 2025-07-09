@@ -336,7 +336,7 @@ const Login = () => {
                   color="text.secondary"
                   sx={{ fontSize: '0.75rem' }}
                 >
-                  Bank-Level Security
+                  Enterprise Grade
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
