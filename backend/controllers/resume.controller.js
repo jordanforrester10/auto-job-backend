@@ -1,4 +1,4 @@
-// controllers/resume.controller.js - UPDATED WITH FEATURE GATING
+// controllers/resume.controller.js - UPDATED WITH JOB SUGGESTIONS ENDPOINT
 const { PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { s3Client, S3_BUCKET } = require('../config/s3');
@@ -627,6 +627,226 @@ exports.getResumeById = async (req, res) => {
     console.error('Error fetching resume:', error);
     res.status(500).json({ message: 'Failed to fetch resume', error: error.message });
   }
+};
+
+// NEW: Get AI-generated job suggestions based on resume analysis
+exports.getJobSuggestions = async (req, res) => {
+  try {
+    const { id: resumeId } = req.params;
+    const userId = req.user?._id || req.userId;
+
+    console.log(`🔍 Generating job suggestions for resume ${resumeId}, user ${userId}`);
+
+    // Get the resume with analysis
+    const resume = await Resume.findOne({ 
+      _id: resumeId, 
+      userId: userId 
+    });
+
+    if (!resume) {
+      return res.status(404).json({
+        success: false,
+        message: 'Resume not found'
+      });
+    }
+
+    // Check if resume has been analyzed
+    if (!resume.analysis || !resume.parsedData) {
+      return res.status(400).json({
+        success: false,
+        message: 'Resume must be analyzed before generating job suggestions'
+      });
+    }
+
+    // Extract key information from resume analysis
+    const analysis = resume.analysis;
+    const parsedData = resume.parsedData;
+    
+    // Prepare data for AI analysis
+    const resumeContext = {
+      skills: parsedData.skills || [],
+      experience: parsedData.experience || [],
+      education: parsedData.education || [],
+      jobTitles: parsedData.jobTitles || [],
+      industries: parsedData.industries || [],
+      experienceLevel: analysis.experienceLevel || 'Mid-level',
+      keySkills: parsedData.keySkills || [],
+      techStack: parsedData.techStack || []
+    };
+
+    // Generate AI-powered job suggestions
+    const jobSuggestions = await generateJobSuggestions(resumeContext);
+
+    console.log(`✅ Generated ${jobSuggestions.length} job suggestions for resume ${resumeId}`);
+
+    res.json({
+      success: true,
+      suggestions: jobSuggestions,
+      metadata: {
+        basedOn: {
+          skills: resumeContext.skills.length,
+          experience: resumeContext.experience.length,
+          experienceLevel: resumeContext.experienceLevel
+        },
+        generatedAt: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error generating job suggestions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate job suggestions',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+/**
+ * AI service function to generate job suggestions
+ */
+const generateJobSuggestions = async (resumeContext) => {
+  try {
+    const { openai } = require('../config/openai');
+    
+    // Create a prompt for job suggestions based on resume context
+    const prompt = `Based on the following resume profile, suggest 6-8 specific job titles that would be excellent matches. Focus on realistic, current job market positions.
+
+Resume Profile:
+- Experience Level: ${resumeContext.experienceLevel}
+- Key Skills: ${resumeContext.keySkills.slice(0, 10).join(', ')}
+- Tech Stack: ${resumeContext.techStack.slice(0, 8).join(', ')}
+- Previous Job Titles: ${resumeContext.jobTitles.slice(0, 3).join(', ')}
+- Industries: ${resumeContext.industries.slice(0, 2).join(', ')}
+
+Requirements:
+1. Suggest job titles that match the experience level
+2. Consider the technical skills and tech stack
+3. Include both current role types and potential growth opportunities
+4. Focus on job titles that are actively hiring in 2024-2025
+5. Return ONLY the job titles, one per line, no bullets or numbers
+6. Keep titles concise and industry-standard
+
+Example good suggestions for different levels:
+- Junior: "Junior Software Developer", "Frontend Developer", "Associate Data Analyst"
+- Mid: "Senior Software Engineer", "Full Stack Developer", "Technical Lead"
+- Senior: "Principal Engineer", "Engineering Manager", "Solutions Architect"`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert career counselor and recruiter with deep knowledge of the current job market. Provide specific, realistic job title suggestions."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      max_tokens: 300,
+      temperature: 0.7
+    });
+
+    const suggestions = completion.choices[0].message.content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.match(/^\d+\./) && !line.startsWith('-'))
+      .slice(0, 8); // Limit to 8 suggestions
+
+    // If AI fails or returns too few suggestions, provide smart fallbacks
+    if (suggestions.length < 3) {
+      return getSmartFallbackSuggestions(resumeContext);
+    }
+
+    return suggestions;
+
+  } catch (error) {
+    console.error('❌ Error with AI job suggestions:', error);
+    // Return smart fallback suggestions if AI fails
+    return getSmartFallbackSuggestions(resumeContext);
+  }
+};
+
+/**
+ * Generate smart fallback suggestions based on resume context
+ */
+const getSmartFallbackSuggestions = (resumeContext) => {
+  const { experienceLevel, keySkills, techStack, jobTitles } = resumeContext;
+  
+  // Determine if technical or non-technical role
+  const techSkills = [...(keySkills || []), ...(techStack || [])];
+  const isTechnical = techSkills.some(skill => 
+    ['javascript', 'python', 'react', 'node', 'sql', 'aws', 'docker', 'kubernetes', 'java', 'c++', 'html', 'css'].includes(skill.toLowerCase())
+  );
+  
+  // Determine seniority level
+  const isEntry = experienceLevel?.toLowerCase().includes('entry') || experienceLevel?.toLowerCase().includes('junior');
+  const isSenior = experienceLevel?.toLowerCase().includes('senior') || experienceLevel?.toLowerCase().includes('principal');
+  
+  let suggestions = [];
+  
+  if (isTechnical) {
+    if (isEntry) {
+      suggestions = [
+        'Junior Software Developer',
+        'Frontend Developer',
+        'Backend Developer',
+        'Web Developer',
+        'Software Engineer I',
+        'Associate Software Engineer'
+      ];
+    } else if (isSenior) {
+      suggestions = [
+        'Senior Software Engineer',
+        'Principal Software Engineer',
+        'Technical Lead',
+        'Software Architect',
+        'Engineering Manager',
+        'Staff Software Engineer'
+      ];
+    } else {
+      suggestions = [
+        'Software Engineer',
+        'Full Stack Developer',
+        'Senior Software Developer',
+        'Backend Engineer',
+        'Frontend Engineer',
+        'Software Developer'
+      ];
+    }
+  } else {
+    if (isEntry) {
+      suggestions = [
+        'Business Analyst',
+        'Project Coordinator',
+        'Marketing Associate',
+        'Sales Representative',
+        'Data Analyst',
+        'Operations Associate'
+      ];
+    } else if (isSenior) {
+      suggestions = [
+        'Senior Business Analyst',
+        'Project Manager',
+        'Operations Manager',
+        'Marketing Manager',
+        'Sales Manager',
+        'Director of Operations'
+      ];
+    } else {
+      suggestions = [
+        'Business Analyst',
+        'Project Manager',
+        'Operations Specialist',
+        'Marketing Specialist',
+        'Account Manager',
+        'Business Operations'
+      ];
+    }
+  }
+  
+  return suggestions.slice(0, 6);
 };
 
 // Optimize resume for ATS with real-time progress via SSE

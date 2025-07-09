@@ -30,6 +30,8 @@ router.post('/versions/:id', upload.single('file'), resumeController.addResumeVe
 router.post('/tailor/:resumeId/:jobId', resumeController.createTailoredResume);
 router.delete('/:id', resumeController.deleteResume);
 
+router.get('/:id/job-suggestions', resumeController.getJobSuggestions);
+
 // Generic /:id route LAST
 router.get('/:id', resumeController.getResumeById);
 
