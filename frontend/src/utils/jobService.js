@@ -1,4 +1,4 @@
-// src/utils/jobService.js - Updated with Analysis Status Polling
+// src/utils/jobService.js - Updated with getTotalJobCount for onboarding flow
 import api from './axios';
 
 const jobService = {
@@ -32,6 +32,17 @@ const jobService = {
     } catch (error) {
       console.error('Error fetching user jobs:', error);
       throw error;
+    }
+  },
+
+  // NEW: Get total count of jobs for the current user (both manual and AI-discovered)
+  getTotalJobCount: async () => {
+    try {
+      const jobs = await jobService.getAllJobs();
+      return jobs ? jobs.length : 0;
+    } catch (error) {
+      console.error('Error getting total job count:', error);
+      return 0;
     }
   },
 

@@ -1,5 +1,6 @@
-// src/components/jobs/JobsPage.js - Enhanced with Collapsible Usage Summary
+// src/components/jobs/JobsPage.js - Enhanced with auto-open dialog from resume onboarding
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { 
   Box, 
   Typography, 
@@ -402,6 +403,7 @@ function TabPanel(props) {
 const JobsPage = () => {
   const theme = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
   const { 
     subscription, 
     usage, 
@@ -431,7 +433,7 @@ const JobsPage = () => {
   const [pollingJobs, setPollingJobs] = useState(new Set());
   const [allResumes, setAllResumes] = useState([]);
   
-  // NEW: State for collapsible usage summary
+  // State for collapsible usage summary
   const [usageSummaryExpanded, setUsageSummaryExpanded] = useState(false);
 
   // Safe AutoJobLogo wrapper component
@@ -449,6 +451,15 @@ const JobsPage = () => {
       return <SmartToyIcon sx={{ fontSize: size === 'small' ? 16 : 20 }} />;
     }
   };
+
+  // NEW: Check if coming from resume onboarding
+  useEffect(() => {
+    if (location.state?.openCreateDialog) {
+      setOpenCreateDialog(true);
+      // Clear the state so back button doesn't reopen dialog
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.state, navigate, location.pathname]);
 
   useEffect(() => {
     fetchJobs();
@@ -486,7 +497,7 @@ const JobsPage = () => {
     try {
       const resumesData = await resumeService.getUserResumes();
       setActiveResumes(resumesData.filter(r => r.isActive) || []);
-      setAllResumes(resumesData || []); // Add this line
+      setAllResumes(resumesData || []);
     } catch (err) {
       console.error('Error fetching active resumes:', err);
     }
@@ -559,7 +570,7 @@ const JobsPage = () => {
     setOpenCreateDialog(false);
   };
 
-  // UPDATED: Handle AI job discovery with plan-based restrictions
+  // Handle AI job discovery with plan-based restrictions
   const handleOpenFindJobsDialog = () => {
     const currentPlan = subscription?.subscriptionTier || 'free';
     
@@ -668,7 +679,7 @@ const JobsPage = () => {
     setOpenAiDiscoveryLimitDialog(false);
   };
 
-  // NEW: Toggle usage summary expanded state
+  // Toggle usage summary expanded state
   const toggleUsageSummary = () => {
     setUsageSummaryExpanded(!usageSummaryExpanded);
   };
@@ -679,7 +690,7 @@ const JobsPage = () => {
   const isApproachingLimit = usagePercentage >= 80;
   const isAtLimit = usagePercentage >= 100;
 
-  // NEW: Calculate AI discovery usage and restrictions
+  // Calculate AI discovery usage and restrictions
   const aiDiscoveryUsage = usage?.aiJobDiscovery || { used: 0, limit: planLimits?.aiJobDiscovery || 0 };
   const aiDiscoveryPercentage = getUsagePercentage('aiJobDiscovery');
   const isAiDiscoveryAtLimit = planLimits?.aiJobDiscovery !== -1 && aiDiscoveryUsage.used >= aiDiscoveryUsage.limit;
@@ -692,7 +703,7 @@ const JobsPage = () => {
     return 'success';
   };
 
-  // NEW: Get AI discovery button state and tooltip
+  // Get AI discovery button state and tooltip
   const getAiDiscoveryButtonState = () => {
     if (currentPlan === 'free') {
       return {
@@ -724,7 +735,7 @@ const JobsPage = () => {
 
   const aiDiscoveryButtonState = getAiDiscoveryButtonState();
 
-  // UPDATED: Render usage card with collapsible functionality
+  // Render usage card with collapsible functionality
   const renderUsageCard = () => (
     <Card 
       sx={{ 
@@ -834,10 +845,10 @@ const JobsPage = () => {
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   <strong>Upgrade for more capacity:</strong>
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  • <strong>Casual Plan ($19.99/month):</strong> 25 job imports, 1 AI job discovery<br/>
-                  • <strong>Hunter Plan ($34.99/month):</strong> Unlimited job imports & AI discoveries
-                </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    • <strong>Casual Plan ($19.99/month):</strong> 25 job imports, 1 AI job discovery<br/>
+                    • <strong>Hunter Plan ($34.99/month):</strong> Unlimited job imports & AI discoveries
+                  </Typography>
                 <Button
                   variant="outlined"
                   size="small"
@@ -876,7 +887,7 @@ const JobsPage = () => {
         <Typography variant="h5" gutterBottom fontWeight={600}>
           Find Your Perfect Job Match
         </Typography>
-<Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 560, lineHeight: 1.5 }}>
+        <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 560, lineHeight: 1.5 }}>
           Add jobs manually or let our AI find opportunities that match your resume.
           Our platform will help you analyze matches, tailor your application materials,
           and track your job search progress.
@@ -924,12 +935,12 @@ const JobsPage = () => {
             </span>
           </Tooltip>
         </Box>
-          {allResumes.length === 0 && (
-            <Alert severity="info" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
-              You need at least one resume to use the AI job search feature.
-              Please upload a resume first.
-            </Alert>
-          )}
+        {allResumes.length === 0 && (
+          <Alert severity="info" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
+            You need at least one resume to use the AI job search feature.
+            Please upload a resume first.
+          </Alert>
+        )}
         {currentPlan === 'free' && (
           <Alert severity="warning" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
             <strong>Upgrade to unlock AI Job Discovery:</strong> Let our AI agent find relevant job opportunities automatically.
@@ -1061,7 +1072,8 @@ const JobsPage = () => {
           startIcon={<RefreshIcon />} 
           onClick={fetchJobs}
           sx={{ textTransform: 'none' }}
-        >Try Again
+        >
+          Try Again
         </Button>
         <Button 
           variant="contained" 
@@ -1080,7 +1092,6 @@ const JobsPage = () => {
   const renderJobGrid = (filteredJobs) => (
     <Grid container spacing={3} sx={{ mt: 1 }}>
       {filteredJobs.map((job) => {
-        // FIXED: Use the helper function to get consistent status
         const analysisStatus = getJobAnalysisStatus(job);
         const canView = analysisStatus.canViewJob;
         const isAnalyzing = analysisStatus.status === 'analyzing' || analysisStatus.status === 'pending';
@@ -1100,7 +1111,6 @@ const JobsPage = () => {
                 boxShadow: '0 8px 24px rgba(0,0,0,0.12)'
               } : {}
             }}>
-              {/* FIXED: Only show analysis overlay for jobs that are actually being analyzed */}
               {isAnalyzing && (
                 <Box
                   sx={{
@@ -1123,7 +1133,6 @@ const JobsPage = () => {
                 </Box>
               )}
 
-              {/* Discovered Badge */}
               {job.isAiGenerated && (
                 <Chip 
                   icon={<SafeAutoJobLogo size="small" sx={{ '& svg': { width: 12, height: 12 } }} />}
@@ -1167,7 +1176,6 @@ const JobsPage = () => {
                 </Typography>
                 <Divider sx={{ my: 2 }} />
                 
-                {/* FIXED: Only show progress for jobs that are actually being analyzed */}
                 {isAnalyzing && (
                   <Box sx={{ mb: 2 }}>
                     <JobAnalysisStatus 
@@ -1179,7 +1187,6 @@ const JobsPage = () => {
                   </Box>
                 )}
                 
-                {/* Match Score - FIXED: Only show for completed analysis */}
                 {job.matchAnalysis && job.matchAnalysis.overallScore && analysisStatus.status === 'completed' && (
                   <Box sx={{ mt: 2, mb: 3 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
@@ -1223,7 +1230,7 @@ const JobsPage = () => {
                     />
                     {job.salary?.min && (
                       <Chip 
-                        label={`${job.salary.currency || '$'}${job.salary.min}${job.salary.max ? ` - ${job.salary.max}` : '+'}`} 
+                        label={(job.salary.currency || '$') + job.salary.min + (job.salary.max ? (' - ' + job.salary.max) : '+')}
                         size="small" 
                         variant="outlined" 
                         color="success"
@@ -1244,7 +1251,7 @@ const JobsPage = () => {
                   title={!canView ? "Analysis in progress - please wait" : "View job details"}
                   arrow
                 >
-                  <span> {/* Span wrapper needed for disabled button tooltip */}
+                  <span>
                     <Button 
                       size="small" 
                       color="primary" 
@@ -1365,13 +1372,13 @@ const JobsPage = () => {
 
   const filteredJobs = getFilteredJobs();
 
-  // FIXED: Count jobs by analysis status using the helper function
+  // Count jobs by analysis status using the helper function
   const analyzingCount = jobs.filter(job => {
     const status = getJobAnalysisStatus(job);
     return status.status === 'analyzing' || status.status === 'pending';
   }).length;
 
-  // NEW: AI Discovery Limit Dialog Component
+  // AI Discovery Limit Dialog Component
   const AiDiscoveryLimitDialog = () => (
     <Dialog 
       open={openAiDiscoveryLimitDialog} 
@@ -1503,7 +1510,7 @@ const JobsPage = () => {
           )}
         </Box>
 
-        {/* UPDATED: Only show Usage Summary when jobs exist, hide in empty state */}
+        {/* Only show Usage Summary when jobs exist, hide in empty state */}
         {!loading && !error && jobs.length > 0 && renderUsageCard()}
 
         {loading ? (

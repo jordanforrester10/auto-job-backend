@@ -31,11 +31,15 @@ import {
   Lock as LockIcon,
   Warning as WarningIcon
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom'; // ADD THIS IMPORT
 import resumeService from '../../utils/resumeService';
+import jobService from '../../utils/jobService'; // ADD THIS IMPORT
 import { useSubscription } from '../../context/SubscriptionContext';
 import UpgradePrompt from '../subscription/shared/UpgradePrompt';
 
 const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
+  const navigate = useNavigate(); // ADD THIS
+  
   const [activeStep, setActiveStep] = useState(0);
   const [file, setFile] = useState(null);
   const [name, setName] = useState('');
@@ -59,6 +63,17 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
     planLimits,
     refreshSubscription
   } = useSubscription();
+
+  // ADD THIS: Check job count function
+  const checkJobCount = async () => {
+    try {
+      const jobs = await jobService.getAllJobs();
+      return jobs ? jobs.length : 0;
+    } catch (error) {
+      console.error('Error checking job count:', error);
+      return 0;
+    }
+  };
 
   // Clear any intervals when the component unmounts
   useEffect(() => {
@@ -284,6 +299,33 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
         try {
           // Start polling for status updates
           await resumeService.pollResumeStatus(resumeId, handleProgressUpdate, 300000);
+          
+          // ENHANCED: After processing completes, check job count and navigate accordingly
+          if (uploadComplete) {
+            const jobCount = await checkJobCount();
+            console.log('🔍 Job count after upload completion:', jobCount);
+            
+            // Call the parent callback
+            if (onResumeUploaded) {
+              onResumeUploaded(resumeId);
+            }
+            
+            // Close the dialog first
+            handleClose();
+            
+            // Navigate based on job count with slight delay to ensure dialog closes
+            setTimeout(() => {
+              if (jobCount === 0) {
+                // First-time user flow - show enhanced onboarding
+                console.log('🎯 Navigating to onboarding flow');
+                navigate(`/resumes/${resumeId}?showOnboarding=true`);
+              } else {
+                // Existing user flow - normal resume detail
+                console.log('✅ Navigating to normal resume detail');
+                navigate(`/resumes/${resumeId}`);
+              }
+            }, 300);
+          }
         } catch (pollError) {
           console.error('Error polling resume status:', pollError);
           
@@ -319,6 +361,33 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
       setCanClose(true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ENHANCED: Handle View Resume button with navigation logic
+  const handleViewResume = async () => {
+    if (resumeId) {
+      const jobCount = await checkJobCount();
+      console.log('🔍 Job count on View Resume click:', jobCount);
+      
+      // Call the parent callback
+      if (onResumeUploaded) {
+        onResumeUploaded(resumeId);
+      }
+      
+      // Close the dialog
+      handleClose();
+      
+      // Navigate based on job count
+      setTimeout(() => {
+        if (jobCount === 0) {
+          console.log('🎯 Navigating to onboarding flow from View Resume');
+          navigate(`/resumes/${resumeId}?showOnboarding=true`);
+        } else {
+          console.log('✅ Navigating to normal resume detail from View Resume');
+          navigate(`/resumes/${resumeId}`);
+        }
+      }, 300);
     }
   };
 
@@ -691,12 +760,7 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
             <>
               {(processingTimeout || uploadComplete || processingStage === 'error') && (
                 <Button 
-                  onClick={() => {
-                    handleClose();
-                    if (uploadComplete) {
-                      onResumeUploaded(resumeId);
-                    }
-                  }} 
+                  onClick={uploadComplete ? handleViewResume : handleClose} 
                   variant="contained" 
                   color="primary"
                 >

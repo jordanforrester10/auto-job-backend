@@ -1,4 +1,4 @@
-// src/components/recruiters/OutreachComposer.js - FIXED TONE OPTIONS ERROR
+// src/components/recruiters/OutreachComposer.js - PHONE FEATURES REMOVED
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -43,7 +43,6 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Email as EmailIcon,
-  Phone as PhoneIcon,
   Description as DescriptionIcon,
   Lightbulb as LightbulbIcon,
   Star as StarIcon,
@@ -82,7 +81,7 @@ const OutreachComposer = ({
   const [messageContent, setMessageContent] = useState(defaultMessage);
   const [messageType, setMessageType] = useState('introduction');
   const [tone, setTone] = useState('professional');
-  const [sentVia, setSentVia] = useState('email');
+  const [sentVia, setSentVia] = useState('email'); // PHONE REMOVED - Only email available
   const [selectedResume, setSelectedResume] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [customRequirements, setCustomRequirements] = useState('');
@@ -285,7 +284,7 @@ ${formattedEmailBody}`;
     }
   };
 
-  // FIXED: Proper data structure for status update
+  // Proper data structure for status update
   const handleStatusUpdate = async () => {
     try {
       // Validate required fields
@@ -303,12 +302,12 @@ ${formattedEmailBody}`;
       console.log('📋 Status update - Message length:', messageContent.length);
       console.log('📋 Status update - Selected status:', manualStatus);
 
-      // FIXED: Create proper outreach data structure matching the backend expectations
+      // Create proper outreach data structure matching the backend expectations
       const outreachData = {
-        recruiterId: recruiter.id, // Ensure this is set
-        messageContent: messageContent.trim(), // Ensure this is set and trimmed
+        recruiterId: recruiter.id,
+        messageContent: messageContent.trim(),
         messageTemplate: messageType,
-        sentVia: 'email', // Always email for this flow
+        sentVia: 'email', // Always email now that phone is removed
         jobId: selectedJob?._id || null,
         customizations: [],
         // Add additional fields that might be expected
@@ -318,7 +317,7 @@ ${formattedEmailBody}`;
 
       console.log('📤 Sending outreach data:', outreachData);
 
-      // FIXED: Validate the data before sending
+      // Validate the data before sending
       const validation = recruiterService.validateOutreachData(outreachData);
       if (!validation.isValid) {
         console.error('❌ Validation failed:', validation.errors);
@@ -326,7 +325,7 @@ ${formattedEmailBody}`;
         return;
       }
 
-      // FIXED: Handle different status outcomes
+      // Handle different status outcomes
       if (manualStatus === 'sent') {
         console.log('📧 Marking as sent...');
         await onSend(outreachData);
@@ -347,7 +346,7 @@ ${formattedEmailBody}`;
     } catch (error) {
       console.error('❌ Status update failed:', error);
       
-      // FIXED: Better error handling with specific messages
+      // Better error handling with specific messages
       let errorMessage = 'Failed to update status. Please try again.';
       
       if (error.response?.data?.error) {
@@ -371,70 +370,17 @@ ${formattedEmailBody}`;
     }
   };
 
-  // FIXED: Improved send handler with better error handling
+  // Improved send handler with better error handling
   const handleSend = async () => {
-    if (sentVia === 'email') {
-      handleSendViaEmail();
-      return;
-    }
-
-    // Original send logic for other methods
-    try {
-      setIsSending(true);
-      setError('');
-      
-      // FIXED: Ensure recruiter ID is present
-      if (!recruiter?.id) {
-        setError('Recruiter information is missing. Please refresh and try again.');
-        return;
-      }
-
-      if (!messageContent?.trim()) {
-        setError('Message content cannot be empty.');
-        return;
-      }
-      
-      const outreachData = {
-        recruiterId: recruiter.id,
-        messageContent: messageContent.trim(),
-        messageTemplate: messageType,
-        sentVia,
-        jobId: selectedJob?._id || null,
-        customizations: []
-      };
-
-      console.log('📤 Direct send - outreach data:', outreachData);
-
-      // Validate the outreach data
-      const validation = recruiterService.validateOutreachData(outreachData);
-      if (!validation.isValid) {
-        setError(validation.errors.join(', '));
-        return;
-      }
-
-      await onSend(outreachData);
-      handleClose();
-      
-    } catch (error) {
-      console.error('❌ Send failed:', error);
-      
-      let errorMessage = 'Failed to send message. Please try again.';
-      if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      setError(errorMessage);
-    } finally {
-      setIsSending(false);
-    }
+    // Only email is available now - always go to email preview
+    handleSendViaEmail();
+    return;
   };
 
-  // FIXED: Improved save handler
+  // Improved save handler
   const handleSave = async () => {
     try {
-      // FIXED: Validate required fields
+      // Validate required fields
       if (!recruiter?.id) {
         setError('Recruiter information is missing. Please refresh and try again.');
         return;
@@ -449,7 +395,7 @@ ${formattedEmailBody}`;
         recruiterId: recruiter.id,
         messageContent: messageContent.trim(),
         messageTemplate: messageType,
-        sentVia,
+        sentVia: 'email', // Always email now
         jobId: selectedJob?._id || null,
         customizations: []
       };
@@ -495,7 +441,7 @@ ${formattedEmailBody}`;
     onClose();
   };
 
-  // FIXED: Use synchronous methods for templates and options
+  // Use synchronous methods for templates and options
   const messageTemplates = recruiterService.getDefaultMessageTemplates();
   const toneOptions = recruiterService.getDefaultToneOptions();
 
@@ -505,12 +451,9 @@ ${formattedEmailBody}`;
     return 'primary';
   };
 
+  // PHONE REMOVED - Only email icon now
   const getSentViaIcon = (method) => {
-    switch (method) {
-      case 'email': return <EmailIcon />;
-      case 'phone': return <PhoneIcon />;
-      default: return <BusinessIcon />;
-    }
+    return <EmailIcon />;
   };
 
   const getTemplateIcon = (template) => {
@@ -533,7 +476,7 @@ ${formattedEmailBody}`;
     }
   };
 
-  // FIXED: Add debug info for troubleshooting
+  // Add debug info for troubleshooting
   console.log('🔍 OutreachComposer Debug Info:', {
     recruiterPresent: !!recruiter,
     recruiterId: recruiter?.id,
@@ -924,7 +867,7 @@ ${formattedEmailBody}`;
 
               {/* Right Column - Settings and Preview */}
               <Grid item xs={12} lg={4.5}>
-                {/* Enhanced Communication Method */}
+                {/* Communication Method - PHONE REMOVED */}
                 <Card elevation={0} sx={{ mb: 3, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                   <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
                     <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -933,47 +876,23 @@ ${formattedEmailBody}`;
                     </Typography>
                   </Box>
                   <CardContent sx={{ p: 2.5 }}>
-                    <RadioGroup
-                      value={sentVia}
-                      onChange={(e) => setSentVia(e.target.value)}
-                    >
-                      <FormControlLabel
-                        value="email"
-                        control={<Radio size="small" />}
-                        label={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
-                            <EmailIcon sx={{ color: theme.palette.primary.main, fontSize: '1rem' }} />
-                            <Box>
-                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                Email (Recommended)
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                Shows email preview with copy functionality
-                              </Typography>
-                            </Box>
-                          </Box>
-                        }
-                        disabled={!recruiter.email}
-                      />
-                      <FormControlLabel
-                        value="phone"
-                        control={<Radio size="small" />}
-                        label={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
-                            <PhoneIcon sx={{ color: theme.palette.success.main, fontSize: '1rem' }} />
-                            <Box>
-                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                Phone Call
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                Script for phone conversation
-                              </Typography>
-                            </Box>
-                          </Box>
-                        }
-                        disabled={!recruiter.phone}
-                      />
-                    </RadioGroup>
+                    {/* Only Email Option Now */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                      <EmailIcon sx={{ color: theme.palette.primary.main, fontSize: '1.2rem' }} />
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          Email (Recommended)
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Shows email preview with copy functionality
+                        </Typography>
+                      </Box>
+                    </Box>
+                    {!recruiter.email && (
+                      <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
+                        Email not available for this recruiter
+                      </Typography>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1119,7 +1038,7 @@ ${formattedEmailBody}`;
             onClick={handleSend}
             variant="contained"
             startIcon={isSending ? <LinearProgress sx={{ width: 16 }} /> : getSentViaIcon(sentVia)}
-            disabled={!messageContent.trim() || isSending || characterCount > 2000}
+            disabled={!messageContent.trim() || isSending || characterCount > 2000 || !recruiter.email}
             sx={{ 
               borderRadius: 2,
               px: 3,
@@ -1136,13 +1055,12 @@ ${formattedEmailBody}`;
               }
             }}
           >
-            {isSending ? 'Processing...' : 
-             sentVia === 'email' ? 'Prepare Email' : `Send via ${sentVia}`}
+            {isSending ? 'Processing...' : 'Prepare Email'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* REDESIGNED: Email Preview Dialog - Consistent with Compose Message Style */}
+      {/* Email Preview Dialog - Consistent with Compose Message Style */}
       <Dialog
         open={showEmailPreview}
         onClose={() => setShowEmailPreview(false)}
@@ -1158,7 +1076,7 @@ ${formattedEmailBody}`;
           }
         }}
       >
-        {/* REDESIGNED: Header matching compose style */}
+        {/* Header matching compose style */}
         <DialogTitle sx={{ 
           p: 0,
           background: `linear-gradient(135deg, ${theme.palette.primary.main}15, ${theme.palette.secondary.main}15)`,
@@ -1195,7 +1113,7 @@ ${formattedEmailBody}`;
               </Box>
             </Box>
             
-            {/* REDESIGNED: Email details in consistent card style */}
+            {/* Email details in consistent card style */}
             <Card elevation={0} sx={{ 
               border: `1px solid ${theme.palette.divider}`,
               borderRadius: 2,
@@ -1247,7 +1165,7 @@ ${formattedEmailBody}`;
         </DialogTitle>
 
         <DialogContent sx={{ p: 0 }}>
-          {/* REDESIGNED: Email content matching message content style */}
+          {/* Email content matching message content style */}
           <Box sx={{ p: 3 }}>
             <Paper elevation={0} sx={{ 
               border: `1px solid ${theme.palette.divider}`, 
@@ -1277,7 +1195,7 @@ ${formattedEmailBody}`;
             </Paper>
           </Box>
 
-          {/* REDESIGNED: Info section matching component style */}
+          {/* Info section matching component style */}
           <Box sx={{ 
             p: 3, 
             pt: 0,
@@ -1307,7 +1225,7 @@ ${formattedEmailBody}`;
           </Box>
         </DialogContent>
 
-        {/* REDESIGNED: Dialog actions matching main dialog style */}
+        {/* Dialog actions matching main dialog style */}
         <DialogActions sx={{ 
           p: 2.5,
           background: `linear-gradient(135deg, ${theme.palette.grey[50]}, white)`,
@@ -1359,7 +1277,7 @@ ${formattedEmailBody}`;
         </DialogActions>
       </Dialog>
 
-      {/* FIXED: Status Update Dialog with Better Error Handling */}
+      {/* Status Update Dialog with Better Error Handling */}
       <Dialog
         open={showStatusDialog}
         onClose={() => setShowStatusDialog(false)}
@@ -1403,7 +1321,7 @@ ${formattedEmailBody}`;
         </DialogTitle>
 
         <DialogContent sx={{ p: 2.5 }}>
-          {/* FIXED: Show error if there's an issue */}
+          {/* Show error if there's an issue */}
           {error && (
             <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError('')}>
               {error}
@@ -1522,7 +1440,7 @@ ${formattedEmailBody}`;
           <Button
             onClick={handleStatusUpdate}
             variant="contained"
-            disabled={isSending} // FIXED: Prevent double submission
+            disabled={isSending}
             sx={{ 
               borderRadius: 2,
               fontWeight: 600,

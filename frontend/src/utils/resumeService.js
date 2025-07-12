@@ -1,4 +1,4 @@
-// src/utils/resumeService.js
+// src/utils/resumeService.js - Updated with job suggestions functionality
 import api from './axios';
 
 const resumeService = {
@@ -132,6 +132,26 @@ const resumeService = {
     } catch (error) {
       console.error('Error deleting resume:', error);
       throw error;
+    }
+  },
+
+  // NEW: Get AI-generated job suggestions based on resume analysis
+  getJobSuggestions: async (resumeId) => {
+    try {
+      console.log('🔍 Fetching AI job suggestions for resume:', resumeId);
+      const response = await api.get(`/resumes/${resumeId}/job-suggestions`);
+      return response.data.suggestions || response.data;
+    } catch (error) {
+      console.error('Error fetching job suggestions:', error);
+      // Return smart fallback suggestions if API fails
+      return [
+        'Software Developer',
+        'Frontend Engineer', 
+        'Backend Developer',
+        'Full Stack Engineer',
+        'Data Analyst',
+        'Project Manager'
+      ];
     }
   }
 };

@@ -1,4 +1,4 @@
-// src/components/recruiters/RecruiterDetails.js - FIXED UNLOCK ERROR
+// src/components/recruiters/RecruiterDetails.js - PHONE FEATURES REMOVED - COMPLETE FILE
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -23,7 +23,6 @@ import {
 import {
   Close as CloseIcon,
   Email as EmailIcon,
-  Phone as PhoneIcon,
   LinkedIn as LinkedInIcon,
   Business as BusinessIcon,
   Work as WorkIcon,
@@ -66,7 +65,7 @@ const RecruiterDetails = ({ open, onClose, recruiterId, onStartOutreach }) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
-  const [unlockSuccess, setUnlockSuccess] = useState(false); // Add success state
+  const [unlockSuccess, setUnlockSuccess] = useState(false);
 
   // Reset state when dialog opens/closes or recruiterId changes
   useEffect(() => {
@@ -79,7 +78,7 @@ const RecruiterDetails = ({ open, onClose, recruiterId, onStartOutreach }) => {
       setLoading(false);
       setIsUnlocked(false);
       setUnlocking(false);
-      setUnlockSuccess(false); // Reset success state
+      setUnlockSuccess(false);
     }
   }, [open, recruiterId]);
 
@@ -191,7 +190,7 @@ const RecruiterDetails = ({ open, onClose, recruiterId, onStartOutreach }) => {
     setIsUnlocked(false);
     setUnlocking(false);
     setShowUpgradePrompt(false);
-    setUnlockSuccess(false); // Reset success state
+    setUnlockSuccess(false);
     onClose();
   };
 
@@ -202,7 +201,7 @@ const RecruiterDetails = ({ open, onClose, recruiterId, onStartOutreach }) => {
     }
   };
 
-  // SIMPLIFIED: Show success message and direct user to recruiter tab
+  // Show success message and direct user to recruiter tab
   const handleUnlockRecruiter = async () => {
     if (!isCasualPlan) return;
 
@@ -225,12 +224,9 @@ const RecruiterDetails = ({ open, onClose, recruiterId, onStartOutreach }) => {
       console.log('🔓 Unlock API response:', response);
       
       if (response && response.success) {
-        // REMOVED: Don't track usage here - backend already does it
-        // await trackUsage('recruiterUnlocks', 1);
-        
         console.log('✅ Recruiter unlocked, showing success message');
         
-        // SIMPLIFIED: Just show success message - no complex state updates
+        // Show success message - no complex state updates
         setUnlockSuccess(true);
         setError(''); // Clear any errors
         
@@ -810,7 +806,7 @@ const RecruiterDetails = ({ open, onClose, recruiterId, onStartOutreach }) => {
                             size="small"
                             sx={{ borderRadius: 2, fontWeight: 500 }}
                           />
-                        )}
+                          )}
                         {recruiter.outreach?.hasContacted && (
                           <Chip
                             label="Previously Contacted"
@@ -825,7 +821,7 @@ const RecruiterDetails = ({ open, onClose, recruiterId, onStartOutreach }) => {
                   </Paper>
 
                   <Grid container spacing={3}>
-                    {/* Contact Information */}
+                    {/* Contact Information - PHONE REMOVED */}
                     <Grid item xs={12} md={6}>
                       <Card elevation={0} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                         <CardContent sx={{ p: 3 }}>
@@ -863,28 +859,6 @@ const RecruiterDetails = ({ open, onClose, recruiterId, onStartOutreach }) => {
                                     }}
                                   >
                                     {safeText(recruiter.email)}
-                                  </Link>
-                                </Box>
-                              </Box>
-                            )}
-
-                            {recruiter.phone && (
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                <PhoneIcon sx={{ color: theme.palette.success.main, fontSize: '1.2rem' }} />
-                                <Box>
-                                  <Typography variant="caption" color="text.secondary" display="block">
-                                    Phone
-                                  </Typography>
-                                  <Link
-                                    href={`tel:${recruiter.phone}`}
-                                    sx={{ 
-                                      color: theme.palette.text.primary,
-                                      textDecoration: 'none',
-                                      fontWeight: 500,
-                                      '&:hover': { textDecoration: 'underline' }
-                                    }}
-                                  >
-                                    {safeText(recruiter.phone)}
                                   </Link>
                                 </Box>
                               </Box>

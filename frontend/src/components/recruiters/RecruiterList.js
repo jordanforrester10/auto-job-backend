@@ -1,4 +1,4 @@
-// src/components/recruiters/RecruiterList.js - UPDATED WITH UPGRADE PROMPT FUNCTIONALITY
+// src/components/recruiters/RecruiterList.js - PHONE FEATURES REMOVED - COMPLETE FILE
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -22,7 +22,6 @@ import {
 } from '@mui/material';
 import {
   Email as EmailIcon,
-  Phone as PhoneIcon,
   LinkedIn as LinkedInIcon,
   Business as BusinessIcon,
   Visibility as VisibilityIcon,
@@ -44,7 +43,7 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
   const theme = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
-  const [localIsUnlocked, setLocalIsUnlocked] = useState(recruiter.isUnlocked || false); // Local state for unlock status
+  const [localIsUnlocked, setLocalIsUnlocked] = useState(recruiter.isUnlocked || false);
   
   const {
     planInfo,
@@ -89,8 +88,6 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
     if (!permission.allowed) {
       // Show upgrade prompt when out of unlocks
       console.log('❌ No unlocks remaining - showing upgrade prompt');
-      // You could trigger an upgrade modal here or show a toast
-      // For now, we'll just prevent the unlock
       return;
     }
 
@@ -123,7 +120,7 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
     }
   };
 
-  // NEW: Handle upgrade button click for free users
+  // Handle upgrade button click for free users
   const handleUpgradeClick = () => {
     console.log('🔄 Free user clicked upgrade button on recruiter card');
     if (onUpgrade) {
@@ -311,7 +308,7 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
                 opacity: (isFreePlan || (isCasualPlan && !isUnlocked)) ? 0.7 : 1
               }}
             >
-              {/* FIXED: Show actual title for unlocked, generic for locked */}
+              {/* Show actual title for unlocked, generic for locked */}
               {(isHunterPlan || (isCasualPlan && isUnlocked)) ? recruiter.title : 'Senior Recruiter'}
             </Typography>
             
@@ -327,7 +324,7 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
                 noWrap
                 sx={{ opacity: (isFreePlan || (isCasualPlan && !isUnlocked)) ? 0.7 : 1 }}
               >
-                {/* FIXED: Always show company name */}
+                {/* Always show company name */}
                 {formattedRecruiter.companyDisplay}
               </Typography>
             </Box>
@@ -412,19 +409,13 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
           )}
         </Box>
 
-        {/* Contact Information - Hidden for locked recruiters */}
+        {/* Contact Information - PHONE REMOVED - Hidden for locked recruiters */}
         <Box sx={{ mb: 2, flex: 1 }}>
           {(isHunterPlan || (isCasualPlan && isUnlocked)) ? (
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               {recruiter.email && (
                 <IconButton size="small" sx={{ color: theme.palette.primary.main }}>
                   <EmailIcon fontSize="small" />
-                </IconButton>
-              )}
-              
-              {recruiter.phone && (
-                <IconButton size="small" sx={{ color: theme.palette.primary.main }}>
-                  <PhoneIcon fontSize="small" />
                 </IconButton>
               )}
               
@@ -445,9 +436,6 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <IconButton size="small" sx={{ color: theme.palette.grey[400] }} disabled>
                 <EmailIcon fontSize="small" />
-              </IconButton>
-              <IconButton size="small" sx={{ color: theme.palette.grey[400] }} disabled>
-                <PhoneIcon fontSize="small" />
               </IconButton>
               <IconButton size="small" sx={{ color: theme.palette.grey[400] }} disabled>
                 <LinkedInIcon fontSize="small" />
@@ -628,12 +616,11 @@ const RecruiterList = ({
   onStartOutreach,
   onLoadMore,
   onPageChange
-  // Removed onRecruiterUnlocked - not needed anymore
 }) => {
   const theme = useTheme();
   const [currentPage, setCurrentPage] = useState(1);
   
-  // NEW: Add upgrade prompt state and hook
+  // Add upgrade prompt state and hook
   const [upgradePromptOpen, setUpgradePromptOpen] = useState(false);
   const [upgradeContext, setUpgradeContext] = useState(null);
   const { showUpgradePrompt } = useUpgrade();
@@ -677,7 +664,7 @@ const RecruiterList = ({
     }
   };
 
-  // NEW: Handle upgrade button clicks from recruiter cards
+  // Handle upgrade button clicks from recruiter cards
   const handleUpgrade = (feature, context) => {
     console.log('🔄 Upgrade requested:', { feature, context });
     
@@ -690,13 +677,13 @@ const RecruiterList = ({
     setUpgradePromptOpen(true);
   };
 
-  // NEW: Handle upgrade prompt close
+  // Handle upgrade prompt close
   const handleUpgradePromptClose = () => {
     setUpgradePromptOpen(false);
     setUpgradeContext(null);
   };
 
-  // NEW: Handle successful upgrade
+  // Handle successful upgrade
   const handleUpgradeSuccess = () => {
     console.log('🎉 Upgrade successful - refreshing page');
     setUpgradePromptOpen(false);
@@ -868,8 +855,7 @@ const RecruiterList = ({
                 • Upgrade for full access
               </Typography>
             )}
-            {isCasualPlan && (
-              <Typography component="span" sx={{ ml: 1, fontWeight: 600, color: theme.palette.warning.main }}>
+            {isCasualPlan && (<Typography component="span" sx={{ ml: 1, fontWeight: 600, color: theme.palette.warning.main }}>
                 • {(() => {
                   const permission = canPerformAction('recruiterUnlocks', 1);
                   return permission.remaining;
@@ -880,7 +866,7 @@ const RecruiterList = ({
         </Paper>
       </Box>
 
-      {/* NEW: Upgrade Prompt Dialog */}
+      {/* Upgrade Prompt Dialog */}
       <UpgradePrompt
         open={upgradePromptOpen}
         onClose={handleUpgradePromptClose}
