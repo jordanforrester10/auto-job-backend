@@ -1,4 +1,4 @@
-// backend/controllers/recruiter.controller.js - UPDATED TO ALLOW FREE USER BASIC ACCESS
+// backend/controllers/recruiter.controller.js - PHONE FEATURES REMOVED - COMPLETE FILE
 const { Pool } = require('pg');
 const Outreach = require('../models/mongodb/outreach.model');
 const Resume = require('../models/mongodb/resume.model');
@@ -17,7 +17,7 @@ exports.searchRecruiters = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔓 UPDATED: Allow free users basic access to recruiter search
+    // Allow free users basic access to recruiter search
     console.log('🔍 Free user access granted for recruiter search - user:', userId);
     
     // Get user's subscription info for response context
@@ -61,14 +61,13 @@ exports.searchRecruiters = async (req, res) => {
       console.log('🔓 Filtering to show ONLY unlocked recruiters');
     }
 
-    // Build the SQL query dynamically
+    // Build the SQL query dynamically - PHONE FIELDS REMOVED
     let sqlQuery = `
       SELECT 
         r.id,
         r.first_name,
         r.last_name,
         r.email,
-        r.direct_phone as phone,
         r.title,
         r.linkedin_profile_url as linkedin_url,
         r.experience_years,
@@ -218,7 +217,7 @@ exports.searchRecruiters = async (req, res) => {
 
     const countResult = await pool.query(countQuery, countParams);
 
-    // 🔓 UPDATED: Format recruiter data based on user's plan
+    // Format recruiter data based on user's plan - PHONE REMOVED
     const recruiters = result.rows.map(row => {
       const baseRecruiter = {
         id: row.id,
@@ -252,7 +251,6 @@ exports.searchRecruiters = async (req, res) => {
           ...baseRecruiter,
           // Hide sensitive contact information for free users
           email: null,
-          phone: null,
           linkedinUrl: null,
           title: 'Senior Recruiter', // Generic title
           experienceYears: null,
@@ -262,11 +260,10 @@ exports.searchRecruiters = async (req, res) => {
         };
       }
 
-      // For paid users, return full data
+      // For paid users, return full data (NO PHONE FIELDS)
       return {
         ...baseRecruiter,
         email: row.email,
-        phone: row.phone,
         title: row.title,
         linkedinUrl: row.linkedin_url,
         experienceYears: row.experience_years,
@@ -284,7 +281,7 @@ exports.searchRecruiters = async (req, res) => {
         recruiterUnlocks: userUsage.usageStats.recruiterUnlocks,
         plan: userUsage.plan,
         planLimits: {
-          recruiterAccess: currentSubscription.user.subscriptionTier !== 'free', // Free users have basic access
+          recruiterAccess: currentSubscription.user.subscriptionTier !== 'free',
           recruiterUnlocks: userUsage.planLimits.recruiterUnlocks
         }
       };
@@ -316,7 +313,7 @@ exports.searchRecruiters = async (req, res) => {
         showUnlockedOnly
       },
       usageStats: usageStats,
-      userPlan: currentSubscription.user.subscriptionTier // Include plan info in response
+      userPlan: currentSubscription.user.subscriptionTier
     });
 
   } catch (error) {
@@ -330,14 +327,14 @@ exports.searchRecruiters = async (req, res) => {
 };
 
 /**
- * Get recruiter details by ID - UPDATED TO ALLOW FREE USER BASIC ACCESS
+ * Get recruiter details by ID - PHONE FEATURES REMOVED
  */
 exports.getRecruiterById = async (req, res) => {
   try {
     const userId = req.user._id;
     const { recruiterId } = req.params;
 
-    // 🔓 UPDATED: Allow free users basic access to recruiter details
+    // Allow free users basic access to recruiter details
     console.log('🔍 Free user access granted for recruiter details - user:', userId);
     
     let currentSubscription;
@@ -412,7 +409,7 @@ exports.getRecruiterById = async (req, res) => {
           country: row.country
         },
         isUnlocked: false,
-        accessLevel: 'basic' // Indicate this is basic access
+        accessLevel: 'basic'
       };
 
       return res.json({
@@ -473,7 +470,7 @@ exports.getRecruiterById = async (req, res) => {
           country: row.country
         },
         isUnlocked: false,
-        accessLevel: 'limited' // Indicate this is limited access
+        accessLevel: 'limited'
       };
 
       return res.json({
@@ -485,7 +482,7 @@ exports.getRecruiterById = async (req, res) => {
       });
     }
 
-    // For hunter users or unlocked casual users, return full details
+    // For hunter users or unlocked casual users, return full details - PHONE REMOVED
     const sqlQuery = `
       SELECT 
         r.*,
@@ -541,13 +538,13 @@ exports.getRecruiterById = async (req, res) => {
       recruiterId: recruiterId
     }).sort({ createdAt: -1 }).limit(10);
 
+    // PHONE FIELDS REMOVED FROM RESPONSE
     const recruiter = {
       id: row.id,
       firstName: row.first_name,
       lastName: row.last_name,
       fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
       email: row.email,
-      phone: row.direct_phone,
       title: row.title,
       linkedinUrl: row.linkedin_profile_url,
       otherSocialUrls: row.other_social_urls,
@@ -608,7 +605,7 @@ exports.getRecruiterById = async (req, res) => {
       details: process.env.NODE_ENV !== 'production' ? error.message : undefined
     });
   }
-}
+};
 
 /**
  * Unlock recruiter for casual users - NO CHANGES NEEDED
@@ -755,8 +752,6 @@ exports.unlockRecruiter = async (req, res) => {
   }
 };
 
-// Continuation of recruiter.controller.js - Outreach methods with free user restrictions
-
 /**
  * Get filter options for recruiter search - UPDATED TO ALLOW FREE USER ACCESS
  */
@@ -764,7 +759,7 @@ exports.getFilterOptions = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // 🔓 UPDATED: Allow free users access to filter options
+    // Allow free users access to filter options
     console.log('📊 Getting filter options for recruiter search - allowing free user access');
 
     // Get top companies
@@ -850,7 +845,7 @@ exports.createOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔒 UPDATED: Block free users from creating outreach
+    // Block free users from creating outreach
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
       
@@ -884,7 +879,7 @@ exports.createOutreach = async (req, res) => {
       jobId,
       messageContent,
       messageTemplate,
-      sentVia = 'linkedin',
+      sentVia = 'email', // PHONE REMOVED - Only email available now
       customizations = []
     } = req.body;
 
@@ -919,7 +914,7 @@ exports.createOutreach = async (req, res) => {
       messageContent,
       messageTemplate,
       customizations,
-      sentVia,
+      sentVia: 'email', // PHONE REMOVED - Always email now
       status: 'drafted',
       createdAt: new Date()
     });
@@ -980,7 +975,7 @@ exports.updateOutreach = async (req, res) => {
     const { outreachId } = req.params;
     const updates = req.body;
 
-    // 🔒 Block free users from updating outreach
+    // Block free users from updating outreach
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
       if (currentSubscription.user.subscriptionTier === 'free') {
@@ -1054,7 +1049,7 @@ exports.deleteOutreach = async (req, res) => {
     const userId = req.user._id;
     const { outreachId } = req.params;
 
-    // 🔒 Block free users from deleting outreach
+    // Block free users from deleting outreach
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
       if (currentSubscription.user.subscriptionTier === 'free') {
@@ -1117,7 +1112,7 @@ exports.sendOutreach = async (req, res) => {
     const userId = req.user._id;
     const { outreachId } = req.params;
 
-    // 🔒 Block free users from sending outreach
+    // Block free users from sending outreach
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
       if (currentSubscription.user.subscriptionTier === 'free') {
@@ -1195,7 +1190,7 @@ exports.getUserOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔒 Block free users from accessing outreach campaigns
+    // Block free users from accessing outreach campaigns
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
       if (currentSubscription.user.subscriptionTier === 'free') {
@@ -1308,7 +1303,7 @@ exports.generatePersonalizedMessage = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔒 Block free users from generating personalized messages
+    // Block free users from generating personalized messages
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
       if (currentSubscription.user.subscriptionTier === 'free') {
@@ -1424,7 +1419,7 @@ exports.getOutreachAnalytics = async (req, res) => {
   try {
     const userId = req.user._id;
     
-    // 🔒 Block free users from accessing outreach analytics
+    // Block free users from accessing outreach analytics
     try {
       const currentSubscription = await subscriptionService.getCurrentSubscription(userId);
       if (currentSubscription.user.subscriptionTier === 'free') {
