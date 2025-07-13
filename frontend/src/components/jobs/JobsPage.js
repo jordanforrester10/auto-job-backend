@@ -1465,7 +1465,7 @@ const JobsPage = () => {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Box>
             <Typography variant="h4" component="h1" fontWeight={500}>
-              Job Matches
+              My Jobs List
             </Typography>
             {analyzingCount > 0 && (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>

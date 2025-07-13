@@ -89,7 +89,7 @@ const Sidebar = ({ open, onClose }) => {
         usageFeature: 'resumeUploads'
       },
       { 
-        title: 'Jobs Portal',
+        title: 'Find Jobs',
         path: '/jobs',
         icon: <WorkIcon />,
         color: '#4285f4',
@@ -97,14 +97,14 @@ const Sidebar = ({ open, onClose }) => {
         usageFeature: 'jobImports',
         subItems: [
           {
-            title: 'All Jobs',
+            title: 'My Jobs List',
             path: '/jobs',
             icon: <FormatListBulletedIcon fontSize="small" />,
             color: '#4285f4',
             available: true
           },
           {
-            title: 'Agent Job Discovery',
+            title: 'AI Job Search',
             path: '/jobs/ai-searches',
             icon: <SmartToyIcon fontSize="small" />,
             color: '#4285f4',
@@ -115,7 +115,7 @@ const Sidebar = ({ open, onClose }) => {
         ]
       },
       { 
-        title: 'Recruiter Outreach',
+        title: 'Find Recruiters',
         path: '/recruiters',
         icon: <PeopleIcon />,
         color: '#00c4b4',

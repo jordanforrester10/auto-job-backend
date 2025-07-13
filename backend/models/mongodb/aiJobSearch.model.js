@@ -83,7 +83,7 @@ const aiJobSearchSchema = new mongoose.Schema({
     // NEW: Adzuna API specific fields
     apiSource: {
       type: String,
-      enum: ['adzuna_aggregator', 'claude_web_search', 'manual'],
+      enum: ['adzuna_aggregator', 'active_jobs_db', 'claude_web_search', 'manual'],
       default: 'adzuna_aggregator'
     },
     adzunaId: String,

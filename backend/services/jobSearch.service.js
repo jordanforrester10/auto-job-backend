@@ -1,9 +1,19 @@
-// services/jobSearch.service.js - COMPLETE GENERIC VERSION FOR ALL JOB TYPES
+// services/jobSearch.service.js - OPTIMIZED WITH EARLY DUPLICATE DETECTION
 const Job = require('../models/mongodb/job.model');
 const Resume = require('../models/mongodb/resume.model');
 const AiJobSearch = require('../models/mongodb/aiJobSearch.model');
 const { openai } = require('../config/openai');
-const AdzunaJobExtractor = require('./adzunaJobExtractor.service');
+const ActiveJobsDBExtractor = require('./activeJobsDB.service');
+const jobAnalysisService = require('./jobAnalysis.service');
+
+// BUDGET-CONSCIOUS SEARCH STRATEGY
+const SEARCH_BUDGET = {
+  MONTHLY_LIMIT: 250,        // Free plan limit
+  DAILY_SAFE_LIMIT: 8,       // Conservative daily limit (250/31 days)
+  JOBS_PER_API_CALL: 8,      // Small targeted calls
+  MAX_API_CALLS_PER_SEARCH: 1, // Usually just 1 call per search
+  TARGET_JOBS_TO_SAVE: 8     // Save all fetched jobs if they're good
+};
 
 // CENTRALIZED VALIDATION UTILITIES
 class ValidationUtils {
@@ -148,266 +158,67 @@ class ValidationUtils {
   }
 }
 
-// GENERIC RELEVANCE FILTERING - WORKS FOR ALL JOB TYPES
-class RelevanceFilter {
-  static calculateJobRelevanceScore(jobData, targetJobTitles, targetKeywords) {
-    let score = 0;
-    const jobTitle = (jobData.title || '').toLowerCase();
-    const jobDescription = (jobData.description || jobData.fullContent || '').toLowerCase();
-    
-    // 1. TITLE RELEVANCE (60% of score) - GENERIC LOGIC
-    let titleScore = this.calculateGenericTitleRelevance(jobTitle, targetJobTitles);
-    score += titleScore * 0.6;
-    
-    // 2. KEYWORD RELEVANCE (25% of score) - GENERIC
-    if (targetKeywords && targetKeywords.length > 0) {
-      const matchingKeywords = targetKeywords.filter(keyword => 
-        jobDescription.includes(keyword.toLowerCase()) || jobTitle.includes(keyword.toLowerCase())
-      );
-      score += (matchingKeywords.length / targetKeywords.length) * 25;
-    }
-    
-    // 3. ROLE CATEGORY RELEVANCE (15% of score) - GENERIC
-    let categoryScore = this.calculateGenericCategoryRelevance(jobTitle, targetJobTitles);
-    score += categoryScore * 0.15;
-    
-    // 4. ANTI-PATTERN PENALTIES - GENERIC (only for obviously irrelevant jobs)
-    const penalty = this.calculateGenericAntiPatternPenalties(jobTitle);
-    score += penalty;
-    
-    return Math.max(0, Math.min(100, Math.round(score)));
-  }
-
-  static calculateGenericTitleRelevance(jobTitle, targetJobTitles) {
-    let maxScore = 0;
-    
-    for (const targetTitle of targetJobTitles) {
-      const targetLower = targetTitle.toLowerCase();
-      
-      // Exact match gets highest score
-      if (jobTitle === targetLower) {
-        return 100;
-      }
-      
-      // Partial exact match (job title contains target)
-      if (jobTitle.includes(targetLower)) {
-        maxScore = Math.max(maxScore, 95);
-        continue;
-      }
-      
-      // Extract core function words (remove seniority levels)
-      const targetWords = this.extractCoreWords(targetLower);
-      const jobWords = this.extractCoreWords(jobTitle);
-      
-      // Calculate word overlap
-      const matchingWords = targetWords.filter(word => jobWords.includes(word));
-      
-      if (matchingWords.length > 0) {
-        // Score based on percentage of core words matched
-        const wordScore = (matchingWords.length / targetWords.length) * 85;
-        maxScore = Math.max(maxScore, wordScore);
-      }
-    }
-    
-    return maxScore;
-  }
-
-  static extractCoreWords(title) {
-    // Remove seniority levels and extract core job function words
-    const seniorityWords = ['senior', 'sr', 'junior', 'jr', 'lead', 'principal', 'director', 'head', 'chief', 'vp', 'vice', 'president', 'entry', 'associate', 'staff', 'executive'];
-    
-    return title.split(' ')
-      .filter(word => word.length > 2)
-      .filter(word => !seniorityWords.includes(word))
-      .filter(word => !['the', 'of', 'and', 'or', 'for', 'at', 'in', 'to', 'with', 'a', 'an'].includes(word));
-  }
-
-  static calculateGenericCategoryRelevance(jobTitle, targetJobTitles) {
-    // Determine the job category from target titles
-    const targetCategory = this.determineJobCategory(targetJobTitles);
-    const jobCategory = this.determineJobCategory([jobTitle]);
-    
-    if (targetCategory === jobCategory) {
-      return 100; // Same category
-    }
-    
-    // Some categories are related
-    const relatedCategories = {
-      'engineering': ['developer', 'technical'],
-      'management': ['leadership', 'director'],
-      'design': ['creative', 'visual'],
-      'data': ['analytics', 'research'],
-      'marketing': ['growth', 'communications'],
-      'sales': ['business-development', 'account-management']
-    };
-    
-    for (const [category, related] of Object.entries(relatedCategories)) {
-      if (targetCategory === category && related.includes(jobCategory)) {
-        return 70; // Related category
-      }
-      if (jobCategory === category && related.includes(targetCategory)) {
-        return 70; // Related category
-      }
-    }
-    
-    return 0; // Unrelated category
-  }
-
-  static determineJobCategory(jobTitles) {
-    const allTitles = jobTitles.join(' ').toLowerCase();
-    
-    // Engineering/Development
-    if (allTitles.includes('engineer') || allTitles.includes('developer') || allTitles.includes('programmer')) {
-      return 'engineering';
-    }
-    
-    // Product Management
-    if (allTitles.includes('product') && allTitles.includes('manager')) {
-      return 'product-management';
-    }
-    
-    // Data Science/Analytics
-    if (allTitles.includes('data') && (allTitles.includes('scientist') || allTitles.includes('analyst'))) {
-      return 'data';
-    }
-    
-    // Design
-    if (allTitles.includes('designer') || allTitles.includes('design') || allTitles.includes('ux') || allTitles.includes('ui')) {
-      return 'design';
-    }
-    
-    // Marketing
-    if (allTitles.includes('marketing') || allTitles.includes('growth') || allTitles.includes('brand')) {
-      return 'marketing';
-    }
-    
-    // Sales
-    if (allTitles.includes('sales') || allTitles.includes('account') || allTitles.includes('business development')) {
-      return 'sales';
-    }
-    
-    // Management (general)
-    if (allTitles.includes('manager') || allTitles.includes('director') || allTitles.includes('lead')) {
-      return 'management';
-    }
-    
-    // Research
-    if (allTitles.includes('research') || allTitles.includes('scientist')) {
-      return 'research';
-    }
-    
-    // Operations
-    if (allTitles.includes('operations') || allTitles.includes('ops')) {
-      return 'operations';
-    }
-    
-    return 'general';
-  }
-
-  static calculateGenericAntiPatternPenalties(jobTitle) {
-    // Only penalize obviously unrelated jobs - be very conservative
-    const universalAntiPatterns = [
-      'customer service', 'receptionist', 'driver', 'delivery', 'warehouse', 
-      'janitor', 'cleaner', 'cashier', 'retail', 'food service', 'server',
-      'administrative assistant', 'data entry clerk', 'call center'
-    ];
-    
-    for (const pattern of universalAntiPatterns) {
-      if (jobTitle.includes(pattern)) {
-        console.log(`⚠️ Applied penalty (-25) for universal anti-pattern: ${pattern}`);
-        return -25;
-      }
-    }
-    
-    return 0; // No penalty for most jobs
-  }
-
-  static filterJobsForRelevance(jobs, careerProfile, minScore = 55) {
-    const targetJobTitles = careerProfile.targetJobTitles || [];
-    const targetKeywords = careerProfile.targetKeywords || [];
-    
-    console.log(`🎯 Applying GENERIC relevance filtering (min score: ${minScore}) for: ${targetJobTitles.join(', ')}`);
-    
-    const relevantJobs = [];
-    
-    for (const job of jobs) {
-      const relevanceScore = this.calculateJobRelevanceScore(job, targetJobTitles, targetKeywords);
-      
-      if (relevanceScore >= minScore) {
-        job.relevanceScore = relevanceScore;
-        relevantJobs.push(job);
-        console.log(`✅ RELEVANT (${relevanceScore}%): "${job.title}" at ${job.company}`);
-      } else {
-        console.log(`❌ FILTERED OUT (${relevanceScore}%): "${job.title}" at ${job.company}`);
-      }
-    }
-    
-    // Sort by relevance score
-    relevantJobs.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
-    
-    console.log(`🎯 Generic filtering complete: ${relevantJobs.length}/${jobs.length} jobs meet relevance criteria`);
-    return relevantJobs;
-  }
-}
-
-// MAIN SEARCH FUNCTION
+// MAIN SEARCH FUNCTION - OPTIMIZED
 exports.findJobsWithAi = async (userId, resumeId) => {
   try {
-    console.log(`🚀 Starting generic AI job search for user ${userId}`);
+    console.log(`🚀 Starting OPTIMIZED AI job search with early duplicate detection for user ${userId}`);
+    console.log(`💰 Budget limits: ${SEARCH_BUDGET.DAILY_SAFE_LIMIT} jobs/day, ${SEARCH_BUDGET.MONTHLY_LIMIT} jobs/month`);
     
     const resume = await Resume.findById(resumeId);
     if (!resume || !resume.parsedData) {
       throw new Error('Resume not found or not parsed');
     }
     
-    // Create search record using existing valid enum values
+    // Create search record
     const aiJobSearch = new AiJobSearch({
       userId,
       resumeId,
       resumeName: resume.name,
       searchCriteria: extractSearchCriteria(resume.parsedData),
       status: 'running',
-      dailyLimit: 8,
+      dailyLimit: SEARCH_BUDGET.DAILY_SAFE_LIMIT,
       jobsFoundToday: 0,
       totalJobsFound: 0,
-      searchApproach: '3-phase-intelligent-adzuna-api', // Existing valid enum value
-      approachVersion: '4.0-adzuna-api-integration',
-      qualityLevel: 'adzuna-api-enhanced' // Existing valid enum value
+      searchApproach: '3-phase-intelligent-adzuna-api',
+      approachVersion: '6.1-optimized-duplicate-detection',
+      qualityLevel: 'adzuna-api-enhanced'
     });
     
     await aiJobSearch.save();
     
     await aiJobSearch.addReasoningLog(
       'initialization',
-      'Starting generic AI job search that works for any job type with improved relevance filtering.',
+      `Starting OPTIMIZED AI search with early duplicate detection - targeting ${SEARCH_BUDGET.DAILY_SAFE_LIMIT} fresh jobs with GPT-4o analysis!`,
       {
         searchCriteria: aiJobSearch.searchCriteria,
         dailyLimit: aiJobSearch.dailyLimit,
-        approach: 'Generic 3-phase process with field-agnostic filtering'
+        optimizations: 'Early duplicate detection, fresh job targeting',
+        analysisModel: 'gpt-4o'
       }
     );
     
-    // Start generic background search
-    performGenericAdzunaJobSearch(aiJobSearch._id, userId, resume).catch(error => {
-      console.error('Generic job search error:', error);
+    // Start background search with optimizations
+    performOptimizedSearch(aiJobSearch._id, userId, resume).catch(error => {
+      console.error('Optimized search error:', error);
       updateSearchStatus(aiJobSearch._id, 'failed', error.message);
     });
     
     return {
       success: true,
-      message: 'Generic AI job search started! Works for any job type with improved filtering.',
+      message: `OPTIMIZED AI job search started with early duplicate detection! Targeting ${SEARCH_BUDGET.DAILY_SAFE_LIMIT} fresh jobs with premium GPT-4o analysis.`,
       searchId: aiJobSearch._id,
-      searchMethod: 'Generic Adzuna API discovery with field-agnostic filtering'
+      searchMethod: 'Optimized AI Discovery with Duplicate Prevention',
+      analysisQuality: 'Premium analysis only on fresh jobs'
     };
     
   } catch (error) {
-    console.error('Error initiating generic job search:', error);
+    console.error('Error initiating optimized search:', error);
     throw error;
   }
 };
 
-// GENERIC MAIN SEARCH PROCESS
-async function performGenericAdzunaJobSearch(searchId, userId, resume) {
+// OPTIMIZED SEARCH PROCESS WITH EARLY DUPLICATE DETECTION
+async function performOptimizedSearch(searchId, userId, resume) {
   const searchStartTime = Date.now();
   let search;
   
@@ -419,20 +230,20 @@ async function performGenericAdzunaJobSearch(searchId, userId, resume) {
     if (await isDailyLimitReached(search)) {
       await search.addReasoningLog(
         'completion',
-        `Reached today's limit of ${search.dailyLimit} quality job discoveries.`,
+        `Reached today's limit of ${search.dailyLimit} job discoveries.`,
         { dailyLimit: search.dailyLimit, reason: 'daily_limit_reached' }
       );
       await updateSearchStatus(searchId, 'paused', 'Daily limit reached');
       return;
     }
     
-    // PHASE 1: Generic Career Analysis
-    console.log(`📊 Phase 1: Generic Career Analysis...`);
-    const careerProfile = await analyzeGenericCareerProfile(resume.parsedData);
+    // PHASE 1: PRECISION Career Analysis
+    console.log(`📊 Phase 1: PRECISION Career Analysis...`);
+    const careerProfile = await analyzeCareerForPrecisionTargeting(resume.parsedData);
     
     await search.addReasoningLog(
       'career_analysis',
-      `Generic career analysis complete! Identified ${careerProfile.targetJobTitles?.length || 0} target job titles for field: ${careerProfile.careerDirection}`,
+      `PRECISION career analysis complete! Optimized search for fresh jobs with ${careerProfile.targetJobTitles?.length || 0} target titles.`,
       {
         targetJobTitles: careerProfile.targetJobTitles || [],
         targetKeywords: careerProfile.targetKeywords || [],
@@ -441,52 +252,59 @@ async function performGenericAdzunaJobSearch(searchId, userId, resume) {
       }
     );
     
-    // PHASE 2: Generic Job Discovery
-    console.log(`🎯 Phase 2: Generic Job Discovery...`);
-    const discoveredJobs = await performGenericJobDiscovery(careerProfile, search);
+    // PHASE 2: 🔧 OPTIMIZED Job Discovery with Early Duplicate Detection
+    console.log(`🎯 Phase 2: OPTIMIZED Job Discovery with Early Duplicate Detection...`);
+    const { freshJobs, skippedDuplicates } = await performOptimizedJobDiscovery(careerProfile, search, userId);
     
-    if (discoveredJobs.length === 0) {
+    if (freshJobs.length === 0) {
       await search.addReasoningLog(
         'completion',
-        'No relevant opportunities found for this career profile. Generic filtering ensures we only save appropriate matches.',
-        { phase: 'no_quality_results', careerField: careerProfile.careerDirection }
+        `No fresh opportunities found. Skipped ${skippedDuplicates} duplicates during discovery phase.`,
+        { 
+          phase: 'no_fresh_results', 
+          careerField: careerProfile.careerDirection,
+          duplicatesSkipped: skippedDuplicates,
+          optimizationWorked: skippedDuplicates > 0
+        }
       );
-      await updateSearchStatus(searchId, 'completed', 'No quality matches found');
+      await updateSearchStatus(searchId, 'completed', `No fresh jobs found (${skippedDuplicates} duplicates avoided)`);
       return;
     }
     
-    // PHASE 3: Generic Job Analysis
-    console.log(`🔬 Phase 3: Generic Job Analysis...`);
-    const analyzedJobs = await performGenericJobAnalysis(discoveredJobs, search, careerProfile);
+    // PHASE 3: 🔥 ENHANCED ROLE-SPECIFIC Job Analysis (Only for Fresh Jobs!)
+    console.log(`🔬 Phase 3: ENHANCED Analysis of ${freshJobs.length} FRESH jobs (${skippedDuplicates} duplicates skipped)...`);
+    const analyzedJobs = await performEnhancedJobAnalysis(freshJobs, search, careerProfile);
     
     // Save Jobs
-    console.log(`💾 Saving generic job results...`);
-    const savedCount = await saveJobsGeneric(analyzedJobs, userId, searchId, search);
+    console.log(`💾 Saving fresh job results...`);
+    const savedCount = await saveJobsOptimized(analyzedJobs, userId, searchId, search);
     
     const totalDuration = Date.now() - searchStartTime;
     
     await search.addReasoningLog(
       'completion',
-      `Generic job search complete! Found ${savedCount} relevant opportunities for ${careerProfile.careerDirection}. Field-agnostic filtering works for any job type.`,
+      `OPTIMIZED search complete! Found ${savedCount} fresh opportunities. Avoided ${skippedDuplicates} duplicates before analysis.`,
       {
         jobsSaved: savedCount,
+        duplicatesAvoided: skippedDuplicates,
         totalDuration: totalDuration,
         searchTime: `${Math.round(totalDuration / 1000)} seconds`,
-        careerField: careerProfile.careerDirection
+        careerField: careerProfile.careerDirection,
+        optimizationSuccess: `Saved ${skippedDuplicates} GPT-4o calls by early duplicate detection`
       }
     );
     
     await updateSearchStatus(searchId, savedCount > 0 ? 'running' : 'completed', 
-      `Found ${savedCount} relevant opportunities`);
-    console.log(`✅ Generic job search complete: ${savedCount} jobs saved`);
+      `Found ${savedCount} fresh jobs (${skippedDuplicates} duplicates avoided)`);
+    console.log(`✅ Optimized search complete: ${savedCount} fresh jobs saved, ${skippedDuplicates} duplicates avoided`);
     
   } catch (error) {
-    console.error('Error in generic job search:', error);
+    console.error('Error in optimized search:', error);
     
     if (search) {
       await search.addReasoningLog(
         'error',
-        `Generic job search encountered an issue: ${error.message}`,
+        `Optimized search encountered an issue: ${error.message}`,
         { error: error.message },
         false
       );
@@ -496,59 +314,317 @@ async function performGenericAdzunaJobSearch(searchId, userId, resume) {
   }
 }
 
-// GENERIC JOB DISCOVERY
-async function performGenericJobDiscovery(careerProfile, search) {
+// 🔧 OPTIMIZED JOB DISCOVERY WITH EARLY DUPLICATE DETECTION
+async function performOptimizedJobDiscovery(careerProfile, search, userId) {
   try {
-    const adzunaExtractor = new AdzunaJobExtractor();
+    const activeJobsDBExtractor = new ActiveJobsDBExtractor();
     
-    const apiHealth = await adzunaExtractor.getApiHealth();
+    // Test API health
+    const apiHealth = await activeJobsDBExtractor.getApiHealth();
     if (apiHealth.status !== 'healthy') {
-      throw new Error(`Adzuna API unavailable: ${apiHealth.message}`);
+      throw new Error(`Active Jobs DB API unavailable: ${apiHealth.message}`);
     }
     
-    const searchResults = await adzunaExtractor.extractJobsForCareerProfile(careerProfile, search, {
-      maxJobs: 12,
-      maxDaysOld: 21,
-      sortBy: 'relevance'
-    });
+    console.log(`🎯 OPTIMIZED DISCOVERY: Early duplicate detection enabled...`);
     
-    const discoveredJobs = searchResults.jobs || [];
+    // 🔧 STEP 1: Get existing jobs to avoid duplicates
+    const existingJobs = await getExistingJobsForDuplicateCheck(userId);
+    console.log(`📊 Found ${existingJobs.length} existing jobs to check against`);
     
-    console.log(`🔍 Initial discovery: ${discoveredJobs.length} jobs found, applying GENERIC filtering...`);
+    // 🔧 STEP 2: Try multiple search variations to get fresh jobs
+    const freshJobs = [];
+    let totalSkipped = 0;
+    const maxAttempts = 3; // Try different search variations
     
-    // Apply GENERIC relevance filtering
-    const relevantJobs = RelevanceFilter.filterJobsForRelevance(discoveredJobs, careerProfile, 55);
+    for (let attempt = 1; attempt <= maxAttempts && freshJobs.length < SEARCH_BUDGET.TARGET_JOBS_TO_SAVE; attempt++) {
+      console.log(`🔍 Search attempt ${attempt}/${maxAttempts}...`);
+      
+      // Vary the search query for each attempt
+      const searchQuery = craftVariedSearchQuery(careerProfile, attempt);
+      const discoveredJobs = await executeSinglePrecisionSearch(activeJobsDBExtractor, searchQuery, search);
+      
+      // 🔧 STEP 3: Filter out duplicates BEFORE analysis
+      const { fresh, duplicates } = await filterFreshJobs(discoveredJobs, existingJobs, freshJobs);
+      
+      freshJobs.push(...fresh);
+      totalSkipped += duplicates;
+      
+      console.log(`📊 Attempt ${attempt}: Found ${fresh.length} fresh, skipped ${duplicates} duplicates`);
+      
+      // Add fresh jobs to existing list for next iteration
+      existingJobs.push(...fresh.map(job => ({
+        title: job.title,
+        company: job.company,
+        sourceUrl: job.jobUrl || job.sourceUrl
+      })));
+      
+      if (fresh.length === 0) {
+        console.log(`⚠️ No fresh jobs in attempt ${attempt}, trying different search...`);
+      }
+    }
     
     await search.addReasoningLog(
       'web_search_discovery',
-      `Generic job discovery completed! Found ${relevantJobs.length} relevant opportunities from ${discoveredJobs.length} total for ${careerProfile.careerDirection}. Filtering works for any job type.`,
+      `OPTIMIZED discovery completed! Found ${freshJobs.length} fresh jobs, avoided ${totalSkipped} duplicates before analysis.`,
       {
-        totalJobsInitial: discoveredJobs.length,
-        totalJobsFiltered: relevantJobs.length,
-        filteredOut: discoveredJobs.length - relevantJobs.length,
-        genericFiltering: true,
-        careerField: careerProfile.careerDirection || 'General'
+        totalJobsFound: freshJobs.length,
+        duplicatesSkipped: totalSkipped,
+        searchAttempts: maxAttempts,
+        careerField: careerProfile.careerDirection || 'General',
+        databaseProvider: 'Active Jobs DB',
+        optimization: 'Early duplicate detection saved GPT-4o API calls'
       }
     );
     
-    return relevantJobs.slice(0, 8).map(job => ({
-      ...job,
-      extractedAt: new Date(),
-      extractionMethod: 'generic_adzuna_api_with_filtering',
-      contentQuality: job.contentQuality || 'high',
-      matchScore: job.relevanceScore || 75
-    }));
+    return {
+      freshJobs: freshJobs.slice(0, SEARCH_BUDGET.TARGET_JOBS_TO_SAVE),
+      skippedDuplicates: totalSkipped
+    };
     
   } catch (error) {
-    console.error('Error in generic job discovery:', error);
+    console.error('Error in optimized job discovery:', error);
     throw error;
   }
 }
 
-// GENERIC CAREER ANALYSIS
-async function analyzeGenericCareerProfile(resumeData) {
+// 🔧 GET EXISTING JOBS FOR DUPLICATE CHECK
+async function getExistingJobsForDuplicateCheck(userId) {
   try {
-    // Determine user's career field from their experience
+    // Get recent jobs (last 30 days) to check against
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const existingJobs = await Job.find({
+      userId,
+      createdAt: { $gte: thirtyDaysAgo }
+    }).select('title company sourceUrl').lean();
+    
+    return existingJobs.map(job => ({
+      title: job.title,
+      company: job.company,
+      sourceUrl: job.sourceUrl
+    }));
+  } catch (error) {
+    console.error('Error fetching existing jobs for duplicate check:', error);
+    return []; // If error, proceed without duplicate check
+  }
+}
+
+// 🔧 FILTER FRESH JOBS (EARLY DUPLICATE DETECTION)
+async function filterFreshJobs(discoveredJobs, existingJobs, alreadyFoundJobs = []) {
+  const fresh = [];
+  let duplicateCount = 0;
+  
+  for (const job of discoveredJobs) {
+    const isDuplicate = checkIfDuplicate(job, existingJobs, alreadyFoundJobs);
+    
+    if (isDuplicate) {
+      duplicateCount++;
+      console.log(`🔍 EARLY SKIP: "${job.title}" at ${job.company} (duplicate detected)`);
+    } else {
+      fresh.push(job);
+      console.log(`✅ FRESH JOB: "${job.title}" at ${job.company} (will analyze)`);
+    }
+  }
+  
+  return {
+    fresh,
+    duplicates: duplicateCount
+  };
+}
+
+// 🔧 CHECK IF JOB IS DUPLICATE
+function checkIfDuplicate(newJob, existingJobs, alreadyFoundJobs = []) {
+  const newTitle = newJob.title.toLowerCase().trim();
+  const newCompany = newJob.company.toLowerCase().trim();
+  const newUrl = newJob.jobUrl || newJob.sourceUrl || '';
+  
+  // Check against existing jobs in database
+  for (const existing of existingJobs) {
+    // URL match (most reliable)
+    if (newUrl && existing.sourceUrl && newUrl === existing.sourceUrl) {
+      return true;
+    }
+    
+    // Title + Company match
+    if (newTitle === existing.title.toLowerCase().trim() && 
+        newCompany === existing.company.toLowerCase().trim()) {
+      return true;
+    }
+  }
+  
+  // Check against already found jobs in this search
+  for (const found of alreadyFoundJobs) {
+    const foundTitle = found.title.toLowerCase().trim();
+    const foundCompany = found.company.toLowerCase().trim();
+    const foundUrl = found.jobUrl || found.sourceUrl || '';
+    
+    // URL match
+    if (newUrl && foundUrl && newUrl === foundUrl) {
+      return true;
+    }
+    
+    // Title + Company match
+    if (newTitle === foundTitle && newCompany === foundCompany) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// 🔧 CRAFT VARIED SEARCH QUERIES
+function craftVariedSearchQuery(careerProfile, attempt) {
+  const primaryTitle = careerProfile.targetJobTitles?.[0] || 'Product Manager';
+  let cleanTitle = primaryTitle.trim();
+  
+  // Vary the search based on attempt
+  switch (attempt) {
+    case 1:
+      // First attempt: Use primary title as-is
+      break;
+    case 2:
+      // Second attempt: Try without seniority level
+      cleanTitle = cleanTitle.replace(/^(senior|sr|junior|jr|lead|principal|staff)\s+/i, '').trim();
+      break;
+    case 3:
+      // Third attempt: Try alternative title if available
+      if (careerProfile.targetJobTitles?.[1]) {
+        cleanTitle = careerProfile.targetJobTitles[1].trim();
+      } else {
+        // Or try a related title
+        cleanTitle = cleanTitle.replace(/manager/i, 'lead').replace(/lead/i, 'manager');
+      }
+      break;
+  }
+  
+  // Remove duplicate words
+  const words = cleanTitle.split(' ');
+  const uniqueWords = [...new Set(words)];
+  cleanTitle = uniqueWords.join(' ');
+  
+  console.log(`🎯 Search attempt ${attempt} query: "${cleanTitle}"`);
+  
+  return {
+    jobTitle: cleanTitle,
+    location: 'Remote',
+    experienceLevel: careerProfile.experienceLevel,
+    limit: SEARCH_BUDGET.JOBS_PER_API_CALL,
+    remote: true,
+    keywords: []
+  };
+}
+
+// EXECUTE SINGLE PRECISION SEARCH
+async function executeSinglePrecisionSearch(extractor, precisionQuery, search) {
+  console.log(`🔍 Executing search with query: "${precisionQuery.jobTitle}"...`);
+  
+  const searchResult = await extractor.searchActiveJobsDB(precisionQuery);
+  
+  console.log(`📊 Search results: ${searchResult.jobs?.length || 0} jobs from API`);
+  
+  if (!searchResult.jobs || searchResult.jobs.length === 0) {
+    console.log(`⚠️ No jobs found with query: "${precisionQuery.jobTitle}"`);
+    return [];
+  }
+  
+  // Return jobs with additional metadata
+  const relevantJobs = searchResult.jobs.map(job => ({
+    ...job,
+    extractedAt: new Date(),
+    extractionMethod: 'active_jobs_db_precision',
+    contentQuality: job.contentQuality || 'high',
+    matchScore: job.relevanceScore || 85,
+    budgetEfficient: true,
+    searchQuery: precisionQuery.jobTitle
+  }));
+  
+  return relevantJobs;
+}
+
+// 🔥 ENHANCED ROLE-SPECIFIC JOB ANALYSIS (Same as before)
+async function performEnhancedJobAnalysis(freshJobs, search, careerProfile) {
+  const analyzedJobs = [];
+  
+  console.log(`🔬 Starting ENHANCED analysis of ${freshJobs.length} FRESH jobs with GPT-4o...`);
+  console.log(`🎯 No duplicates will be analyzed - saving GPT-4o API costs!`);
+  
+  for (const job of freshJobs) {
+    try {
+      console.log(`🤖 Analyzing "${job.title}" at ${job.company} with ENHANCED GPT-4o...`);
+      
+      // USE THE SAME ENHANCED ANALYSIS AS MANUAL UPLOADS
+      const enhancedAnalysis = await jobAnalysisService.analyzeJob(
+        job.description || job.fullContent || 'Job description not available',
+        {
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          salary: job.salary
+        },
+        {
+          isAiDiscovery: true,
+          prioritizeCost: false
+        }
+      );
+      
+      analyzedJobs.push({
+        ...job,
+        analysis: enhancedAnalysis,
+        analysisError: null,
+        enhancedAnalysis: true,
+        lightweightAnalysis: false,
+        budgetEfficient: true,
+        roleSpecificAnalysis: true
+      });
+      
+      await search.addReasoningLog(
+        'premium_analysis',
+        `"${job.title}" at ${job.company} - ENHANCED analysis complete (FRESH job)`,
+        {
+          jobTitle: job.title,
+          companyName: job.company,
+          relevanceScore: job.relevanceScore || 85,
+          enhancedAnalysis: true,
+          roleSpecificAnalysis: true,
+          modelUsed: enhancedAnalysis.analysisMetadata?.model || 'gpt-4o',
+          analysisType: enhancedAnalysis.analysisMetadata?.analysisType || 'ai_discovery_role_specific',
+          skillsFound: enhancedAnalysis.keySkills?.length || 0,
+          technicalRequirements: enhancedAnalysis.technicalRequirements?.length || 0,
+          careerField: careerProfile.careerDirection,
+          freshJob: true
+        }
+      );
+      
+    } catch (error) {
+      console.error(`❌ Error in enhanced analysis for ${job.title}:`, error);
+      
+      // Fallback to lightweight only if enhanced analysis fails
+      console.log(`🔄 Falling back to lightweight analysis for ${job.title}...`);
+      const lightweightAnalysis = createLightweightAnalysis(job, careerProfile);
+      
+      analyzedJobs.push({
+        ...job,
+        analysis: lightweightAnalysis,
+        analysisError: error.message,
+        enhancedAnalysis: false,
+        lightweightAnalysis: true,
+        fallbackUsed: true
+      });
+    }
+  }
+  
+  const enhancedCount = analyzedJobs.filter(job => job.enhancedAnalysis).length;
+  const lightweightCount = analyzedJobs.filter(job => job.lightweightAnalysis).length;
+  
+  console.log(`✅ Analysis complete: ${enhancedCount} enhanced, ${lightweightCount} lightweight fallbacks`);
+  
+  return analyzedJobs;
+}
+
+// CAREER ANALYSIS (Same as before)
+async function analyzeCareerForPrecisionTargeting(resumeData) {
+  try {
     const currentRole = resumeData.experience?.[0]?.title || '';
     const allRoles = resumeData.experience?.map(exp => exp.title).join(', ') || '';
     const skills = resumeData.skills?.map(skill => typeof skill === 'string' ? skill : skill.name).join(', ') || '';
@@ -559,39 +635,26 @@ async function analyzeGenericCareerProfile(resumeData) {
       messages: [
         {
           role: "system",
-          content: `You are an expert career strategist. Analyze any career background and create targeted job search criteria.
-
-IMPORTANT RULES:
-1. Include BOTH specific titles AND broad base titles for maximum coverage
-2. For any field (engineering, marketing, sales, etc.) include progression levels
-3. Extract the core job function and include variations
-4. Don't assume any specific field - work with what's provided
-
-Examples:
-- If someone is a "Senior Software Engineer", include: ["Software Engineer", "Senior Software Engineer", "Staff Engineer", "Principal Engineer"]
-- If someone is a "Marketing Manager", include: ["Marketing Manager", "Senior Marketing Manager", "Marketing Director", "Growth Manager"]
-- If someone is a "Data Scientist", include: ["Data Scientist", "Senior Data Scientist", "ML Engineer", "Research Scientist"]`
-        },
-        {
-          role: "user",
-          content: `Analyze this career profile and create targeted search criteria:
+content: `Analyze this career profile for PRECISION job targeting:
 
 Current Role: "${currentRole}"
 Career History: ${allRoles}
 Skills: ${skills}
 
-Return JSON with comprehensive targeting:
+Return JSON with PRECISION targeting:
 {
   "targetJobTitles": [
-    "// Include base title, senior versions, and related roles",
-    "// Example: if current is 'Software Engineer', include variations"
+    "// ONLY clean job titles like 'Product Manager', 'Senior Software Engineer'",
+    "// MAX 2 clean titles only"
   ],
-  "targetKeywords": ["// Extract 4-6 most relevant skills/technologies"],
+  "targetKeywords": [
+    "// TOP 3-4 most important skills/technologies only"
+  ],
   "experienceLevel": "// entry, junior, mid, senior, lead, principal, executive",
-  "careerDirection": "// Brief description of career focus"
+  "careerDirection": "// Brief description of PRIMARY career focus"
 }
 
-Be comprehensive but relevant to the actual background provided.`
+Keep job titles GENERIC and put specifics in keywords!`
         }
       ]
     });
@@ -602,58 +665,34 @@ Be comprehensive but relevant to the actual background provided.`
     if (jsonMatch) {
       const profile = JSON.parse(jsonMatch[0]);
       
-      // SAFETY: Ensure we have enough variety in job titles
-      if (profile.targetJobTitles && profile.targetJobTitles.length < 3) {
-        profile.targetJobTitles = enhanceJobTitles(profile.targetJobTitles, currentRole);
-      }
+      profile.targetJobTitles = (profile.targetJobTitles || []).slice(0, 2);
+      profile.targetKeywords = (profile.targetKeywords || []).slice(0, 4);
       
       return {
         ...profile,
-        preferredLocations: ['Remote', 'New York', 'San Francisco', 'Austin'],
+        preferredLocations: ['Remote'],
         workArrangement: 'remote'
       };
     }
     
-    return createGenericFallbackCareerProfile(currentRole, skills);
+    return createPrecisionFallbackCareerProfile(currentRole, skills);
     
   } catch (error) {
-    console.error('Error in generic career analysis:', error);
-    return createGenericFallbackCareerProfile(
+    console.error('Error in precision career analysis:', error);
+    return createPrecisionFallbackCareerProfile(
       resumeData.experience?.[0]?.title || 'Professional',
       resumeData.skills?.map(s => typeof s === 'string' ? s : s.name).join(', ') || ''
     );
   }
 }
 
-function enhanceJobTitles(existingTitles, currentRole) {
-  const enhanced = [...existingTitles];
-  
-  // Add base version if not present
-  const baseRole = currentRole.replace(/^(senior|sr|junior|jr|lead|principal|staff|director|head|chief|vp|vice president)\s+/i, '').trim();
-  if (baseRole && !enhanced.some(title => title.toLowerCase().includes(baseRole.toLowerCase()))) {
-    enhanced.unshift(baseRole);
-  }
-  
-  // Add senior version if not present
-  if (baseRole && !enhanced.some(title => title.toLowerCase().includes('senior'))) {
-    enhanced.push(`Senior ${baseRole}`);
-  }
-  
-  return enhanced;
-}
-
-function createGenericFallbackCareerProfile(currentRole, skills) {
+function createPrecisionFallbackCareerProfile(currentRole, skills) {
   const baseRole = currentRole.replace(/^(senior|sr|junior|jr|lead|principal|staff|director|head|chief|vp|vice president)\s+/i, '').trim() || 'Professional';
-  const skillsArray = skills.split(',').map(s => s.trim()).filter(s => s.length > 0).slice(0, 4);
+  const skillsArray = skills.split(',').map(s => s.trim()).filter(s => s.length > 0).slice(0, 3);
   
   return {
-    targetJobTitles: [
-      baseRole,
-      `Senior ${baseRole}`,
-      `Lead ${baseRole}`,
-      currentRole // Include the full original title too
-    ].filter((title, index, arr) => arr.indexOf(title) === index), // Remove duplicates
-    targetKeywords: skillsArray.length > 0 ? skillsArray : ['professional', 'experience', 'management'],
+    targetJobTitles: [baseRole],
+    targetKeywords: skillsArray.length > 0 ? skillsArray : ['professional', 'experience'],
     experienceLevel: 'mid',
     careerDirection: `${baseRole} career progression`,
     preferredLocations: ['Remote'],
@@ -661,51 +700,9 @@ function createGenericFallbackCareerProfile(currentRole, skills) {
   };
 }
 
-// GENERIC JOB ANALYSIS
-async function performGenericJobAnalysis(discoveredJobs, search, careerProfile) {
-  const analyzedJobs = [];
-  
-  console.log(`🔬 Starting generic analysis of ${discoveredJobs.length} pre-filtered jobs...`);
-  
-  for (const job of discoveredJobs) {
-    try {
-      const analysis = await analyzeJobGeneric(job, careerProfile);
-      
-      analyzedJobs.push({
-        ...job,
-        analysis: analysis,
-        analysisError: null,
-        premiumAnalysis: true
-      });
-      
-      await search.addReasoningLog(
-        'premium_analysis',
-        `"${job.title}" at ${job.company} - Generic analysis complete (Relevance: ${job.relevanceScore}%)`,
-        {
-          jobTitle: job.title,
-          companyName: job.company,
-          relevanceScore: job.relevanceScore,
-          skillsFound: analysis?.keySkills?.length || 0,
-          careerField: careerProfile.careerDirection
-        }
-      );
-      
-    } catch (error) {
-      console.error(`Error analyzing ${job.title}:`, error);
-      analyzedJobs.push({
-        ...job,
-        analysis: createGenericFallbackAnalysis(),
-        analysisError: error.message
-      });
-    }
-  }
-  
-  return analyzedJobs;
-}
-
-async function analyzeJobGeneric(job, careerProfile) {
-  // Create generic skills based on career field
-  const skills = createGenericSkillsForCareer(careerProfile);
+// LIGHTWEIGHT JOB ANALYSIS - FALLBACK ONLY
+function createLightweightAnalysis(job, careerProfile) {
+  const skills = createTargetedSkillsForCareer(careerProfile);
 
   return {
     requirements: ['Relevant experience in the field', 'Strong problem-solving skills'],
@@ -719,16 +716,16 @@ async function analyzeJobGeneric(job, careerProfile) {
     workArrangement: ValidationUtils.normalizeWorkArrangement('remote'),
     analysisMetadata: {
       analyzedAt: new Date(),
-      algorithmVersion: '4.0-generic-adzuna-api',
-      analysisType: 'generic_adzuna_api_analysis',
-      qualityLevel: 'standard',
-      careerField: careerProfile.careerDirection
+      algorithmVersion: '6.1-lightweight-fallback',
+      analysisType: 'lightweight_fallback_only',
+      qualityLevel: 'basic',
+      careerField: careerProfile.careerDirection,
+      fallback: true
     }
   };
 }
 
-function createGenericSkillsForCareer(careerProfile) {
-  // Create appropriate skills based on career direction
+function createTargetedSkillsForCareer(careerProfile) {
   const careerField = (careerProfile.careerDirection || '').toLowerCase();
   let skills = [];
   
@@ -744,34 +741,7 @@ function createGenericSkillsForCareer(careerProfile) {
       { name: 'Stakeholder Management', importance: 7, category: 'soft', skillType: 'communication' },
       { name: 'Data Analysis', importance: 6, category: 'technical', skillType: 'analytical' }
     ];
-  } else if (careerField.includes('data') || careerField.includes('analytics')) {
-    skills = [
-      { name: 'Data Analysis', importance: 8, category: 'technical', skillType: 'analytical' },
-      // services/jobSearch.service.js - FINAL PART (Continued from previous)
-
-      { name: 'Statistical Analysis', importance: 7, category: 'technical', skillType: 'analytical' },
-      { name: 'Communication', importance: 6, category: 'soft', skillType: 'communication' }
-    ];
-  } else if (careerField.includes('marketing')) {
-    skills = [
-      { name: 'Marketing Strategy', importance: 8, category: 'business', skillType: 'management' },
-      { name: 'Content Creation', importance: 7, category: 'soft', skillType: 'communication' },
-      { name: 'Analytics', importance: 6, category: 'technical', skillType: 'analytical' }
-    ];
-  } else if (careerField.includes('design')) {
-    skills = [
-      { name: 'Design Thinking', importance: 8, category: 'technical', skillType: 'design' },
-      { name: 'User Experience', importance: 7, category: 'technical', skillType: 'design' },
-      { name: 'Collaboration', importance: 6, category: 'soft', skillType: 'communication' }
-    ];
-  } else if (careerField.includes('sales')) {
-    skills = [
-      { name: 'Sales Strategy', importance: 8, category: 'business', skillType: 'management' },
-      { name: 'Relationship Building', importance: 7, category: 'soft', skillType: 'communication' },
-      { name: 'Negotiation', importance: 6, category: 'soft', skillType: 'communication' }
-    ];
   } else {
-    // Generic fallback skills
     skills = [
       { name: 'Communication', importance: 7, category: 'soft', skillType: 'communication' },
       { name: 'Problem Solving', importance: 7, category: 'soft', skillType: 'general' },
@@ -783,68 +753,37 @@ function createGenericSkillsForCareer(careerProfile) {
   return ValidationUtils.validateAndNormalizeSkills(skills);
 }
 
-function createGenericFallbackAnalysis() {
-  const skills = ValidationUtils.validateAndNormalizeSkills([
-    { name: 'Communication', importance: 6, category: 'soft', skillType: 'communication' },
-    { name: 'Problem Solving', importance: 6, category: 'soft', skillType: 'general' }
-  ]);
-
-  return {
-    requirements: ['Relevant experience'],
-    responsibilities: ['Perform assigned duties'],
-    qualifications: { required: ['Relevant education'], preferred: [] },
-    keySkills: skills,
-    experienceLevel: 'mid',
-    workArrangement: 'unknown',
-    analysisMetadata: {
-      analyzedAt: new Date(),
-      algorithmVersion: '4.0-generic-fallback',
-      analysisType: 'generic_fallback',
-      qualityLevel: 'basic'
-    }
-  };
-}
-
-// GENERIC JOB SAVING
-async function saveJobsGeneric(analyzedJobs, userId, searchId, search) {
+// JOB SAVING - OPTIMIZED (No Duplicate Check Since Already Done)
+async function saveJobsOptimized(analyzedJobs, userId, searchId, search) {
   let savedCount = 0;
-  const maxJobsPerSearch = 8;
+  const maxJobsToSave = SEARCH_BUDGET.TARGET_JOBS_TO_SAVE;
   
-  console.log(`💾 Starting to save ${Math.min(analyzedJobs.length, maxJobsPerSearch)} generic jobs...`);
+  console.log(`💾 Saving ${Math.min(analyzedJobs.length, maxJobsToSave)} FRESH analyzed jobs (no duplicates to check)...`);
   
-  for (const jobData of analyzedJobs.slice(0, maxJobsPerSearch)) {
+  for (const jobData of analyzedJobs.slice(0, maxJobsToSave)) {
     try {
-      // Check for duplicates
-      const existing = await Job.findOne({
-        userId,
-        $or: [
-          { sourceUrl: jobData.jobUrl || jobData.sourceUrl },
-          { 
-            title: { $regex: new RegExp(`^${escapeRegex(jobData.title)}$`, 'i') },
-            company: { $regex: new RegExp(`^${escapeRegex(jobData.company)}$`, 'i') }
-          }
-        ]
-      });
+      // 🔧 NO DUPLICATE CHECK NEEDED - Already done before analysis
       
-      if (existing) {
-        console.log(`⚠️ Skipping duplicate: "${jobData.title}" at ${jobData.company}`);
-        continue;
-      }
-      
-      // Validate and normalize data
+      // Validate and normalize data from ENHANCED analysis
       const experienceLevel = ValidationUtils.normalizeExperienceLevel(jobData.analysis?.experienceLevel || 'mid');
       const workArrangement = ValidationUtils.normalizeWorkArrangement(jobData.analysis?.workArrangement || 'unknown');
       const normalizedSkills = ValidationUtils.validateAndNormalizeSkills(jobData.analysis?.keySkills || []);
       
-      // Create job record
+      // Determine analysis quality
+      const isEnhanced = jobData.enhancedAnalysis === true;
+      const analysisType = isEnhanced ? 'ai_discovery_role_specific_enhanced' : 'ai_discovery_lightweight_fallback';
+      const modelUsed = isEnhanced ? (jobData.analysis?.analysisMetadata?.model || 'gpt-4o') : 'lightweight-fallback';
+      const qualityLevel = isEnhanced ? 'premium' : 'basic';
+      
+      // Create job record with ENHANCED analysis data
       const job = new Job({
         userId,
         title: jobData.title,
         company: jobData.company,
         location: parseLocation(jobData.location),
-        description: jobData.fullContent || jobData.description,
+        description: jobData.fullContent || jobData.description || 'Job description not available',
         sourceUrl: jobData.jobUrl || jobData.sourceUrl,
-        sourcePlatform: createValidSourcePlatform(jobData.sourcePlatform),
+        sourcePlatform: createValidActiveJobsDBSourcePlatform(jobData.sourcePlatform),
         isAiGenerated: true,
         applicationStatus: 'NOT_APPLIED',
         aiSearchId: searchId,
@@ -854,18 +793,26 @@ async function saveJobsGeneric(analyzedJobs, userId, searchId, search) {
         analysisStatus: {
           status: 'completed',
           progress: 100,
-          message: `Generic analysis complete! Found ${normalizedSkills.length} key skills for this ${jobData.analysis?.analysisMetadata?.careerField || 'professional'} role.`,
+          message: isEnhanced 
+            ? `ENHANCED analysis complete! Found ${normalizedSkills.length} skills with ${modelUsed} (Fresh job, no duplicate).`
+            : `Analysis complete with fallback method. Found ${normalizedSkills.length} skills.`,
           updatedAt: new Date(),
           completedAt: new Date(),
           canViewJob: true,
           skillsFound: normalizedSkills.length,
           experienceLevel: experienceLevel,
-          modelUsed: 'gpt-4o-generic',
-          analysisType: 'generic_adzuna_api_analysis',
-          searchApproach: '3-phase-intelligent-adzuna-api', // Valid enum value
-          qualityLevel: 'adzuna-api-enhanced' // Valid enum value
+          modelUsed: modelUsed,
+          analysisType: analysisType,
+          searchApproach: '3-phase-intelligent-adzuna-api',
+          qualityLevel: qualityLevel,
+          enhancedAnalysis: isEnhanced,
+          roleSpecificAnalysis: isEnhanced,
+          sameQualityAsManual: isEnhanced,
+          optimizedSearch: true,
+          freshJob: true
         },
         
+        // ENHANCED PARSED DATA from role-specific analysis
         parsedData: {
           requirements: jobData.analysis?.requirements || [],
           responsibilities: jobData.analysis?.responsibilities || [],
@@ -881,42 +828,88 @@ async function saveJobsGeneric(analyzedJobs, userId, searchId, search) {
           technicalComplexity: jobData.analysis?.technicalComplexity || 'medium',
           leadershipRequired: jobData.analysis?.leadershipRequired || false,
           extractedAt: new Date(),
-          extractionMethod: 'generic_adzuna_api_analysis',
+          extractionMethod: isEnhanced ? 'enhanced_role_specific_analysis' : 'lightweight_fallback',
           
-          adzunaApiData: {
+          // ENHANCED: Technical requirements and tools from role-specific analysis
+          technicalRequirements: jobData.analysis?.technicalRequirements || [],
+          toolsAndTechnologies: jobData.analysis?.toolsAndTechnologies || [],
+          companyStage: jobData.analysis?.companyStage || 'unknown',
+          department: jobData.analysis?.department || 'unknown',
+          roleLevel: jobData.analysis?.roleLevel || 'individual-contributor',
+          
+          // Active Jobs DB specific data
+          activeJobsDBData: {
             platform: jobData.sourcePlatform,
             originalUrl: jobData.jobUrl,
             postedDate: jobData.postedDate,
-            adzunaId: jobData.adzunaData?.id,
-            category: jobData.adzunaData?.category,
-            discoveryMethod: 'generic_adzuna_api_aggregation'
+            activeJobsDBId: jobData.activeJobsDBData?.id,
+            category: jobData.activeJobsDBData?.category,
+            discoveryMethod: 'optimized_fresh_targeting',
+            isDirectEmployer: jobData.isDirectEmployer || false,
+            company_url: jobData.activeJobsDBData?.company_url,
+            apply_url: jobData.activeJobsDBData?.apply_url,
+            remote: jobData.activeJobsDBData?.remote,
+            enhancedAnalysis: isEnhanced,
+            searchQuery: jobData.searchQuery
           },
           
+          // ENHANCED: Analysis metadata from role-specific analysis
           analysisMetadata: jobData.analysis?.analysisMetadata || {
             analyzedAt: new Date(),
-            algorithmVersion: '4.0-generic-adzuna-api',
-            analysisType: 'generic_adzuna_api_analysis',
-            qualityLevel: 'standard'
+            algorithmVersion: '6.1-optimized-fresh-jobs',
+            analysisType: analysisType,
+            qualityLevel: qualityLevel,
+            enhancedAnalysis: isEnhanced,
+            roleSpecificAnalysis: isEnhanced,
+            model: modelUsed,
+            fallback: !isEnhanced,
+            freshJob: true,
+            optimizedDiscovery: true
           }
         },
         
         aiSearchMetadata: {
-          searchScore: jobData.relevanceScore || 75,
-          discoveryMethod: 'generic_adzuna_api_discovery',
+          searchScore: jobData.relevanceScore || 85,
+          discoveryMethod: 'optimized_fresh_targeting',
           extractionSuccess: !jobData.analysisError,
           contentQuality: jobData.contentQuality || 'high',
-          premiumAnalysis: true,
+          premiumAnalysis: isEnhanced,
           intelligentDiscovery: true,
-          adzunaApiDiscovery: true,
-          phase: '3-phase-intelligent-adzuna-api',
+          activeJobsDBDiscovery: true,
+          enhancedAnalysis: isEnhanced,
+          roleSpecificAnalysis: isEnhanced,
+          sameQualityAsManual: isEnhanced,
+          phase: 'optimized-fresh-job-targeting',
           originalPlatform: jobData.sourcePlatform,
-          relevanceScore: jobData.relevanceScore || 75,
+          relevanceScore: jobData.relevanceScore || 85,
+          isDirectEmployer: jobData.isDirectEmployer || false,
+          freshJob: true,
+          optimizedSearch: true,
           
-          adzunaApiMetadata: {
-            discoveryMethod: 'generic_adzuna_api_aggregation',
-            apiProvider: 'adzuna',
-            genericRelevanceFiltering: true,
-            worksForAllJobTypes: true
+          // Enhanced analysis metadata
+          enhancedMetadata: {
+            analysisModel: modelUsed,
+            analysisType: analysisType,
+            qualityLevel: qualityLevel,
+            enhancedAnalysis: isEnhanced,
+            technicalRequirementsFound: jobData.analysis?.technicalRequirements?.length || 0,
+            toolsAndTechnologiesFound: jobData.analysis?.toolsAndTechnologies?.length || 0,
+            roleCategory: jobData.analysis?.roleCategory || 'general',
+            industryContext: jobData.analysis?.industryContext || 'general',
+            fallbackUsed: jobData.fallbackUsed || false,
+            freshJob: true,
+            searchQuery: jobData.searchQuery
+          },
+          
+          // Active Jobs DB specific metadata
+          activeJobsDBMetadata: {
+            discoveryMethod: 'optimized_fresh_targeting',
+            apiProvider: 'active_jobs_db',
+            premiumDatabaseAccess: true,
+            directEmployerLinks: jobData.isDirectEmployer || false,
+            enhancedAnalysis: isEnhanced,
+            optimizedSearch: true,
+            freshJob: true
           }
         }
       });
@@ -933,25 +926,34 @@ async function saveJobsGeneric(analyzedJobs, userId, searchId, search) {
             title: job.title,
             company: job.company,
             foundAt: new Date(),
-            extractionMethod: 'generic_adzuna_api_discovery',
+            extractionMethod: isEnhanced ? 'enhanced_role_specific_analysis' : 'lightweight_fallback',
             contentQuality: jobData.contentQuality || 'high',
-            matchScore: jobData.relevanceScore || 75,
-            premiumAnalysis: true,
+            matchScore: jobData.relevanceScore || 85,
+            premiumAnalysis: isEnhanced,
+            enhancedAnalysis: isEnhanced,
+            roleSpecificAnalysis: isEnhanced,
             sourcePlatform: jobData.sourcePlatform,
-            relevanceScore: jobData.relevanceScore || 75,
-            apiSource: 'adzuna_aggregator'
+            relevanceScore: jobData.relevanceScore || 85,
+            apiSource: 'active_jobs_db',
+            modelUsed: modelUsed,
+            sameQualityAsManual: isEnhanced,
+            freshJob: true,
+            optimizedSearch: true,
+            searchQuery: jobData.searchQuery
           }
         }
       });
       
-      console.log(`✅ GENERIC SAVE: ${job.title} at ${job.company} (Relevance: ${jobData.relevanceScore || 75}%) [${savedCount}/${maxJobsPerSearch}]`);
+      const qualityIndicator = isEnhanced ? '🔥 ENHANCED' : '🔄 FALLBACK';
+      console.log(`✅ ${qualityIndicator} FRESH: ${job.title} at ${job.company} (${modelUsed}, Score: ${jobData.relevanceScore || 85}%) [${savedCount}/${maxJobsToSave}]`);
       
     } catch (error) {
-      console.error(`❌ ERROR saving generic job ${jobData.title}:`, error);
+      console.error(`❌ ERROR saving fresh job ${jobData.title}:`, error);
     }
   }
   
-  console.log(`💾 Generic job saving completed: ${savedCount} jobs saved`);
+  console.log(`💾 Optimized job saving completed: ${savedCount} FRESH jobs saved`);
+  
   return savedCount;
 }
 
@@ -973,17 +975,22 @@ function parseLocation(locationString) {
   };
 }
 
-function createValidSourcePlatform(originalPlatform) {
-  if (!originalPlatform) return 'AI_FOUND_ADZUNA_OTHER';
+function createValidActiveJobsDBSourcePlatform(originalPlatform) {
+  if (!originalPlatform) return 'ACTIVE_JOBS_DB_DIRECT';
   
   const platform = originalPlatform.toLowerCase();
   
   const platformMap = {
-    'indeed': 'AI_FOUND_ADZUNA_INDEED',
-    'linkedin': 'AI_FOUND_ADZUNA_LINKEDIN',
-    'monster': 'AI_FOUND_ADZUNA_MONSTER',
-    'careerbuilder': 'AI_FOUND_ADZUNA_CAREERBUILDER',
-    'glassdoor': 'AI_FOUND_ADZUNA_GLASSDOOR'
+    'greenhouse': 'ACTIVE_JOBS_DB_GREENHOUSE',
+    'lever': 'ACTIVE_JOBS_DB_LEVER',
+    'workday': 'ACTIVE_JOBS_DB_WORKDAY',
+    'indeed': 'ACTIVE_JOBS_DB_INDEED',
+    'linkedin': 'ACTIVE_JOBS_DB_LINKEDIN',
+    'monster': 'ACTIVE_JOBS_DB_MONSTER',
+    'careerbuilder': 'ACTIVE_JOBS_DB_CAREERBUILDER',
+    'glassdoor': 'ACTIVE_JOBS_DB_GLASSDOOR',
+    'ziprecruiter': 'ACTIVE_JOBS_DB_ZIPRECRUITER',
+    'dice': 'ACTIVE_JOBS_DB_DICE'
   };
   
   for (const [key, value] of Object.entries(platformMap)) {
@@ -992,7 +999,7 @@ function createValidSourcePlatform(originalPlatform) {
     }
   }
   
-  return 'AI_FOUND_ADZUNA_OTHER';
+  return 'ACTIVE_JOBS_DB_OTHER';
 }
 
 function extractSearchCriteria(resumeData) {
@@ -1031,7 +1038,7 @@ function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// EXISTING EXPORTS (maintained for compatibility)
+// EXISTING EXPORTS - UPDATED FOR OPTIMIZED SEARCH
 exports.getUserAiSearches = async (userId) => {
   return await AiJobSearch.find({ userId }).sort({ createdAt: -1 });
 };
@@ -1042,15 +1049,20 @@ exports.pauseAiSearch = async (userId, searchId) => {
   
   await search.addReasoningLog(
     'completion',
-    'Generic Adzuna API search paused by user request',
-    { phase: 'user_pause', pausedAt: new Date() }
+    'Optimized AI search paused by user request - early duplicate detection preserved',
+    { 
+      phase: 'user_pause', 
+      pausedAt: new Date(), 
+      optimizedSearch: true,
+      duplicateDetection: 'Early detection enabled'
+    }
   );
   
   search.status = 'paused';
-  search.lastUpdateMessage = 'Paused by user';
+  search.lastUpdateMessage = 'Paused by user - optimized search preserved';
   await search.save();
   
-  return { message: 'Generic search paused successfully' };
+  return { message: 'Optimized AI search paused successfully' };
 };
 
 exports.resumeAiSearch = async (userId, searchId) => {
@@ -1059,26 +1071,27 @@ exports.resumeAiSearch = async (userId, searchId) => {
   
   await search.addReasoningLog(
     'initialization',
-    'Generic Adzuna API search resumed by user - continuing with field-agnostic filtering that works for any job type',
+    'Optimized AI search resumed by user - continuing with early duplicate detection',
     { 
       phase: 'user_resume', 
       resumedAt: new Date(),
-      searchMethod: 'Generic Adzuna API with field-agnostic filtering'
+      searchMethod: 'Optimized AI discovery with duplicate prevention',
+      analysisQuality: 'Premium GPT-4o analysis (fresh jobs only)'
     }
   );
   
   search.status = 'running';
-  search.lastUpdateMessage = 'Resumed by user - Generic approach';
+  search.lastUpdateMessage = 'Resumed by user - optimized approach';
   await search.save();
   
   const resume = await Resume.findById(search.resumeId);
   if (resume) {
-    performGenericAdzunaJobSearch(searchId, userId, resume).catch(error => {
-      console.error('Error resuming generic search:', error);
+    performOptimizedSearch(searchId, userId, resume).catch(error => {
+      console.error('Error resuming optimized search:', error);
     });
   }
   
-  return { message: 'Generic search resumed successfully' };
+  return { message: 'Optimized AI search resumed successfully' };
 };
 
 exports.deleteAiSearch = async (userId, searchId) => {
@@ -1087,17 +1100,18 @@ exports.deleteAiSearch = async (userId, searchId) => {
   
   await search.addReasoningLog(
     'completion',
-    'Generic Adzuna API search cancelled by user request',
+    'Optimized AI search cancelled by user request',
     { 
       phase: 'user_cancellation', 
       cancelledAt: new Date(),
-      searchMethod: 'Generic Adzuna API aggregation'
+      searchMethod: 'Optimized AI discovery with duplicate prevention',
+      analysisQuality: 'Premium GPT-4o analysis'
     }
   );
   
   search.status = 'cancelled';
-  search.lastUpdateMessage = 'Cancelled by user';
+  search.lastUpdateMessage = 'Cancelled by user - optimized approach';
   await search.save();
   
-  return { message: 'Generic search cancelled successfully' };
+  return { message: 'Optimized AI search cancelled successfully' };
 };

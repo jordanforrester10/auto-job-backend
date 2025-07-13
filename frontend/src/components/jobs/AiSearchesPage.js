@@ -134,7 +134,7 @@ const AiSearchesPage = () => {
       {/* Removed maxWidth constraint to match other pages */}
       <Box sx={{ p: 3 }}>
         <PageHeader
-          title="Agent Job Searches"
+          title="Your AI Automated Job Search"
           subtitle="Manage your automated AI job searches"
           icon={<SmartToyIcon />}
           action={

@@ -348,7 +348,7 @@ const RecruiterPage = () => {
      <Container maxWidth="lg" sx={{ py: 3 }}>
        {/* Page Header */}
        <PageHeader
-         title="Recruiter Outreach"
+         title="Find and Connect With Recruiters"
          subtitle={
            isFreePlan 
              ? "Browse recruiters and upgrade to unlock contact features"
