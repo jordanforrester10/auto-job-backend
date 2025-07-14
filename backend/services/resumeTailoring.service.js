@@ -1,4 +1,4 @@
-// services/resumeTailoring.service.js - FIXED FRESH ANALYSIS ISSUE
+// services/resumeTailoring.service.js - FIXED SKILLS VALIDATION ISSUE
 const Job = require('../models/mongodb/job.model');
 const Resume = require('../models/mongodb/resume.model');
 const { openai } = require('../config/openai');
@@ -429,30 +429,47 @@ exports.createTailoredResume = async (resumeId, jobId, tailoringOptions) => {
       });
     }
     
-    // Add missing skills
+    // FIXED: Add missing skills - ALWAYS ensure they are objects matching the schema
     if (tailoringRecommendations.skillsImprovements && 
         tailoringRecommendations.skillsImprovements.skillsToAdd) {
       
-      // Create a set of existing skill names for quick lookup
-      const existingSkillNames = new Set(parsedData.skills.map(skill => 
-        typeof skill === 'string' ? skill.toLowerCase() : skill.name.toLowerCase()));
+      console.log('Adding skills from tailoring recommendations:', tailoringRecommendations.skillsImprovements.skillsToAdd);
       
-      // Add new skills that don't already exist
-      tailoringRecommendations.skillsImprovements.skillsToAdd.forEach(skill => {
-        if (!existingSkillNames.has(skill.toLowerCase())) {
-          // If existing skills are objects with name property
-          if (parsedData.skills.length > 0 && typeof parsedData.skills[0] === 'object') {
-            parsedData.skills.push({
-              name: skill,
-              level: "Intermediate", // Default level
-              yearsOfExperience: null
-            });
-          } else {
-            // If existing skills are just strings
-            parsedData.skills.push(skill);
-          }
+      // Ensure parsedData.skills is initialized as an array
+      if (!parsedData.skills) {
+        parsedData.skills = [];
+      }
+      
+      // Create a set of existing skill names for quick lookup (handle both string and object formats)
+      const existingSkillNames = new Set();
+      parsedData.skills.forEach(skill => {
+        if (typeof skill === 'string') {
+          existingSkillNames.add(skill.toLowerCase());
+        } else if (skill && skill.name) {
+          existingSkillNames.add(skill.name.toLowerCase());
         }
       });
+      
+      // Add new skills that don't already exist - ALWAYS as objects to match schema
+      tailoringRecommendations.skillsImprovements.skillsToAdd.forEach(skillName => {
+        if (!existingSkillNames.has(skillName.toLowerCase())) {
+          // CRITICAL FIX: Always push skills as objects matching the MongoDB schema
+          const skillObject = {
+            name: skillName,
+            level: "Intermediate", // Default level
+            yearsOfExperience: null
+          };
+          
+          console.log('Adding skill object:', skillObject);
+          parsedData.skills.push(skillObject);
+          
+          // Add to existing names set to prevent duplicates
+          existingSkillNames.add(skillName.toLowerCase());
+        }
+      });
+      
+      console.log('Final skills array length:', parsedData.skills.length);
+      console.log('Sample skill object:', parsedData.skills[0]);
     }
     
     console.log('Generating tailored resume PDF...');
@@ -649,3 +666,5 @@ exports.createTailoredResume = async (resumeId, jobId, tailoringOptions) => {
     throw error;
   }
 };
+
+//
