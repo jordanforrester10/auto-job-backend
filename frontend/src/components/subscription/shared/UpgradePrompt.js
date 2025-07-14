@@ -59,11 +59,11 @@ const UpgradePrompt = ({
       description: 'Perfect for active job seekers',
       features: [
         '5 Resume uploads & analysis',
-        '25 Job imports per month',
+        '25 Manual Job imports per month',
         '25 Resume tailoring sessions',
         'Full recruiter database access',
-        '25 Recruiter unlocks per month',
-        '1 AI job discovery agent',
+        '25 Recruiter Contact unlocks per month',
+        'Up to 50 Jobs Automatically Delivered per week',
         'Priority email support'
       ],
       highlights: ['Most Popular', 'Best Value']
@@ -76,11 +76,11 @@ const UpgradePrompt = ({
       description: 'For serious job hunters & career changers',
       features: [
         'Unlimited resume uploads & analysis',
-        'Unlimited job imports',
+        'Unlimited manual job imports',
         '50 Resume tailoring sessions',
         'Full recruiter database access',
-        'Unlimited recruiter unlocks',
-        'Unlimited AI job discovery agents',
+        'Unlimited recruiter contact unlocks',
+        'Up to 100 Jobs Automatically Delivered per week',
         'AI Assistant with 5 conversations',
         '20 messages per conversation',
         'Priority support & phone support'

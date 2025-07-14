@@ -709,7 +709,7 @@ const JobsPage = () => {
       return {
         disabled: true,
         tooltip: 'AI Job Discovery requires Casual plan or higher',
-        text: 'Discover Jobs (Upgrade Required)',
+        text: 'AI Automated Jobs Search (Upgrade Required)',
         icon: LockIcon
       };
     }
@@ -718,7 +718,7 @@ const JobsPage = () => {
       return {
         disabled: true,
         tooltip: 'You\'ve used your 1 AI job discovery for this month. Upgrade to Hunter for unlimited searches.',
-        text: 'Discover Jobs (Limit Reached)',
+        text: 'AI Automated Jobs Search (Limit Reached)',
         icon: LockIcon
       };
     }
@@ -788,7 +788,7 @@ const JobsPage = () => {
               <Box sx={{ mb: 2 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                   <Typography variant="body2" color="text.secondary">
-                    Job Imports
+                    Manual Job Imports
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {jobImportUsage.used || 0}/{planLimits?.jobImports || 0}
@@ -808,7 +808,7 @@ const JobsPage = () => {
               <Box sx={{ mb: 2 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                   <Typography variant="body2" color="text.secondary">
-                    AI Job Discovery
+                    AI Automated Job Discovery
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {aiDiscoveryUsage.used || 0}/{planLimits?.aiJobDiscovery || 0}
@@ -830,7 +830,7 @@ const JobsPage = () => {
                   ? '⚠️ You\'ve reached your monthly job import limit. Upgrade for more capacity.'
                   : isApproachingLimit
                     ? '⚠️ You\'re approaching your monthly job import limit.'
-                    : `🎯 ${planLimits?.jobImports - (jobImportUsage.used || 0)} job imports remaining this month.`
+                    : `🎯 ${planLimits?.jobImports - (jobImportUsage.used || 0)} manual job imports remaining this month.`
               }
               {currentPlan === 'free' && (
                 <><br/>🔒 AI Job Discovery requires Casual plan or higher.</>
@@ -846,8 +846,8 @@ const JobsPage = () => {
                   <strong>Upgrade for more capacity:</strong>
                 </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    • <strong>Casual Plan ($19.99/month):</strong> 25 job imports, 1 AI job discovery<br/>
-                    • <strong>Hunter Plan ($34.99/month):</strong> Unlimited job imports & AI discoveries
+                    • <strong>Casual Plan ($19.99/month):</strong> 25 manual job imports, 50 jobs automatically discovered per week<br/>
+                    • <strong>Hunter Plan ($34.99/month):</strong> Unlimited manual job imports & 100 jobs automatically discovered per week
                   </Typography>
                 <Button
                   variant="outlined"

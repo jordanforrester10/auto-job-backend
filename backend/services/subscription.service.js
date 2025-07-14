@@ -1,11 +1,13 @@
-// backend/services/subscription.service.js - UPDATED PLAN LIMITS FOR FREE USERS
+// backend/services/subscription.service.js - UPDATED WITH PERSISTENT WEEKLY TRACKING
 const User = require('../models/mongodb/user.model');
+const AiJobSearch = require('../models/mongodb/aiJobSearch.model');
+const WeeklyJobTracking = require('../models/mongodb/weeklyJobTracking.model'); // NEW: Import persistent tracking
 const db = require('../config/postgresql');
 const stripeService = require('./stripe.service');
 
 class SubscriptionService {
   /**
-   * Get user's current subscription with updated plan limits for free users
+   * Get user's current subscription with persistent weekly tracking
    */
   async getCurrentSubscription(userId) {
     try {
@@ -30,9 +32,11 @@ class SubscriptionService {
 
       const subscription = subscriptionQuery.rows[0];
 
-      // 🔓 UPDATED: Get plan limits with free user recruiter access
+      // 🔄 UPDATED: Get plan limits with new weekly AI job discovery model
       const planLimits = this.getUpdatedPlanLimits(user.subscriptionTier);
-      const usageStats = user.getUsageStats();
+      
+      // 🔧 NEW: Get REAL usage stats using persistent weekly tracking
+      const usageStats = await this.getRealUsageStatsWithPersistentTracking(userId, user);
 
       // Get fresh Stripe data for paid users
       let enhancedUser = { ...user.toObject() };
@@ -106,8 +110,85 @@ class SubscriptionService {
     }
   }
 
+/**
+ * 🔧 NEW: Get REAL usage stats using persistent weekly tracking
+ */
+async getRealUsageStatsWithPersistentTracking(userId, user) {
+  try {
+    console.log(`🔍 Getting real usage stats with persistent weekly tracking for user ${userId}...`);
+    
+    // Get user's stored usage stats as baseline
+    const storedUsage = user.getUsageStats();
+    
+    // 🔧 FIX: Count ACTUAL active AI job searches from database
+    const activeAiSearches = await AiJobSearch.countDocuments({
+      userId,
+      status: { $in: ['running', 'paused'] } // Only count active searches
+    });
+    
+    console.log(`📊 Real AI search count: ${activeAiSearches} (stored was: ${storedUsage.aiJobDiscovery?.used || storedUsage.aiJobDiscovery || 0})`);
+    
+    // 🔧 NEW: Get persistent weekly job tracking stats
+    const weeklyLimit = user.subscriptionTier === 'hunter' ? 100 : 50;
+    const persistentWeeklyStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, weeklyLimit);
+    
+    console.log(`📅 Persistent weekly tracking: ${persistentWeeklyStats.jobsFoundThisWeek}/${persistentWeeklyStats.weeklyLimit} jobs found this week`);
+    
+    // Return corrected usage stats with persistent tracking
+    const correctedUsage = {
+      ...storedUsage,
+      // 🔧 FIX: Handle both number and object format for aiJobDiscovery
+      aiJobDiscovery: {
+        used: activeAiSearches,
+        lastUsed: (storedUsage.aiJobDiscovery?.lastUsed) || null,
+        lastUpdated: new Date()
+      },
+      // 🔧 NEW: Add persistent weekly job tracking
+      aiJobsThisWeek: {
+        used: persistentWeeklyStats.jobsFoundThisWeek,
+        weekStart: persistentWeeklyStats.weekStart,
+        weekEnd: persistentWeeklyStats.weekEnd,
+        weeklyLimit: persistentWeeklyStats.weeklyLimit,
+        remaining: persistentWeeklyStats.remainingThisWeek,
+        isLimitReached: persistentWeeklyStats.isLimitReached,
+        lastUpdated: new Date().toISOString(),
+        trackingMethod: 'persistent_weekly_tracking'
+      }
+    };
+    
+    // 🔧 FIX: Update user model with correct count if different - SAFELY WITH CURRENT SCHEMA
+    const currentStoredCount = typeof storedUsage.aiJobDiscovery === 'number' 
+      ? storedUsage.aiJobDiscovery 
+      : (storedUsage.aiJobDiscovery?.used || 0);
+      
+    if (activeAiSearches !== currentStoredCount) {
+      console.log(`🔄 Updating user model: AI searches ${currentStoredCount} → ${activeAiSearches}`);
+      
+      try {
+        // Work with current schema - set as number if that's what the schema expects
+        await User.findByIdAndUpdate(userId, {
+          $set: {
+            'currentUsage.aiJobDiscovery': activeAiSearches
+          }
+        });
+        console.log('✅ User model updated successfully');
+      } catch (updateError) {
+        console.error('❌ Error updating user model (non-critical):', updateError.message);
+        // Don't throw error, just log it
+      }
+    }
+    
+    return correctedUsage;
+    
+  } catch (error) {
+    console.error('Error getting real usage stats with persistent tracking:', error);
+    // Fallback to stored usage if there's an error
+    return user.getUsageStats();
+  }
+}
+
   /**
-   * 🔓 NEW: Get updated plan limits that allow free users basic recruiter access
+   * 🔄 UPDATED: Get plan limits with new weekly AI job discovery model
    */
   getUpdatedPlanLimits(subscriptionTier) {
     const UPDATED_PLAN_LIMITS = {
@@ -116,9 +197,12 @@ class SubscriptionService {
         resumeAnalysis: 1,
         jobImports: 3,
         resumeTailoring: 1,
-        recruiterAccess: true, // 🔓 CHANGED: Now true for free users (basic access)
-        recruiterUnlocks: 0,   // Still 0 - they can browse but not unlock
-        aiJobDiscovery: false,
+        recruiterAccess: true,
+        recruiterUnlocks: 0,
+        aiJobDiscovery: false,          // ❌ No AI job discovery for free users
+        aiJobDiscoverySlots: 0,         // 🆕 Number of AI searches allowed
+        aiJobsPerWeek: 0,               // 🆕 Jobs per week limit
+        aiSearchFrequency: 'none',      // 🆕 Search frequency
         aiAssistant: false,
         aiConversations: 0,
         aiMessagesPerConversation: 0
@@ -130,19 +214,25 @@ class SubscriptionService {
         resumeTailoring: 25,
         recruiterAccess: true,
         recruiterUnlocks: 25,
-        aiJobDiscovery: true, // can create/schedule 1 AI job discovery
+        aiJobDiscovery: true,           // ✅ Enabled for casual
+        aiJobDiscoverySlots: 1,         // 🆕 Can create 1 AI search
+        aiJobsPerWeek: 50,              // 🆕 Up to 50 jobs per week
+        aiSearchFrequency: 'weekly',    // 🆕 Weekly execution
         aiAssistant: false,
         aiConversations: 0,
         aiMessagesPerConversation: 0
       },
       hunter: {
-        resumeUploads: -1, // unlimited
-        resumeAnalysis: -1, // unlimited
-        jobImports: -1, // unlimited
+        resumeUploads: -1,
+        resumeAnalysis: -1,
+        jobImports: -1,
         resumeTailoring: 50,
         recruiterAccess: true,
-        recruiterUnlocks: -1, // unlimited
-        aiJobDiscovery: -1, // unlimited
+        recruiterUnlocks: -1,
+        aiJobDiscovery: true,           // ✅ Enabled for hunter
+        aiJobDiscoverySlots: 1,         // 🆕 Can create 1 AI search (same as casual)
+        aiJobsPerWeek: 100,             // 🆕 Up to 100 jobs per week
+        aiSearchFrequency: 'weekly',    // 🆕 Weekly execution
         aiAssistant: true,
         aiConversations: 5,
         aiMessagesPerConversation: 20
@@ -150,6 +240,117 @@ class SubscriptionService {
     };
 
     return UPDATED_PLAN_LIMITS[subscriptionTier] || UPDATED_PLAN_LIMITS.free;
+  }
+
+  /**
+   * 🆕 Check if user can create a new AI job search (slot-based)
+   */
+  async checkAiJobDiscoverySlotAvailability(userId) {
+    try {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      const planLimits = this.getUpdatedPlanLimits(user.subscriptionTier);
+      
+      // Check if AI job discovery is enabled for this plan
+      if (!planLimits.aiJobDiscovery) {
+        return {
+          allowed: false,
+          reason: 'AI job discovery not available on your current plan',
+          currentPlan: user.subscriptionTier,
+          upgradeRequired: true,
+          availablePlans: ['casual', 'hunter']
+        };
+      }
+
+      // 🔧 FIX: Get current active AI searches from database
+      const activeSearches = await AiJobSearch.countDocuments({
+        userId,
+        status: { $in: ['running', 'paused'] }
+      });
+
+      const slotsUsed = activeSearches;
+      const slotsAvailable = planLimits.aiJobDiscoverySlots;
+
+      if (slotsUsed >= slotsAvailable) {
+        return {
+          allowed: false,
+          reason: `You can only have ${slotsAvailable} active AI job search at a time`,
+          current: slotsUsed,
+          limit: slotsAvailable,
+          plan: user.subscriptionTier,
+          suggestion: 'Cancel an existing search to create a new one'
+        };
+      }
+
+      return {
+        allowed: true,
+        current: slotsUsed,
+        limit: slotsAvailable,
+        remaining: slotsAvailable - slotsUsed,
+        jobsPerWeek: planLimits.aiJobsPerWeek,
+        frequency: planLimits.aiSearchFrequency
+      };
+    } catch (error) {
+      console.error('Error checking AI job discovery slot availability:', error);
+      throw new Error('Failed to check slot availability: ' + error.message);
+    }
+  }
+
+  /**
+   * 🆕 Get weekly job quota for user's plan
+   */
+  getWeeklyJobQuota(subscriptionTier) {
+    const planLimits = this.getUpdatedPlanLimits(subscriptionTier);
+    return planLimits.aiJobsPerWeek || 0;
+  }
+
+  /**
+   * 🔧 NEW: Check if user has reached weekly job discovery limit using persistent tracking
+   */
+  async checkWeeklyJobDiscoveryLimit(userId, searchId) {
+    try {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      const weeklyQuota = this.getWeeklyJobQuota(user.subscriptionTier);
+      
+      if (weeklyQuota <= 0) {
+        return {
+          allowed: false,
+          reason: 'AI job discovery not available on your current plan'
+        };
+      }
+
+      // 🔧 NEW: Use persistent weekly tracking instead of counting jobs in search
+      const persistentStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, weeklyQuota);
+
+      if (persistentStats.isLimitReached) {
+        return {
+          allowed: false,
+          reason: `Weekly limit of ${weeklyQuota} jobs reached (persistent tracking)`,
+          current: persistentStats.jobsFoundThisWeek,
+          limit: weeklyQuota,
+          resetDate: new Date(persistentStats.weekStart.getTime() + 7 * 24 * 60 * 60 * 1000), // Next Monday
+          trackingMethod: 'persistent_weekly_tracking'
+        };
+      }
+
+      return {
+        allowed: true,
+        current: persistentStats.jobsFoundThisWeek,
+        limit: weeklyQuota,
+        remaining: persistentStats.remainingThisWeek,
+        trackingMethod: 'persistent_weekly_tracking'
+      };
+    } catch (error) {
+      console.error('Error checking weekly job discovery limit with persistent tracking:', error);
+      throw new Error('Failed to check weekly limit: ' + error.message);
+    }
   }
 
   /**
@@ -716,6 +917,8 @@ class SubscriptionService {
         'recruiterAccess',
         'recruiterUnlocks',
         'aiJobDiscovery',
+        'aiJobDiscoverySlots',
+        'aiJobsPerWeek',
         'aiAssistant',
         'aiConversations'
       ];
@@ -870,6 +1073,67 @@ class SubscriptionService {
     } catch (error) {
       console.error('Error fixing subscription data:', error);
       throw new Error('Failed to fix subscription data: ' + error.message);
+    }
+  }
+
+  /**
+   * 🔧 NEW: Decrement AI job discovery usage when search is deleted
+   */
+  async decrementAiJobDiscoveryUsage(userId) {
+    try {
+      console.log(`🔽 Decrementing AI job discovery usage for user ${userId}`);
+      
+      const user = await User.findById(userId);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      // Get current usage
+      const currentUsage = user.currentUsage?.aiJobDiscovery?.used || 0;
+      
+      if (currentUsage > 0) {
+        await User.findByIdAndUpdate(userId, {
+          'currentUsage.aiJobDiscovery.used': Math.max(0, currentUsage - 1),
+          'currentUsage.aiJobDiscovery.lastUpdated': new Date()
+        });
+        
+        console.log(`✅ Decremented AI job discovery usage: ${currentUsage} → ${Math.max(0, currentUsage - 1)}`);
+      } else {
+        console.log(`ℹ️ AI job discovery usage already at 0, no decrement needed`);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error decrementing AI job discovery usage:', error);
+      // Don't throw error, just log it
+      return false;
+    }
+  }
+
+  /**
+   * 🔧 NEW: Sync AI job discovery usage with actual database count
+   */
+  async syncAiJobDiscoveryUsage(userId) {
+    try {
+      console.log(`🔄 Syncing AI job discovery usage for user ${userId}`);
+      
+      // Count actual active AI searches
+      const activeSearches = await AiJobSearch.countDocuments({
+        userId,
+        status: { $in: ['running', 'paused'] }
+      });
+      
+      // Update user model
+      await User.findByIdAndUpdate(userId, {
+        'currentUsage.aiJobDiscovery.used': activeSearches,
+        'currentUsage.aiJobDiscovery.lastUpdated': new Date()
+      });
+      
+      console.log(`✅ Synced AI job discovery usage to actual count: ${activeSearches}`);
+      return activeSearches;
+    } catch (error) {
+      console.error('Error syncing AI job discovery usage:', error);
+      throw new Error('Failed to sync AI job discovery usage: ' + error.message);
     }
   }
 }

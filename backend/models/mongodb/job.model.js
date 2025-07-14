@@ -1,4 +1,4 @@
-// models/mongodb/job.model.js - UPDATED WITH ACTIVE JOBS DB SUPPORT
+// models/mongodb/job.model.js - UPDATED WITH DUPLICATE PREVENTION AND ACTIVE JOBS DB SUPPORT
 const mongoose = require('mongoose');
 
 const jobSchema = new mongoose.Schema({
@@ -72,7 +72,9 @@ const jobSchema = new mongoose.Schema({
       'ACTIVE_JOBS_DB_ZIPRECRUITER',
       'ACTIVE_JOBS_DB_DICE',
       'ACTIVE_JOBS_DB_COMPANY_DIRECT',
-      'ACTIVE_JOBS_DB_OTHER'
+      'ACTIVE_JOBS_DB_OTHER',
+      'ACTIVE_JOBS_DB_WEEKLY_OTHER',
+      'ACTIVE_JOBS_DB_WEEKLY'
     ],
     required: true
   },
@@ -148,7 +150,10 @@ const jobSchema = new mongoose.Schema({
           'language',
           'platform',
           'methodology',
-          'domain'
+          'domain',
+          'planning',
+          'strategy',
+          'analytical'
         ]
       }
     }],
@@ -239,6 +244,37 @@ const jobSchema = new mongoose.Schema({
       }
     },
     
+    // 🆕 NEW: Enhanced location data
+    locationData: {
+      original: String,
+      parsed: {
+        city: String,
+        state: String,
+        country: String,
+        isRemote: Boolean,
+        coordinates: {
+          lat: Number,
+          lng: Number
+        }
+      },
+      searchLocation: String,
+      isRemote: Boolean,
+      workArrangement: String,
+      locationConfidence: Number
+    },
+    
+    // 🆕 NEW: Enhanced salary data
+    salaryData: {
+      min: Number,
+      max: Number,
+      currency: String,
+      period: String,
+      source: String,
+      extractionMethod: String,
+      confidence: Number,
+      isEstimated: Boolean
+    },
+    
     // Analysis metadata
     analysisMetadata: {
       analyzedAt: Date,
@@ -255,7 +291,11 @@ const jobSchema = new mongoose.Schema({
       processingTime: Number,
       tokensUsed: Number,
       directEmployerAccess: Boolean,
-      premiumDatabase: Boolean
+      premiumDatabase: Boolean,
+      enhancedAnalysis: Boolean,
+      salaryExtracted: Boolean,
+      locationEnhanced: Boolean,
+      weeklySearch: Boolean
     }
   },
   
@@ -273,6 +313,10 @@ const jobSchema = new mongoose.Schema({
     realJobBoardDiscovery: Boolean, // LEGACY
     adzunaApiDiscovery: Boolean, // LEGACY
     activeJobsDBDiscovery: Boolean, // NEW: Current premium discovery method
+    weeklyDiscovery: Boolean, // NEW: Weekly model
+    enhancedAnalysis: Boolean, // NEW: Enhanced analysis
+    salaryExtracted: Boolean, // NEW: Salary extraction
+    locationEnhanced: Boolean, // NEW: Location enhancement
     phase: String,
     originalPlatform: String,
     postedDate: Date,
@@ -287,6 +331,7 @@ const jobSchema = new mongoose.Schema({
     techStack: [String],
     relevanceScore: Number,
     isDirectEmployer: Boolean,
+    searchLocation: String,
     
     // Real job board specific metadata (LEGACY)
     realJobBoardMetadata: {
@@ -325,6 +370,9 @@ const jobSchema = new mongoose.Schema({
       companyCountCovered: Number,
       dataFreshness: String,
       verificationLevel: String,
+      enhancedSalaryExtraction: Boolean,
+      locationTargeting: Boolean,
+      weeklyQuotaManagement: Boolean,
       premiumFeatures: {
         directEmployerAccess: Boolean,
         enhancedJobMetadata: Boolean,
@@ -332,6 +380,21 @@ const jobSchema = new mongoose.Schema({
         qualityFiltering: Boolean,
         atsIntegration: Boolean
       }
+    },
+    
+    // 🆕 NEW: Enhanced metadata
+    enhancedMetadata: {
+      analysisModel: String,
+      analysisType: String,
+      qualityLevel: String,
+      enhancedAnalysis: Boolean,
+      salaryExtracted: Boolean,
+      salarySource: String,
+      salaryConfidence: Number,
+      locationConfidence: Number,
+      workArrangement: String,
+      isRemote: Boolean,
+      weeklySearch: Boolean
     }
   },
   
@@ -368,7 +431,11 @@ const jobSchema = new mongoose.Schema({
     isActiveJobsDBDiscovery: Boolean, // NEW
     sourceJobBoard: String,
     isDirectEmployer: Boolean,
-    premiumDatabase: Boolean
+    premiumDatabase: Boolean,
+    enhancedAnalysis: Boolean,
+    salaryExtracted: Boolean,
+    locationEnhanced: Boolean,
+    weeklySearch: Boolean
   },
   
   // Match analysis results
@@ -467,6 +534,34 @@ jobSchema.index({ 'aiSearchMetadata.isDirectEmployer': 1 });
 jobSchema.index({ 'aiSearchMetadata.originalPlatform': 1 });
 jobSchema.index({ 'aiSearchMetadata.relevanceScore': -1 });
 jobSchema.index({ 'analysisStatus.premiumDatabase': 1 });
+jobSchema.index({ 'aiSearchMetadata.weeklyDiscovery': 1 });
+
+// 🔧 NEW: Compound indexes to prevent duplicate jobs for the same user
+jobSchema.index({ 
+  userId: 1, 
+  title: 1, 
+  company: 1, 
+  sourceUrl: 1 
+}, { 
+  unique: true, 
+  sparse: true,
+  name: 'unique_job_per_user_with_url'
+});
+
+// 🔧 NEW: Alternative compound index for jobs without sourceUrl
+jobSchema.index({ 
+  userId: 1, 
+  title: 1, 
+  company: 1 
+}, { 
+  unique: true, 
+  sparse: true,
+  partialFilterExpression: { 
+    sourceUrl: { $exists: false },
+    isAiGenerated: true
+  },
+  name: 'unique_job_per_user_no_url'
+});
 
 // Compound indexes for common queries
 jobSchema.index({ userId: 1, sourcePlatform: 1, createdAt: -1 });
@@ -809,8 +904,39 @@ jobSchema.statics.getJobDiscoveryStats = function(userId) {
   ]);
 };
 
-// Pre-save middleware
-jobSchema.pre('save', function(next) {
+// 🔧 NEW: Pre-save middleware to handle duplicate detection and metadata
+jobSchema.pre('save', async function(next) {
+  // 🔧 DUPLICATE DETECTION: Check for existing similar job (only for new AI-generated jobs)
+  if (this.isNew && this.isAiGenerated) {
+    try {
+      // Create a more flexible duplicate check
+      const titlePattern = this.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const companyPattern = this.company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      
+      const existingJob = await this.constructor.findOne({
+        userId: this.userId,
+        $and: [
+          { title: { $regex: new RegExp('^' + titlePattern + '$', 'i') } },
+          { company: { $regex: new RegExp('^' + companyPattern + '$', 'i') } }
+        ],
+        isAiGenerated: true
+      });
+
+      if (existingJob) {
+        console.log(`🔄 Duplicate job detected: ${this.title} at ${this.company} already exists for this user`);
+        const error = new Error(`Duplicate job detected: ${this.title} at ${this.company} already exists for this user`);
+        error.code = 'DUPLICATE_JOB';
+        return next(error);
+      }
+    } catch (error) {
+      if (error.code === 'DUPLICATE_JOB') {
+        return next(error);
+      }
+      // Continue if it's just a database error
+      console.warn('Error checking for duplicate job:', error.message);
+    }
+  }
+  
   // Auto-detect Active Jobs DB from source platform (CURRENT)
   if (this.isModified('sourcePlatform') && this.isFromActiveJobsDB) {
     if (!this.aiSearchMetadata) this.aiSearchMetadata = {};
@@ -849,8 +975,8 @@ jobSchema.pre('save', function(next) {
   next();
 });
 
-// Post-save middleware for analytics
-jobSchema.post('save', function(doc) {
+// 🔧 ENHANCED: Post-save middleware for analytics and duplicate logging
+jobSchema.post('save', function(doc, next) {
   // Analytics events for job board tracking
   if (doc.isFromActiveJobsDB && doc.isNew) {
     console.log(`📊 New Active Jobs DB premium job saved: ${doc.title} from ${doc.sourceJobBoardName} (Relevance: ${doc.aiSearchMetadata?.relevanceScore || 'N/A'}%)${doc.aiSearchMetadata?.isDirectEmployer ? ' [DIRECT EMPLOYER]' : ''}`);
@@ -863,6 +989,125 @@ jobSchema.post('save', function(doc) {
   if (doc.isFromAdzunaApi && doc.isNew) {
     console.log(`📊 New Adzuna API job saved: ${doc.title} from ${doc.sourceJobBoardName} (Relevance: ${doc.aiSearchMetadata?.relevanceScore || 'N/A'}%)`);
   }
+  
+  next();
 });
+
+// 🔧 NEW: Post-save error handling for duplicates
+jobSchema.post('save', function(error, doc, next) {
+  if (error.code === 'DUPLICATE_JOB') {
+    console.log(`🔄 Duplicate job prevented: ${doc?.title} at ${doc?.company}`);
+    // Don't actually throw the error, just log it and continue
+    next();
+  } else if (error.code === 11000) {
+    // Handle MongoDB duplicate key errors
+    console.log(`🔄 MongoDB duplicate key prevented for job: ${doc?.title} at ${doc?.company}`);
+    next();
+  } else {
+    next(error);
+  }
+});
+
+// 🆕 NEW: Static method to get weekly job counts for a user
+jobSchema.statics.getWeeklyJobCount = function(userId, weekStart) {
+  return this.countDocuments({
+    userId,
+    isAiGenerated: true,
+    createdAt: { $gte: weekStart }
+  });
+};
+
+// 🆕 NEW: Static method to find duplicate jobs before saving
+jobSchema.statics.findDuplicateJob = function(userId, title, company) {
+  const titlePattern = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const companyPattern = company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  
+  return this.findOne({
+    userId,
+    $and: [
+      { title: { $regex: new RegExp('^' + titlePattern + '$', 'i') } },
+      { company: { $regex: new RegExp('^' + companyPattern + '$', 'i') } }
+    ],
+    isAiGenerated: true
+  });
+};
+
+// 🆕 NEW: Instance method to check if this job is a potential duplicate
+jobSchema.methods.isPotentialDuplicate = async function() {
+  if (!this.isAiGenerated) return false;
+  
+  const duplicate = await this.constructor.findDuplicateJob(
+    this.userId, 
+    this.title, 
+    this.company
+  );
+  
+  return duplicate && !duplicate._id.equals(this._id);
+};
+
+// 🆕 NEW: Static method to clean up old duplicate jobs (maintenance)
+jobSchema.statics.cleanupDuplicates = async function(userId, dryRun = true) {
+  const duplicateGroups = await this.aggregate([
+    {
+      $match: {
+        userId: mongoose.Types.ObjectId(userId),
+        isAiGenerated: true
+      }
+    },
+    {
+      $group: {
+        _id: {
+          title: { $toLower: '$title' },
+          company: { $toLower: '$company' }
+        },
+        jobs: { $push: { id: '$_id', createdAt: '$createdAt', title: '$title', company: '$company' } },
+        count: { $sum: 1 }
+      }
+    },
+    {
+      $match: {
+        count: { $gt: 1 }
+      }
+    }
+  ]);
+
+  const results = {
+    duplicateGroups: duplicateGroups.length,
+    jobsToRemove: 0,
+    jobsKept: 0,
+    removedJobs: []
+  };
+
+  for (const group of duplicateGroups) {
+    // Sort by creation date, keep the newest
+    const sortedJobs = group.jobs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const jobsToRemove = sortedJobs.slice(1); // Remove all but the newest
+    
+    results.jobsToRemove += jobsToRemove.length;
+    results.jobsKept += 1;
+
+    if (!dryRun) {
+      for (const job of jobsToRemove) {
+        await this.findByIdAndDelete(job.id);
+        results.removedJobs.push({
+          id: job.id,
+          title: job.title,
+          company: job.company,
+          createdAt: job.createdAt
+        });
+      }
+    } else {
+      results.removedJobs.push(...jobsToRemove.map(job => ({
+        id: job.id,
+        title: job.title,
+        company: job.company,
+        createdAt: job.createdAt,
+        action: 'would_remove'
+      })));
+    }
+  }
+
+  return results;
+};
 
 module.exports = mongoose.model('Job', jobSchema);

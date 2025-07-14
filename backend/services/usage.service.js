@@ -1,4 +1,4 @@
-// backend/services/usage.service.js
+// backend/services/usage.service.js - FIXED WEEKLY JOB COUNTING
 const User = require('../models/mongodb/user.model');
 const db = require('../config/postgresql');
 
@@ -46,6 +46,31 @@ class UsageService {
   };
 
   /**
+   * 🔧 NEW: Get weekly job statistics for a user
+   * @param {string} userId - User ID
+   * @param {number} weeklyLimit - Weekly job limit for user's plan
+   * @returns {Object} Weekly job statistics
+   */
+  async getWeeklyJobStats(userId, weeklyLimit = 100) {
+    try {
+      // Import the function from jobSearch service to avoid circular dependency
+      const jobSearchService = require('./jobSearch.service');
+      return await jobSearchService.getUserWeeklyJobStats(userId, weeklyLimit);
+    } catch (error) {
+      console.error('Error getting weekly job stats:', error);
+      return {
+        jobsFoundThisWeek: 0,
+        weeklyLimit: weeklyLimit,
+        remainingThisWeek: weeklyLimit,
+        isLimitReached: false,
+        weekStart: new Date(),
+        weekEnd: new Date(),
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * Check if user can perform an action
    * @param {string} userId - User ID
    * @param {string} action - Action to check
@@ -75,7 +100,7 @@ class UsageService {
       };
     } catch (error) {
       console.error('Error checking usage limit:', error);
-      throw new Error('Failed to check usage limit: ' + error.message);
+     throw new Error('Failed to check usage limit: ' + error.message);
     }
   }
 
@@ -203,9 +228,9 @@ class UsageService {
   }
 
   /**
-   * Get current usage statistics for a user
+   * 🔧 UPDATED: Get current usage statistics for a user (with weekly job stats)
    * @param {string} userId - User ID
-   * @returns {Object} Usage statistics
+   * @returns {Object} Usage statistics including weekly job data
    */
   async getUserUsageStats(userId) {
     try {
@@ -217,12 +242,18 @@ class UsageService {
       const usageStats = user.getUsageStats();
       const planLimits = user.getPlanLimits();
 
+      // 🔧 NEW: Get weekly job statistics
+      const weeklyLimit = user.subscriptionTier === 'hunter' ? 100 : 
+                         user.subscriptionTier === 'casual' ? 50 : 0;
+      const weeklyJobStats = await this.getWeeklyJobStats(userId, weeklyLimit);
+
       return {
         userId,
         plan: user.subscriptionTier,
         planLimits,
         currentUsage: user.currentUsage || {},
         usageStats,
+        weeklyJobStats, // 🔧 NEW: Include weekly job statistics
         resetDate: user.currentUsage?.resetDate || new Date(),
         subscriptionStatus: user.subscriptionStatus,
         subscriptionEndDate: user.subscriptionEndDate,

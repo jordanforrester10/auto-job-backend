@@ -1,21 +1,30 @@
-// services/jobSearch.service.js - OPTIMIZED WITH EARLY DUPLICATE DETECTION
+// services/jobSearch.service.js - UPDATED WITH PERSISTENT WEEKLY TRACKING
 const Job = require('../models/mongodb/job.model');
 const Resume = require('../models/mongodb/resume.model');
 const AiJobSearch = require('../models/mongodb/aiJobSearch.model');
+const WeeklyJobTracking = require('../models/mongodb/weeklyJobTracking.model');
 const { openai } = require('../config/openai');
 const ActiveJobsDBExtractor = require('./activeJobsDB.service');
 const jobAnalysisService = require('./jobAnalysis.service');
+const subscriptionService = require('./subscription.service');
 
-// BUDGET-CONSCIOUS SEARCH STRATEGY
-const SEARCH_BUDGET = {
-  MONTHLY_LIMIT: 250,        // Free plan limit
-  DAILY_SAFE_LIMIT: 8,       // Conservative daily limit (250/31 days)
-  JOBS_PER_API_CALL: 8,      // Small targeted calls
-  MAX_API_CALLS_PER_SEARCH: 1, // Usually just 1 call per search
-  TARGET_JOBS_TO_SAVE: 8     // Save all fetched jobs if they're good
+// 🔄 UPDATED: Weekly job discovery strategy with persistent tracking
+const WEEKLY_SEARCH_CONFIG = {
+  CASUAL_PLAN: {
+    weeklyLimit: 50,        // 50 jobs per week
+    maxLocations: 5,        // Max 5 locations per search
+    searchFrequency: 'weekly'
+  },
+  HUNTER_PLAN: {
+    weeklyLimit: 100,       // 100 jobs per week
+    maxLocations: 10,       // Max 10 locations per search
+    searchFrequency: 'weekly'
+  },
+  API_CALLS_PER_LOCATION: 2,  // Conservative API usage
+  TARGET_JOBS_PER_LOCATION: 25 // Aim for 25 jobs per location
 };
 
-// CENTRALIZED VALIDATION UTILITIES
+// CENTRALIZED VALIDATION UTILITIES (same as before but updated for locations)
 class ValidationUtils {
   static normalizeSkillCategory(category) {
     if (!category || typeof category !== 'string') {
@@ -65,35 +74,6 @@ class ValidationUtils {
     return 'technical';
   }
 
-  static normalizeSkillType(skillType) {
-    if (!skillType || typeof skillType !== 'string') {
-      return 'general';
-    }
-    
-    const normalized = skillType.toLowerCase().trim();
-    
-    const typeMappings = {
-      'programming': 'programming',
-      'management': 'management',
-      'analytical': 'analytical',
-      'communication': 'communication',
-      'design': 'design',
-      'general': 'general'
-    };
-    
-    if (typeMappings[normalized]) {
-      return typeMappings[normalized];
-    }
-    
-    for (const [key, value] of Object.entries(typeMappings)) {
-      if (normalized.includes(key)) {
-        return value;
-      }
-    }
-    
-    return 'general';
-  }
-
   static validateAndNormalizeSkills(skills) {
     if (!Array.isArray(skills)) {
       return [];
@@ -113,7 +93,9 @@ class ValidationUtils {
         name: skill.name || 'Unknown Skill',
         importance: (skill.importance >= 1 && skill.importance <= 10) ? skill.importance : 5,
         category: this.normalizeSkillCategory(skill.category),
-        skillType: this.normalizeSkillType(skill.skillType)
+        skillType: skill.skillType && ['general', 'programming', 'analytical', 'communication', 'management'].includes(skill.skillType) 
+          ? skill.skillType 
+          : 'general'
       };
     });
   }
@@ -158,67 +140,114 @@ class ValidationUtils {
   }
 }
 
-// MAIN SEARCH FUNCTION - OPTIMIZED
-exports.findJobsWithAi = async (userId, resumeId) => {
+// 🆕 NEW: Main weekly search function with persistent tracking
+exports.findJobsWithAi = async (userId, resumeId, searchCriteria = {}) => {
   try {
-    console.log(`🚀 Starting OPTIMIZED AI job search with early duplicate detection for user ${userId}`);
-    console.log(`💰 Budget limits: ${SEARCH_BUDGET.DAILY_SAFE_LIMIT} jobs/day, ${SEARCH_BUDGET.MONTHLY_LIMIT} jobs/month`);
+    console.log(`🚀 Starting WEEKLY AI job search with persistent tracking for user ${userId}`);
+    
+    // Get user's subscription to determine weekly limit
+    const subscription = await subscriptionService.getCurrentSubscription(userId);
+    const userPlan = subscription.user.subscriptionTier;
+    const weeklyLimit = userPlan === 'hunter' 
+      ? WEEKLY_SEARCH_CONFIG.HUNTER_PLAN.weeklyLimit 
+      : WEEKLY_SEARCH_CONFIG.CASUAL_PLAN.weeklyLimit;
+    
+    console.log(`💼 Plan: ${userPlan}, Weekly limit: ${weeklyLimit} jobs`);
+    
+    // 🔧 NEW: Check persistent weekly stats first
+    const weeklyStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, weeklyLimit);
+    if (weeklyStats.isLimitReached) {
+      throw new Error(`Weekly limit reached: ${weeklyStats.jobsFoundThisWeek}/${weeklyStats.weeklyLimit} jobs found this week`);
+    }
+    
+    console.log(`📊 Persistent weekly status: ${weeklyStats.jobsFoundThisWeek}/${weeklyStats.weeklyLimit} used, ${weeklyStats.remainingThisWeek} remaining`);
+    
+    // Check if user can create an AI search (slot-based)
+    const slotCheck = await subscriptionService.checkAiJobDiscoverySlotAvailability(userId);
+    if (!slotCheck.allowed) {
+      throw new Error(slotCheck.reason);
+    }
     
     const resume = await Resume.findById(resumeId);
     if (!resume || !resume.parsedData) {
       throw new Error('Resume not found or not parsed');
     }
     
-    // Create search record
+    // Extract and validate search locations
+    const searchLocations = searchCriteria.searchLocations || [{ name: 'Remote', type: 'remote' }];
+    const maxLocations = userPlan === 'hunter' 
+      ? WEEKLY_SEARCH_CONFIG.HUNTER_PLAN.maxLocations 
+      : WEEKLY_SEARCH_CONFIG.CASUAL_PLAN.maxLocations;
+    
+    if (searchLocations.length > maxLocations) {
+      throw new Error(`Maximum ${maxLocations} locations allowed for ${userPlan} plan`);
+    }
+    
+    // Create search record with enhanced configuration
     const aiJobSearch = new AiJobSearch({
       userId,
       resumeId,
       resumeName: resume.name,
-      searchCriteria: extractSearchCriteria(resume.parsedData),
+      searchCriteria: {
+        ...extractSearchCriteria(resume.parsedData),
+        searchLocations: searchLocations,
+        remoteWork: searchCriteria.includeRemote !== false
+      },
       status: 'running',
-      dailyLimit: SEARCH_BUDGET.DAILY_SAFE_LIMIT,
-      jobsFoundToday: 0,
+      searchType: 'weekly_active_jobs',
+      weeklyLimit: weeklyLimit,
+      jobsFoundThisWeek: 0,
       totalJobsFound: 0,
-      searchApproach: '3-phase-intelligent-adzuna-api',
-      approachVersion: '6.1-optimized-duplicate-detection',
-      qualityLevel: 'adzuna-api-enhanced'
+      searchApproach: '3-phase-intelligent-active-jobs-weekly',
+      approachVersion: '5.0-weekly-location-salary-persistent',
+      qualityLevel: 'active-jobs-weekly-enhanced'
     });
     
     await aiJobSearch.save();
     
     await aiJobSearch.addReasoningLog(
       'initialization',
-      `Starting OPTIMIZED AI search with early duplicate detection - targeting ${SEARCH_BUDGET.DAILY_SAFE_LIMIT} fresh jobs with GPT-4o analysis!`,
+      `Starting WEEKLY AI search with persistent tracking - targeting ${weeklyStats.remainingThisWeek} remaining jobs this week!`,
       {
         searchCriteria: aiJobSearch.searchCriteria,
-        dailyLimit: aiJobSearch.dailyLimit,
-        optimizations: 'Early duplicate detection, fresh job targeting',
-        analysisModel: 'gpt-4o'
+        weeklyLimit: aiJobSearch.weeklyLimit,
+        remainingThisWeek: weeklyStats.remainingThisWeek,
+        locationsCount: searchLocations.length,
+        locations: searchLocations.map(loc => loc.name),
+        userPlan: userPlan,
+        searchApproach: 'Enhanced weekly discovery with persistent tracking',
+        trackingMethod: 'persistent_weekly_tracking'
       }
     );
     
-    // Start background search with optimizations
-    performOptimizedSearch(aiJobSearch._id, userId, resume).catch(error => {
-      console.error('Optimized search error:', error);
+    // Schedule next weekly run (Monday 9 AM)
+    await aiJobSearch.scheduleNextWeeklyRun(1, '09:00');
+    
+    // Start background search with persistent weekly tracking
+    performWeeklySearchWithTracking(aiJobSearch._id, userId, resume, searchLocations, userPlan, weeklyLimit).catch(error => {
+      console.error('Weekly search error:', error);
       updateSearchStatus(aiJobSearch._id, 'failed', error.message);
     });
     
     return {
       success: true,
-      message: `OPTIMIZED AI job search started with early duplicate detection! Targeting ${SEARCH_BUDGET.DAILY_SAFE_LIMIT} fresh jobs with premium GPT-4o analysis.`,
+      message: `WEEKLY AI job search started! Will find up to ${weeklyStats.remainingThisWeek} remaining jobs across ${searchLocations.length} locations this week.`,
       searchId: aiJobSearch._id,
-      searchMethod: 'Optimized AI Discovery with Duplicate Prevention',
-      analysisQuality: 'Premium analysis only on fresh jobs'
+      searchMethod: 'Weekly Multi-Location Discovery with Persistent Tracking',
+      weeklyLimit: weeklyLimit,
+      remainingThisWeek: weeklyStats.remainingThisWeek,
+      locations: searchLocations.map(loc => loc.name),
+      nextRun: aiJobSearch.schedule.nextScheduledRun
     };
     
   } catch (error) {
-    console.error('Error initiating optimized search:', error);
+    console.error('Error initiating weekly search:', error);
     throw error;
   }
 };
 
-// OPTIMIZED SEARCH PROCESS WITH EARLY DUPLICATE DETECTION
-async function performOptimizedSearch(searchId, userId, resume) {
+// 🆕 NEW: Weekly search process with persistent tracking
+async function performWeeklySearchWithTracking(searchId, userId, resume, searchLocations, userPlan, weeklyLimit) {
   const searchStartTime = Date.now();
   let search;
   
@@ -226,86 +255,117 @@ async function performOptimizedSearch(searchId, userId, resume) {
     search = await AiJobSearch.findById(searchId);
     if (!search || search.status !== 'running') return;
     
-    // Check daily limits
-    if (await isDailyLimitReached(search)) {
+    // 🔧 NEW: Check persistent weekly limits
+    const weeklyStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, weeklyLimit);
+    if (weeklyStats.isLimitReached) {
       await search.addReasoningLog(
         'completion',
-        `Reached today's limit of ${search.dailyLimit} job discoveries.`,
-        { dailyLimit: search.dailyLimit, reason: 'daily_limit_reached' }
+        `User has already reached this week's limit of ${weeklyLimit} job discoveries using persistent tracking.`,
+        { 
+          weeklyLimit: weeklyLimit, 
+          jobsFoundThisWeek: weeklyStats.jobsFoundThisWeek,
+          remainingThisWeek: weeklyStats.remainingThisWeek,
+          reason: 'persistent_weekly_limit_reached',
+          trackingMethod: 'persistent_weekly_tracking'
+        }
       );
-      await updateSearchStatus(searchId, 'paused', 'Daily limit reached');
+      await updateSearchStatus(searchId, 'completed', `Weekly limit reached: ${weeklyStats.jobsFoundThisWeek}/${weeklyLimit} jobs found this week (persistent tracking)`);
       return;
     }
     
-    // PHASE 1: PRECISION Career Analysis
-    console.log(`📊 Phase 1: PRECISION Career Analysis...`);
-    const careerProfile = await analyzeCareerForPrecisionTargeting(resume.parsedData);
+    console.log(`📊 Persistent weekly status: ${weeklyStats.jobsFoundThisWeek}/${weeklyStats.weeklyLimit} used, ${weeklyStats.remainingThisWeek} remaining`);
+    
+    // PHASE 1: Enhanced Career Analysis for Location-Based Search
+    console.log(`📊 Phase 1: Enhanced Career Analysis for Multi-Location Search...`);
+    const careerProfile = await analyzeCareerForLocationTargeting(resume.parsedData, searchLocations);
     
     await search.addReasoningLog(
       'career_analysis',
-      `PRECISION career analysis complete! Optimized search for fresh jobs with ${careerProfile.targetJobTitles?.length || 0} target titles.`,
+      `Enhanced career analysis complete! Optimized for ${searchLocations.length} locations with ${weeklyStats.remainingThisWeek} jobs remaining this week.`,
       {
         targetJobTitles: careerProfile.targetJobTitles || [],
         targetKeywords: careerProfile.targetKeywords || [],
         experienceLevel: careerProfile.experienceLevel,
-        careerField: careerProfile.careerDirection
+        locationsToSearch: searchLocations.map(loc => loc.name),
+        salaryFocused: true,
+        weeklyStats: weeklyStats,
+        trackingMethod: 'persistent_weekly_tracking'
       }
     );
     
-    // PHASE 2: 🔧 OPTIMIZED Job Discovery with Early Duplicate Detection
-    console.log(`🎯 Phase 2: OPTIMIZED Job Discovery with Early Duplicate Detection...`);
-    const { freshJobs, skippedDuplicates } = await performOptimizedJobDiscovery(careerProfile, search, userId);
+    // PHASE 2: Multi-Location Job Discovery with Enhanced Salary Extraction
+    console.log(`🌍 Phase 2: Multi-Location Job Discovery with Enhanced Salary Extraction...`);
+    const discoveryResults = await performMultiLocationJobDiscovery(careerProfile, search, searchLocations);
     
-    if (freshJobs.length === 0) {
+    if (discoveryResults.jobs.length === 0) {
       await search.addReasoningLog(
         'completion',
-        `No fresh opportunities found. Skipped ${skippedDuplicates} duplicates during discovery phase.`,
+        `No jobs found across ${searchLocations.length} locations this week.`,
         { 
-          phase: 'no_fresh_results', 
-          careerField: careerProfile.careerDirection,
-          duplicatesSkipped: skippedDuplicates,
-          optimizationWorked: skippedDuplicates > 0
+          phase: 'no_results', 
+          locationsSearched: searchLocations.map(loc => loc.name),
+          weeklyAttempt: true,
+          weeklyStats: weeklyStats,
+          trackingMethod: 'persistent_weekly_tracking'
         }
       );
-      await updateSearchStatus(searchId, 'completed', `No fresh jobs found (${skippedDuplicates} duplicates avoided)`);
+      await updateSearchStatus(searchId, 'completed', `No jobs found this week across ${searchLocations.length} locations`);
       return;
     }
     
-    // PHASE 3: 🔥 ENHANCED ROLE-SPECIFIC Job Analysis (Only for Fresh Jobs!)
-    console.log(`🔬 Phase 3: ENHANCED Analysis of ${freshJobs.length} FRESH jobs (${skippedDuplicates} duplicates skipped)...`);
-    const analyzedJobs = await performEnhancedJobAnalysis(freshJobs, search, careerProfile);
+    // PHASE 3: Enhanced Job Analysis with Salary Extraction
+    console.log(`🔬 Phase 3: Enhanced Analysis of ${discoveryResults.jobs.length} jobs with salary extraction...`);
+    const analyzedJobs = await performEnhancedJobAnalysisWithSalary(discoveryResults.jobs, search, careerProfile);
     
-    // Save Jobs
-    console.log(`💾 Saving fresh job results...`);
-    const savedCount = await saveJobsOptimized(analyzedJobs, userId, searchId, search);
+    // 🔧 FIX: Remove duplicates before saving
+    console.log(`🔄 Removing duplicates from ${analyzedJobs.length} analyzed jobs...`);
+    const uniqueJobs = await removeDuplicateJobs(analyzedJobs, userId);
+    console.log(`✅ After duplicate removal: ${uniqueJobs.length} unique jobs`);
+    
+    // 🔧 NEW: Save Jobs with Persistent Weekly Tracking
+    console.log(`💾 Saving jobs with persistent weekly tracking...`);
+    const savedCount = await saveJobsWithPersistentTracking(uniqueJobs, userId, searchId, search, userPlan, weeklyLimit);
     
     const totalDuration = Date.now() - searchStartTime;
     
+    // Get updated weekly stats after saving
+    const finalWeeklyStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, weeklyLimit);
+    
     await search.addReasoningLog(
       'completion',
-      `OPTIMIZED search complete! Found ${savedCount} fresh opportunities. Avoided ${skippedDuplicates} duplicates before analysis.`,
+      `WEEKLY search complete with persistent tracking! Found ${savedCount} jobs. Weekly total: ${finalWeeklyStats.jobsFoundThisWeek}/${finalWeeklyStats.weeklyLimit} jobs.`,
       {
         jobsSaved: savedCount,
-        duplicatesAvoided: skippedDuplicates,
+        locationsSearched: searchLocations.length,
+        locationStats: discoveryResults.locationStats,
+        salaryStats: discoveryResults.salaryStats,
         totalDuration: totalDuration,
         searchTime: `${Math.round(totalDuration / 1000)} seconds`,
-        careerField: careerProfile.careerDirection,
-        optimizationSuccess: `Saved ${skippedDuplicates} GPT-4o calls by early duplicate detection`
+        weeklyStats: finalWeeklyStats,
+        trackingMethod: 'persistent_weekly_tracking'
       }
     );
     
-    await updateSearchStatus(searchId, savedCount > 0 ? 'running' : 'completed', 
-      `Found ${savedCount} fresh jobs (${skippedDuplicates} duplicates avoided)`);
-    console.log(`✅ Optimized search complete: ${savedCount} fresh jobs saved, ${skippedDuplicates} duplicates avoided`);
+    // Update search status
+    const statusMessage = finalWeeklyStats.isLimitReached 
+      ? `Weekly limit reached: ${finalWeeklyStats.jobsFoundThisWeek}/${finalWeeklyStats.weeklyLimit} jobs found (persistent tracking)`
+      : `Found ${savedCount} jobs (${finalWeeklyStats.remainingThisWeek} remaining this week)`;
+    
+    await updateSearchStatus(searchId, 'running', statusMessage);
+    console.log(`✅ Weekly search complete with persistent tracking: ${savedCount} jobs saved. Weekly total: ${finalWeeklyStats.jobsFoundThisWeek}/${finalWeeklyStats.weeklyLimit}`);
     
   } catch (error) {
-    console.error('Error in optimized search:', error);
+    console.error('Error in weekly search with persistent tracking:', error);
     
     if (search) {
       await search.addReasoningLog(
         'error',
-        `Optimized search encountered an issue: ${error.message}`,
-        { error: error.message },
+        `Weekly search encountered an issue: ${error.message}`,
+        { 
+          error: error.message, 
+          searchLocations: searchLocations.length,
+          trackingMethod: 'persistent_weekly_tracking'
+        },
         false
       );
     }
@@ -314,320 +374,56 @@ async function performOptimizedSearch(searchId, userId, resume) {
   }
 }
 
-// 🔧 OPTIMIZED JOB DISCOVERY WITH EARLY DUPLICATE DETECTION
-async function performOptimizedJobDiscovery(careerProfile, search, userId) {
-  try {
-    const activeJobsDBExtractor = new ActiveJobsDBExtractor();
+// 🆕 NEW: Remove duplicate jobs based on title, company, and similar job URLs
+async function removeDuplicateJobs(jobs, userId) {
+  const uniqueJobs = [];
+  const seenJobs = new Set();
+  
+  for (const job of jobs) {
+    // Create a unique key based on title, company, and normalized URL
+    const normalizedTitle = job.title.toLowerCase().trim();
+    const normalizedCompany = job.company.toLowerCase().trim();
+    const normalizedUrl = job.jobUrl ? job.jobUrl.split('?')[0].toLowerCase() : '';
     
-    // Test API health
-    const apiHealth = await activeJobsDBExtractor.getApiHealth();
-    if (apiHealth.status !== 'healthy') {
-      throw new Error(`Active Jobs DB API unavailable: ${apiHealth.message}`);
+    const uniqueKey = `${normalizedCompany}::${normalizedTitle}`;
+    
+    // Check if we've seen this job before
+    if (seenJobs.has(uniqueKey)) {
+      console.log(`🔄 Skipping duplicate: ${job.title} at ${job.company}`);
+      continue;
     }
     
-    console.log(`🎯 OPTIMIZED DISCOVERY: Early duplicate detection enabled...`);
+    // Check if similar job already exists in database for this user
+    const existingJob = await Job.findOne({
+      userId: userId,
+      $and: [
+        { title: { $regex: normalizedTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\    const uniqueKey = `${normalizedCompany}::${'), $options: 'i' } },
+        { company: { $regex: normalizedCompany.replace(/[.*+?^${}()|[\]\\]/g, '\\    const uniqueKey = `${normalizedCompany}::${'), $options: 'i' } }
+      ]
+    });
     
-    // 🔧 STEP 1: Get existing jobs to avoid duplicates
-    const existingJobs = await getExistingJobsForDuplicateCheck(userId);
-    console.log(`📊 Found ${existingJobs.length} existing jobs to check against`);
-    
-    // 🔧 STEP 2: Try multiple search variations to get fresh jobs
-    const freshJobs = [];
-    let totalSkipped = 0;
-    const maxAttempts = 3; // Try different search variations
-    
-    for (let attempt = 1; attempt <= maxAttempts && freshJobs.length < SEARCH_BUDGET.TARGET_JOBS_TO_SAVE; attempt++) {
-      console.log(`🔍 Search attempt ${attempt}/${maxAttempts}...`);
-      
-      // Vary the search query for each attempt
-      const searchQuery = craftVariedSearchQuery(careerProfile, attempt);
-      const discoveredJobs = await executeSinglePrecisionSearch(activeJobsDBExtractor, searchQuery, search);
-      
-      // 🔧 STEP 3: Filter out duplicates BEFORE analysis
-      const { fresh, duplicates } = await filterFreshJobs(discoveredJobs, existingJobs, freshJobs);
-      
-      freshJobs.push(...fresh);
-      totalSkipped += duplicates;
-      
-      console.log(`📊 Attempt ${attempt}: Found ${fresh.length} fresh, skipped ${duplicates} duplicates`);
-      
-      // Add fresh jobs to existing list for next iteration
-      existingJobs.push(...fresh.map(job => ({
-        title: job.title,
-        company: job.company,
-        sourceUrl: job.jobUrl || job.sourceUrl
-      })));
-      
-      if (fresh.length === 0) {
-        console.log(`⚠️ No fresh jobs in attempt ${attempt}, trying different search...`);
-      }
+    if (existingJob) {
+      console.log(`🔄 Skipping existing job: ${job.title} at ${job.company} (already in database)`);
+      continue;
     }
     
-    await search.addReasoningLog(
-      'web_search_discovery',
-      `OPTIMIZED discovery completed! Found ${freshJobs.length} fresh jobs, avoided ${totalSkipped} duplicates before analysis.`,
-      {
-        totalJobsFound: freshJobs.length,
-        duplicatesSkipped: totalSkipped,
-        searchAttempts: maxAttempts,
-        careerField: careerProfile.careerDirection || 'General',
-        databaseProvider: 'Active Jobs DB',
-        optimization: 'Early duplicate detection saved GPT-4o API calls'
-      }
-    );
-    
-    return {
-      freshJobs: freshJobs.slice(0, SEARCH_BUDGET.TARGET_JOBS_TO_SAVE),
-      skippedDuplicates: totalSkipped
-    };
-    
-  } catch (error) {
-    console.error('Error in optimized job discovery:', error);
-    throw error;
+    // This is a unique job
+    seenJobs.add(uniqueKey);
+    uniqueJobs.push(job);
   }
+  
+  return uniqueJobs;
 }
 
-// 🔧 GET EXISTING JOBS FOR DUPLICATE CHECK
-async function getExistingJobsForDuplicateCheck(userId) {
-  try {
-    // Get recent jobs (last 30 days) to check against
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    const existingJobs = await Job.find({
-      userId,
-      createdAt: { $gte: thirtyDaysAgo }
-    }).select('title company sourceUrl').lean();
-    
-    return existingJobs.map(job => ({
-      title: job.title,
-      company: job.company,
-      sourceUrl: job.sourceUrl
-    }));
-  } catch (error) {
-    console.error('Error fetching existing jobs for duplicate check:', error);
-    return []; // If error, proceed without duplicate check
-  }
-}
-
-// 🔧 FILTER FRESH JOBS (EARLY DUPLICATE DETECTION)
-async function filterFreshJobs(discoveredJobs, existingJobs, alreadyFoundJobs = []) {
-  const fresh = [];
-  let duplicateCount = 0;
-  
-  for (const job of discoveredJobs) {
-    const isDuplicate = checkIfDuplicate(job, existingJobs, alreadyFoundJobs);
-    
-    if (isDuplicate) {
-      duplicateCount++;
-      console.log(`🔍 EARLY SKIP: "${job.title}" at ${job.company} (duplicate detected)`);
-    } else {
-      fresh.push(job);
-      console.log(`✅ FRESH JOB: "${job.title}" at ${job.company} (will analyze)`);
-    }
-  }
-  
-  return {
-    fresh,
-    duplicates: duplicateCount
-  };
-}
-
-// 🔧 CHECK IF JOB IS DUPLICATE
-function checkIfDuplicate(newJob, existingJobs, alreadyFoundJobs = []) {
-  const newTitle = newJob.title.toLowerCase().trim();
-  const newCompany = newJob.company.toLowerCase().trim();
-  const newUrl = newJob.jobUrl || newJob.sourceUrl || '';
-  
-  // Check against existing jobs in database
-  for (const existing of existingJobs) {
-    // URL match (most reliable)
-    if (newUrl && existing.sourceUrl && newUrl === existing.sourceUrl) {
-      return true;
-    }
-    
-    // Title + Company match
-    if (newTitle === existing.title.toLowerCase().trim() && 
-        newCompany === existing.company.toLowerCase().trim()) {
-      return true;
-    }
-  }
-  
-  // Check against already found jobs in this search
-  for (const found of alreadyFoundJobs) {
-    const foundTitle = found.title.toLowerCase().trim();
-    const foundCompany = found.company.toLowerCase().trim();
-    const foundUrl = found.jobUrl || found.sourceUrl || '';
-    
-    // URL match
-    if (newUrl && foundUrl && newUrl === foundUrl) {
-      return true;
-    }
-    
-    // Title + Company match
-    if (newTitle === foundTitle && newCompany === foundCompany) {
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-// 🔧 CRAFT VARIED SEARCH QUERIES
-function craftVariedSearchQuery(careerProfile, attempt) {
-  const primaryTitle = careerProfile.targetJobTitles?.[0] || 'Product Manager';
-  let cleanTitle = primaryTitle.trim();
-  
-  // Vary the search based on attempt
-  switch (attempt) {
-    case 1:
-      // First attempt: Use primary title as-is
-      break;
-    case 2:
-      // Second attempt: Try without seniority level
-      cleanTitle = cleanTitle.replace(/^(senior|sr|junior|jr|lead|principal|staff)\s+/i, '').trim();
-      break;
-    case 3:
-      // Third attempt: Try alternative title if available
-      if (careerProfile.targetJobTitles?.[1]) {
-        cleanTitle = careerProfile.targetJobTitles[1].trim();
-      } else {
-        // Or try a related title
-        cleanTitle = cleanTitle.replace(/manager/i, 'lead').replace(/lead/i, 'manager');
-      }
-      break;
-  }
-  
-  // Remove duplicate words
-  const words = cleanTitle.split(' ');
-  const uniqueWords = [...new Set(words)];
-  cleanTitle = uniqueWords.join(' ');
-  
-  console.log(`🎯 Search attempt ${attempt} query: "${cleanTitle}"`);
-  
-  return {
-    jobTitle: cleanTitle,
-    location: 'Remote',
-    experienceLevel: careerProfile.experienceLevel,
-    limit: SEARCH_BUDGET.JOBS_PER_API_CALL,
-    remote: true,
-    keywords: []
-  };
-}
-
-// EXECUTE SINGLE PRECISION SEARCH
-async function executeSinglePrecisionSearch(extractor, precisionQuery, search) {
-  console.log(`🔍 Executing search with query: "${precisionQuery.jobTitle}"...`);
-  
-  const searchResult = await extractor.searchActiveJobsDB(precisionQuery);
-  
-  console.log(`📊 Search results: ${searchResult.jobs?.length || 0} jobs from API`);
-  
-  if (!searchResult.jobs || searchResult.jobs.length === 0) {
-    console.log(`⚠️ No jobs found with query: "${precisionQuery.jobTitle}"`);
-    return [];
-  }
-  
-  // Return jobs with additional metadata
-  const relevantJobs = searchResult.jobs.map(job => ({
-    ...job,
-    extractedAt: new Date(),
-    extractionMethod: 'active_jobs_db_precision',
-    contentQuality: job.contentQuality || 'high',
-    matchScore: job.relevanceScore || 85,
-    budgetEfficient: true,
-    searchQuery: precisionQuery.jobTitle
-  }));
-  
-  return relevantJobs;
-}
-
-// 🔥 ENHANCED ROLE-SPECIFIC JOB ANALYSIS (Same as before)
-async function performEnhancedJobAnalysis(freshJobs, search, careerProfile) {
-  const analyzedJobs = [];
-  
-  console.log(`🔬 Starting ENHANCED analysis of ${freshJobs.length} FRESH jobs with GPT-4o...`);
-  console.log(`🎯 No duplicates will be analyzed - saving GPT-4o API costs!`);
-  
-  for (const job of freshJobs) {
-    try {
-      console.log(`🤖 Analyzing "${job.title}" at ${job.company} with ENHANCED GPT-4o...`);
-      
-      // USE THE SAME ENHANCED ANALYSIS AS MANUAL UPLOADS
-      const enhancedAnalysis = await jobAnalysisService.analyzeJob(
-        job.description || job.fullContent || 'Job description not available',
-        {
-          title: job.title,
-          company: job.company,
-          location: job.location,
-          salary: job.salary
-        },
-        {
-          isAiDiscovery: true,
-          prioritizeCost: false
-        }
-      );
-      
-      analyzedJobs.push({
-        ...job,
-        analysis: enhancedAnalysis,
-        analysisError: null,
-        enhancedAnalysis: true,
-        lightweightAnalysis: false,
-        budgetEfficient: true,
-        roleSpecificAnalysis: true
-      });
-      
-      await search.addReasoningLog(
-        'premium_analysis',
-        `"${job.title}" at ${job.company} - ENHANCED analysis complete (FRESH job)`,
-        {
-          jobTitle: job.title,
-          companyName: job.company,
-          relevanceScore: job.relevanceScore || 85,
-          enhancedAnalysis: true,
-          roleSpecificAnalysis: true,
-          modelUsed: enhancedAnalysis.analysisMetadata?.model || 'gpt-4o',
-          analysisType: enhancedAnalysis.analysisMetadata?.analysisType || 'ai_discovery_role_specific',
-          skillsFound: enhancedAnalysis.keySkills?.length || 0,
-          technicalRequirements: enhancedAnalysis.technicalRequirements?.length || 0,
-          careerField: careerProfile.careerDirection,
-          freshJob: true
-        }
-      );
-      
-    } catch (error) {
-      console.error(`❌ Error in enhanced analysis for ${job.title}:`, error);
-      
-      // Fallback to lightweight only if enhanced analysis fails
-      console.log(`🔄 Falling back to lightweight analysis for ${job.title}...`);
-      const lightweightAnalysis = createLightweightAnalysis(job, careerProfile);
-      
-      analyzedJobs.push({
-        ...job,
-        analysis: lightweightAnalysis,
-        analysisError: error.message,
-        enhancedAnalysis: false,
-        lightweightAnalysis: true,
-        fallbackUsed: true
-      });
-    }
-  }
-  
-  const enhancedCount = analyzedJobs.filter(job => job.enhancedAnalysis).length;
-  const lightweightCount = analyzedJobs.filter(job => job.lightweightAnalysis).length;
-  
-  console.log(`✅ Analysis complete: ${enhancedCount} enhanced, ${lightweightCount} lightweight fallbacks`);
-  
-  return analyzedJobs;
-}
-
-// CAREER ANALYSIS (Same as before)
-async function analyzeCareerForPrecisionTargeting(resumeData) {
+// 🆕 NEW: Enhanced career analysis for location targeting
+async function analyzeCareerForLocationTargeting(resumeData, searchLocations) {
   try {
     const currentRole = resumeData.experience?.[0]?.title || '';
     const allRoles = resumeData.experience?.map(exp => exp.title).join(', ') || '';
     const skills = resumeData.skills?.map(skill => typeof skill === 'string' ? skill : skill.name).join(', ') || '';
+    
+    const locationNames = searchLocations.map(loc => loc.name).join(', ');
+    const hasRemote = searchLocations.some(loc => loc.type === 'remote' || loc.name === 'Remote');
     
     const response = await openai.chat.completions.create({
       model: "gpt-4-turbo-preview",
@@ -635,26 +431,33 @@ async function analyzeCareerForPrecisionTargeting(resumeData) {
       messages: [
         {
           role: "system",
-content: `Analyze this career profile for PRECISION job targeting:
+          content: `Analyze this career profile for WEEKLY MULTI-LOCATION job targeting with salary focus:
 
 Current Role: "${currentRole}"
 Career History: ${allRoles}
 Skills: ${skills}
+Target Locations: ${locationNames}
+Remote Work: ${hasRemote ? 'Yes' : 'No'}
 
-Return JSON with PRECISION targeting:
+Return JSON optimized for weekly job discovery across multiple locations:
 {
   "targetJobTitles": [
-    "// ONLY clean job titles like 'Product Manager', 'Senior Software Engineer'",
-    "// MAX 2 clean titles only"
+    "// ONLY 2-3 clean job titles optimized for location search",
+    "// Focus on titles that work well across different markets"
   ],
   "targetKeywords": [
-    "// TOP 3-4 most important skills/technologies only"
+    "// TOP 3-5 most important skills for salary optimization"
   ],
   "experienceLevel": "// entry, junior, mid, senior, lead, principal, executive",
-  "careerDirection": "// Brief description of PRIMARY career focus"
+  "careerDirection": "// Brief description focusing on salary potential",
+  "locationOptimization": {
+    "remotePreference": ${hasRemote},
+    "marketAdaptation": "// How to adapt search for different markets",
+    "salaryExpectation": "// Expected salary range for this role"
+  }
 }
 
-Keep job titles GENERIC and put specifics in keywords!`
+Focus on job titles and keywords that maximize salary potential across multiple locations!`
         }
       ]
     });
@@ -665,43 +468,228 @@ Keep job titles GENERIC and put specifics in keywords!`
     if (jsonMatch) {
       const profile = JSON.parse(jsonMatch[0]);
       
-      profile.targetJobTitles = (profile.targetJobTitles || []).slice(0, 2);
-      profile.targetKeywords = (profile.targetKeywords || []).slice(0, 4);
+      profile.targetJobTitles = (profile.targetJobTitles || []).slice(0, 3);
+      profile.targetKeywords = (profile.targetKeywords || []).slice(0, 5);
       
       return {
         ...profile,
-        preferredLocations: ['Remote'],
-        workArrangement: 'remote'
+        searchLocations: searchLocations,
+        workArrangement: hasRemote ? 'flexible' : 'location_specific'
       };
     }
     
-    return createPrecisionFallbackCareerProfile(currentRole, skills);
+    return createLocationFallbackCareerProfile(currentRole, skills, searchLocations);
     
   } catch (error) {
-    console.error('Error in precision career analysis:', error);
-    return createPrecisionFallbackCareerProfile(
+    console.error('Error in location-based career analysis:', error);
+    return createLocationFallbackCareerProfile(
       resumeData.experience?.[0]?.title || 'Professional',
-      resumeData.skills?.map(s => typeof s === 'string' ? s : s.name).join(', ') || ''
+      resumeData.skills?.map(s => typeof s === 'string' ? s : s.name).join(', ') || '',
+      searchLocations
     );
   }
 }
 
-function createPrecisionFallbackCareerProfile(currentRole, skills) {
+function createLocationFallbackCareerProfile(currentRole, skills, searchLocations) {
   const baseRole = currentRole.replace(/^(senior|sr|junior|jr|lead|principal|staff|director|head|chief|vp|vice president)\s+/i, '').trim() || 'Professional';
   const skillsArray = skills.split(',').map(s => s.trim()).filter(s => s.length > 0).slice(0, 3);
+  const hasRemote = searchLocations.some(loc => loc.type === 'remote' || loc.name === 'Remote');
   
   return {
     targetJobTitles: [baseRole],
     targetKeywords: skillsArray.length > 0 ? skillsArray : ['professional', 'experience'],
     experienceLevel: 'mid',
-    careerDirection: `${baseRole} career progression`,
-    preferredLocations: ['Remote'],
-    workArrangement: 'remote'
+    careerDirection: `${baseRole} career progression with salary optimization`,
+    searchLocations: searchLocations,
+    workArrangement: hasRemote ? 'flexible' : 'location_specific',
+    locationOptimization: {
+      remotePreference: hasRemote,
+      marketAdaptation: 'Standard search across all locations',
+      salaryExpectation: 'Market rate for role and experience'
+    }
   };
 }
 
-// LIGHTWEIGHT JOB ANALYSIS - FALLBACK ONLY
-function createLightweightAnalysis(job, careerProfile) {
+// 🆕 NEW: Multi-location job discovery
+async function performMultiLocationJobDiscovery(careerProfile, search, searchLocations) {
+  try {
+    const activeJobsDBExtractor = new ActiveJobsDBExtractor();
+    
+    // Test API health
+    const apiHealth = await activeJobsDBExtractor.getApiHealth();
+    if (apiHealth.status !== 'healthy') {
+      throw new Error(`Active Jobs DB API unavailable: ${apiHealth.message}`);
+    }
+    
+    console.log(`🌍 MULTI-LOCATION DISCOVERY: Searching across ${searchLocations.length} locations...`);
+    
+    // Prepare search parameters
+    const searchParams = {
+      jobTitle: careerProfile.targetJobTitles?.[0] || 'Professional',
+      searchLocations: searchLocations,
+      experienceLevel: careerProfile.experienceLevel,
+      weeklyLimit: search.weeklyLimit,
+      keywords: careerProfile.targetKeywords || []
+    };
+    
+    // Execute multi-location search
+    const searchResults = await activeJobsDBExtractor.searchActiveJobsDBWithLocations(searchParams);
+    
+    await search.addReasoningLog(
+      'active_jobs_discovery',
+      `Multi-location discovery completed! Found ${searchResults.totalFound} jobs across ${searchResults.locationsSearched} locations.`,
+      {
+        totalJobsFound: searchResults.totalFound,
+        locationsSearched: searchResults.locationsSearched,
+        locationStats: searchResults.locationStats,
+        salaryStats: searchResults.salaryStats,
+        apiProvider: 'active_jobs_db',
+        searchApproach: 'weekly_multi_location_persistent',
+        enhancedSalaryExtraction: true
+      }
+    );
+    
+    return searchResults;
+    
+  } catch (error) {
+    console.error('Error in multi-location job discovery:', error);
+    throw error;
+  }
+}
+
+// 🆕 NEW: Enhanced job analysis with salary extraction
+async function performEnhancedJobAnalysisWithSalary(jobs, search, careerProfile) {
+  const analyzedJobs = [];
+  
+  console.log(`🔬 Starting ENHANCED analysis of ${jobs.length} jobs with salary extraction...`);
+  
+  for (const job of jobs) {
+    try {
+      console.log(`🤖 Analyzing "${job.title}" at ${job.company} with enhanced salary extraction...`);
+      
+      // Create enhanced job metadata for analysis
+      const jobMetadata = {
+        title: job.title,
+        company: job.company,
+        location: job.location?.original || job.location,
+        salary: job.salary,
+        workArrangement: job.workArrangement,
+        isRemote: job.isRemote,
+        benefits: job.benefits,
+        experienceLevel: job.experienceLevel
+      };
+      
+      // Use premium job analysis service with salary focus
+      const enhancedAnalysis = await jobAnalysisService.analyzeJob(
+        job.description || job.fullContent || 'Job description not available',
+        jobMetadata,
+        {
+          isAiDiscovery: true,
+          prioritizeCost: false, // Use premium analysis
+          focusOnSalary: true,   // 🆕 NEW: Focus on salary extraction
+          enhanceLocation: true  // 🆕 NEW: Enhanced location parsing
+        }
+      );
+      
+      // Merge extracted salary with API salary data
+      const combinedSalary = mergeSalaryData(job.salary, enhancedAnalysis.salary);
+      
+      analyzedJobs.push({
+        ...job,
+        analysis: enhancedAnalysis,
+        salary: combinedSalary, // Use combined salary data
+        analysisError: null,
+        enhancedAnalysis: true,
+        salaryExtracted: !!(combinedSalary.min || combinedSalary.max),
+        locationConfidence: job.metadata?.locationConfidence || 85
+      });
+      
+      await search.addReasoningLog(
+        'premium_analysis',
+        `"${job.title}" at ${job.company} - Enhanced analysis with salary extraction complete`,
+        {
+          jobTitle: job.title,
+          companyName: job.company,
+          location: job.location?.original,
+          salaryExtracted: !!(combinedSalary.min || combinedSalary.max),
+          salaryRange: combinedSalary,
+          workArrangement: job.workArrangement,
+          isRemote: job.isRemote,
+          skillsFound: enhancedAnalysis.keySkills?.length || 0,
+          modelUsed: enhancedAnalysis.analysisMetadata?.model || 'gpt-4o',
+          analysisType: 'weekly_location_salary_enhanced_persistent'
+        }
+      );
+      
+    } catch (error) {
+      console.error(`❌ Error in enhanced analysis for ${job.title}:`, error);
+      
+      // Fallback to basic analysis
+      console.log(`🔄 Falling back to basic analysis for ${job.title}...`);
+      const basicAnalysis = createBasicAnalysisWithSalary(job, careerProfile);
+      
+      analyzedJobs.push({
+        ...job,
+        analysis: basicAnalysis,
+        analysisError: error.message,
+        enhancedAnalysis: false,
+        salaryExtracted: !!(job.salary?.min || job.salary?.max),
+        fallbackUsed: true
+      });
+    }
+  }
+  
+  const enhancedCount = analyzedJobs.filter(job => job.enhancedAnalysis).length;
+  const salaryCount = analyzedJobs.filter(job => job.salaryExtracted).length;
+  
+  console.log(`✅ Analysis complete: ${enhancedCount} enhanced, ${salaryCount} with salary data`);
+  
+  return analyzedJobs;
+}
+
+// 🆕 NEW: Merge salary data from different sources
+function mergeSalaryData(apiSalary, analysisSalary) {
+  const merged = {
+    min: null,
+    max: null,
+    currency: 'USD',
+    period: 'annually',
+    source: null,
+    confidence: 0,
+    extractionMethod: null
+  };
+  
+  // Priority 1: API salary data (highest confidence)
+  if (apiSalary && (apiSalary.min || apiSalary.max)) {
+    Object.assign(merged, apiSalary);
+    if (apiSalary.confidence > merged.confidence) {
+      merged.source = apiSalary.source || 'api';
+      merged.extractionMethod = apiSalary.extractionMethod || 'api_direct';
+    }
+  }
+  
+  // Priority 2: Analysis salary data (if no API data or lower confidence)
+  if (analysisSalary && (analysisSalary.min || analysisSalary.max)) {
+    if (!merged.min && analysisSalary.min) merged.min = analysisSalary.min;
+    if (!merged.max && analysisSalary.max) merged.max = analysisSalary.max;
+    
+    if (!merged.source || (analysisSalary.confidence > merged.confidence)) {
+      merged.source = analysisSalary.source || 'description';
+      merged.extractionMethod = analysisSalary.extractionMethod || 'analysis_extraction';
+      merged.confidence = analysisSalary.confidence || merged.confidence;
+    }
+  }
+  
+  // Ensure logical salary range
+  if (merged.min && merged.max && merged.min > merged.max) {
+    [merged.min, merged.max] = [merged.max, merged.min];
+  }
+  
+  return merged;
+}
+
+// 🆕 NEW: Create basic analysis with salary for fallback
+function createBasicAnalysisWithSalary(job, careerProfile) {
   const skills = createTargetedSkillsForCareer(careerProfile);
 
   return {
@@ -713,14 +701,24 @@ function createLightweightAnalysis(job, careerProfile) {
     },
     keySkills: skills,
     experienceLevel: ValidationUtils.normalizeExperienceLevel(careerProfile.experienceLevel || 'mid'),
-    workArrangement: ValidationUtils.normalizeWorkArrangement('remote'),
+    workArrangement: ValidationUtils.normalizeWorkArrangement(job.workArrangement || 'unknown'),
+    // 🆕 NEW: Include salary in basic analysis
+    salary: job.salary || {
+      min: null,
+      max: null,
+      currency: 'USD',
+      source: 'job_data',
+      extractionMethod: 'basic_fallback'
+    },
     analysisMetadata: {
       analyzedAt: new Date(),
-      algorithmVersion: '6.1-lightweight-fallback',
-      analysisType: 'lightweight_fallback_only',
+      algorithmVersion: '5.0-weekly-location-salary-persistent',
+      analysisType: 'basic_weekly_fallback_persistent',
       qualityLevel: 'basic',
-      careerField: careerProfile.careerDirection,
-      fallback: true
+      salaryIncluded: !!(job.salary?.min || job.salary?.max),
+      locationIncluded: !!job.location,
+      fallback: true,
+      persistentTracking: true
     }
   };
 }
@@ -753,49 +751,63 @@ function createTargetedSkillsForCareer(careerProfile) {
   return ValidationUtils.validateAndNormalizeSkills(skills);
 }
 
-// JOB SAVING - OPTIMIZED (No Duplicate Check Since Already Done)
-async function saveJobsOptimized(analyzedJobs, userId, searchId, search) {
+// 🔧 NEW: Save jobs with persistent weekly tracking
+async function saveJobsWithPersistentTracking(analyzedJobs, userId, searchId, search, userPlan, weeklyLimit) {
   let savedCount = 0;
-  const maxJobsToSave = SEARCH_BUDGET.TARGET_JOBS_TO_SAVE;
   
-  console.log(`💾 Saving ${Math.min(analyzedJobs.length, maxJobsToSave)} FRESH analyzed jobs (no duplicates to check)...`);
+  // 🔧 NEW: Get persistent weekly stats BEFORE starting to save
+  const userWeeklyStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, weeklyLimit);
+  const maxJobsToSave = Math.min(analyzedJobs.length, userWeeklyStats.remainingThisWeek);
+  
+  console.log(`💾 Saving ${maxJobsToSave} analyzed jobs with persistent tracking (${userWeeklyStats.jobsFoundThisWeek}/${userWeeklyStats.weeklyLimit} used this week)...`);
+  
+  // If user has already hit weekly limit
+  if (userWeeklyStats.isLimitReached) {
+    console.log(`⚠️ User weekly limit already reached via persistent tracking: ${userWeeklyStats.jobsFoundThisWeek}/${userWeeklyStats.weeklyLimit}`);
+    return 0;
+  }
+  
+  // If no jobs to save
+  if (maxJobsToSave === 0) {
+    console.log(`⚠️ No jobs to save - weekly limit via persistent tracking: ${userWeeklyStats.jobsFoundThisWeek}/${userWeeklyStats.weeklyLimit}`);
+    return 0;
+  }
   
   for (const jobData of analyzedJobs.slice(0, maxJobsToSave)) {
     try {
-      // 🔧 NO DUPLICATE CHECK NEEDED - Already done before analysis
-      
-      // Validate and normalize data from ENHANCED analysis
-      const experienceLevel = ValidationUtils.normalizeExperienceLevel(jobData.analysis?.experienceLevel || 'mid');
-      const workArrangement = ValidationUtils.normalizeWorkArrangement(jobData.analysis?.workArrangement || 'unknown');
+      // Validate and normalize data from enhanced analysis
+      const experienceLevel = ValidationUtils.normalizeExperienceLevel(jobData.analysis?.experienceLevel || jobData.experienceLevel || 'mid');
+      const workArrangement = ValidationUtils.normalizeWorkArrangement(jobData.analysis?.workArrangement || jobData.workArrangement || 'unknown');
       const normalizedSkills = ValidationUtils.validateAndNormalizeSkills(jobData.analysis?.keySkills || []);
       
       // Determine analysis quality
       const isEnhanced = jobData.enhancedAnalysis === true;
-      const analysisType = isEnhanced ? 'ai_discovery_role_specific_enhanced' : 'ai_discovery_lightweight_fallback';
-      const modelUsed = isEnhanced ? (jobData.analysis?.analysisMetadata?.model || 'gpt-4o') : 'lightweight-fallback';
+      const hasSalary = !!(jobData.salary?.min || jobData.salary?.max);
+      const analysisType = isEnhanced ? 'weekly_location_salary_enhanced_persistent' : 'weekly_location_salary_basic_persistent';
+      const modelUsed = isEnhanced ? (jobData.analysis?.analysisMetadata?.model || 'gpt-4o') : 'basic-fallback';
       const qualityLevel = isEnhanced ? 'premium' : 'basic';
       
-      // Create job record with ENHANCED analysis data
+      // Create job record with enhanced location and salary data
       const job = new Job({
         userId,
         title: jobData.title,
         company: jobData.company,
-        location: parseLocation(jobData.location),
+        location: parseLocationEnhanced(jobData.location),
         description: jobData.fullContent || jobData.description || 'Job description not available',
         sourceUrl: jobData.jobUrl || jobData.sourceUrl,
         sourcePlatform: createValidActiveJobsDBSourcePlatform(jobData.sourcePlatform),
         isAiGenerated: true,
         applicationStatus: 'NOT_APPLIED',
         aiSearchId: searchId,
-        salary: jobData.salary || {},
+        salary: parseAndValidateSalary(jobData.salary),
         jobType: jobData.jobType || 'FULL_TIME',
         
         analysisStatus: {
           status: 'completed',
           progress: 100,
           message: isEnhanced 
-            ? `ENHANCED analysis complete! Found ${normalizedSkills.length} skills with ${modelUsed} (Fresh job, no duplicate).`
-            : `Analysis complete with fallback method. Found ${normalizedSkills.length} skills.`,
+            ? `Enhanced analysis complete! Found ${normalizedSkills.length} skills with salary extraction.`
+            : `Basic analysis complete. Found ${normalizedSkills.length} skills.`,
           updatedAt: new Date(),
           completedAt: new Date(),
           canViewJob: true,
@@ -803,21 +815,21 @@ async function saveJobsOptimized(analyzedJobs, userId, searchId, search) {
           experienceLevel: experienceLevel,
           modelUsed: modelUsed,
           analysisType: analysisType,
-          searchApproach: '3-phase-intelligent-adzuna-api',
+          searchApproach: '3-phase-intelligent-active-jobs-weekly-persistent',
           qualityLevel: qualityLevel,
           enhancedAnalysis: isEnhanced,
-          roleSpecificAnalysis: isEnhanced,
-          sameQualityAsManual: isEnhanced,
-          optimizedSearch: true,
-          freshJob: true
+          salaryExtracted: hasSalary,
+          locationEnhanced: !!jobData.location?.parsed,
+          weeklySearch: true,
+          persistentTracking: true
         },
         
-        // ENHANCED PARSED DATA from role-specific analysis
+        // Enhanced parsed data with location and salary
         parsedData: {
           requirements: jobData.analysis?.requirements || [],
           responsibilities: jobData.analysis?.responsibilities || [],
           qualifications: jobData.analysis?.qualifications || { required: [], preferred: [] },
-          benefits: jobData.analysis?.benefits || [],
+          benefits: jobData.analysis?.benefits || jobData.benefits || [],
           keySkills: normalizedSkills,
           experienceLevel: experienceLevel,
           yearsOfExperience: jobData.analysis?.yearsOfExperience || { minimum: 3, preferred: 5 },
@@ -828,14 +840,33 @@ async function saveJobsOptimized(analyzedJobs, userId, searchId, search) {
           technicalComplexity: jobData.analysis?.technicalComplexity || 'medium',
           leadershipRequired: jobData.analysis?.leadershipRequired || false,
           extractedAt: new Date(),
-          extractionMethod: isEnhanced ? 'enhanced_role_specific_analysis' : 'lightweight_fallback',
+          extractionMethod: isEnhanced ? 'enhanced_weekly_location_salary_persistent' : 'basic_weekly_fallback_persistent',
           
-          // ENHANCED: Technical requirements and tools from role-specific analysis
+          // Enhanced: Technical requirements and tools
           technicalRequirements: jobData.analysis?.technicalRequirements || [],
           toolsAndTechnologies: jobData.analysis?.toolsAndTechnologies || [],
           companyStage: jobData.analysis?.companyStage || 'unknown',
           department: jobData.analysis?.department || 'unknown',
           roleLevel: jobData.analysis?.roleLevel || 'individual-contributor',
+          
+          // 🆕 NEW: Enhanced location data
+          locationData: {
+            original: jobData.location?.original,
+            parsed: jobData.location?.parsed,
+            searchLocation: jobData.metadata?.searchLocation,
+            isRemote: jobData.isRemote || false,
+            workArrangement: workArrangement,
+            locationConfidence: jobData.locationConfidence || jobData.metadata?.locationConfidence || 80
+          },
+          
+          // 🆕 NEW: Enhanced salary data
+          salaryData: {
+            ...jobData.salary,
+            extractionMethod: jobData.salary?.extractionMethod || 'unknown',
+            confidence: jobData.salary?.confidence || 0,
+            source: jobData.salary?.source || 'unknown',
+            isEstimated: jobData.salary?.source === 'inferred'
+          },
           
           // Active Jobs DB specific data
           activeJobsDBData: {
@@ -844,72 +875,76 @@ async function saveJobsOptimized(analyzedJobs, userId, searchId, search) {
             postedDate: jobData.postedDate,
             activeJobsDBId: jobData.activeJobsDBData?.id,
             category: jobData.activeJobsDBData?.category,
-            discoveryMethod: 'optimized_fresh_targeting',
+            discoveryMethod: 'weekly_multi_location_persistent',
+            searchLocation: jobData.activeJobsDBData?.searchLocation,
             isDirectEmployer: jobData.isDirectEmployer || false,
             company_url: jobData.activeJobsDBData?.company_url,
             apply_url: jobData.activeJobsDBData?.apply_url,
             remote: jobData.activeJobsDBData?.remote,
-            enhancedAnalysis: isEnhanced,
-            searchQuery: jobData.searchQuery
+            enhancedExtraction: true,
+            weeklySearch: true,
+            persistentTracking: true
           },
           
-          // ENHANCED: Analysis metadata from role-specific analysis
+          // Analysis metadata
           analysisMetadata: jobData.analysis?.analysisMetadata || {
             analyzedAt: new Date(),
-            algorithmVersion: '6.1-optimized-fresh-jobs',
+            algorithmVersion: '5.0-weekly-location-salary-persistent',
             analysisType: analysisType,
             qualityLevel: qualityLevel,
             enhancedAnalysis: isEnhanced,
-            roleSpecificAnalysis: isEnhanced,
+            salaryExtracted: hasSalary,
+            locationEnhanced: !!jobData.location?.parsed,
             model: modelUsed,
             fallback: !isEnhanced,
-            freshJob: true,
-            optimizedDiscovery: true
+            weeklySearch: true,
+            persistentTracking: true
           }
         },
         
         aiSearchMetadata: {
-          searchScore: jobData.relevanceScore || 85,
-          discoveryMethod: 'optimized_fresh_targeting',
+          searchScore: jobData.matchScore || 85,
+          discoveryMethod: 'weekly_multi_location_persistent',
           extractionSuccess: !jobData.analysisError,
           contentQuality: jobData.contentQuality || 'high',
           premiumAnalysis: isEnhanced,
-          intelligentDiscovery: true,
+          weeklyDiscovery: true,
           activeJobsDBDiscovery: true,
           enhancedAnalysis: isEnhanced,
-          roleSpecificAnalysis: isEnhanced,
-          sameQualityAsManual: isEnhanced,
-          phase: 'optimized-fresh-job-targeting',
+          salaryExtracted: hasSalary,
+          locationEnhanced: !!jobData.location?.parsed,
+          phase: 'weekly-multi-location-salary-persistent',
           originalPlatform: jobData.sourcePlatform,
-          relevanceScore: jobData.relevanceScore || 85,
+          relevanceScore: jobData.matchScore || 85,
           isDirectEmployer: jobData.isDirectEmployer || false,
-          freshJob: true,
-          optimizedSearch: true,
+          searchLocation: jobData.activeJobsDBData?.searchLocation,
+          persistentTracking: true,
           
-          // Enhanced analysis metadata
+          // Enhanced metadata
           enhancedMetadata: {
             analysisModel: modelUsed,
             analysisType: analysisType,
             qualityLevel: qualityLevel,
             enhancedAnalysis: isEnhanced,
-            technicalRequirementsFound: jobData.analysis?.technicalRequirements?.length || 0,
-            toolsAndTechnologiesFound: jobData.analysis?.toolsAndTechnologies?.length || 0,
-            roleCategory: jobData.analysis?.roleCategory || 'general',
-            industryContext: jobData.analysis?.industryContext || 'general',
-            fallbackUsed: jobData.fallbackUsed || false,
-            freshJob: true,
-            searchQuery: jobData.searchQuery
+            salaryExtracted: hasSalary,
+            salarySource: jobData.salary?.source,
+            salaryConfidence: jobData.salary?.confidence || 0,
+            locationConfidence: jobData.locationConfidence || 80,
+            workArrangement: workArrangement,
+            isRemote: jobData.isRemote || false,
+            weeklySearch: true,
+            persistentTracking: true
           },
           
           // Active Jobs DB specific metadata
           activeJobsDBMetadata: {
-            discoveryMethod: 'optimized_fresh_targeting',
+            discoveryMethod: 'weekly_multi_location_persistent',
             apiProvider: 'active_jobs_db',
-            premiumDatabaseAccess: true,
+            enhancedSalaryExtraction: true,
+            locationTargeting: true,
             directEmployerLinks: jobData.isDirectEmployer || false,
-            enhancedAnalysis: isEnhanced,
-            optimizedSearch: true,
-            freshJob: true
+            weeklyQuotaManagement: true,
+            persistentTracking: true
           }
         }
       });
@@ -919,64 +954,174 @@ async function saveJobsOptimized(analyzedJobs, userId, searchId, search) {
       
       // Update search progress
       await AiJobSearch.findByIdAndUpdate(searchId, {
-        $inc: { jobsFoundToday: 1, totalJobsFound: 1 },
+        $inc: { jobsFoundThisWeek: 1, totalJobsFound: 1 },
         $push: {
           jobsFound: {
             jobId: job._id,
             title: job.title,
             company: job.company,
             foundAt: new Date(),
-            extractionMethod: isEnhanced ? 'enhanced_role_specific_analysis' : 'lightweight_fallback',
+            location: {
+              original: jobData.location?.original,
+              parsed: jobData.location?.parsed
+            },
+            salary: jobData.salary,
+            extractionMethod: isEnhanced ? 'enhanced_weekly_location_salary_persistent' : 'basic_weekly_fallback_persistent',
             contentQuality: jobData.contentQuality || 'high',
-            matchScore: jobData.relevanceScore || 85,
+            matchScore: jobData.matchScore || 85,
             premiumAnalysis: isEnhanced,
             enhancedAnalysis: isEnhanced,
-            roleSpecificAnalysis: isEnhanced,
+            salaryExtracted: hasSalary,
             sourcePlatform: jobData.sourcePlatform,
-            relevanceScore: jobData.relevanceScore || 85,
+            relevanceScore: jobData.matchScore || 85,
             apiSource: 'active_jobs_db',
             modelUsed: modelUsed,
-            sameQualityAsManual: isEnhanced,
-            freshJob: true,
-            optimizedSearch: true,
-            searchQuery: jobData.searchQuery
+            weeklySearch: true,
+            persistentTracking: true,
+            searchLocation: jobData.activeJobsDBData?.searchLocation,
+            workArrangement: workArrangement,
+            isRemote: jobData.isRemote || false,
+            benefits: jobData.benefits || [],
+            requiredSkills: jobData.requiredSkills || [],
+            preferredSkills: jobData.preferredSkills || []
           }
         }
       });
       
-      const qualityIndicator = isEnhanced ? '🔥 ENHANCED' : '🔄 FALLBACK';
-      console.log(`✅ ${qualityIndicator} FRESH: ${job.title} at ${job.company} (${modelUsed}, Score: ${jobData.relevanceScore || 85}%) [${savedCount}/${maxJobsToSave}]`);
+      const qualityIndicator = isEnhanced ? '🔥 ENHANCED' : '🔄 BASIC';
+      const salaryIndicator = hasSalary ? '💰 SALARY' : '📊 NO SALARY';
+      console.log(`✅ ${qualityIndicator} ${salaryIndicator}: ${job.title} at ${job.company} [${savedCount}/${maxJobsToSave}]`);
       
     } catch (error) {
-      console.error(`❌ ERROR saving fresh job ${jobData.title}:`, error);
+      console.error(`❌ ERROR saving job ${jobData.title}:`, error);
     }
   }
   
-  console.log(`💾 Optimized job saving completed: ${savedCount} FRESH jobs saved`);
+  // 🔧 NEW: Add jobs to persistent weekly tracking
+  if (savedCount > 0) {
+    const trackingResult = await WeeklyJobTracking.addJobsToWeeklyTracking(
+      userId, 
+      searchId, 
+      savedCount, 
+      search.resumeName, 
+      search.resumeName, 
+      userPlan, 
+      weeklyLimit
+    );
+    
+    if (trackingResult.success) {
+      console.log(`📊 Added ${trackingResult.jobsAdded} jobs to persistent weekly tracking. Total: ${trackingResult.totalThisWeek}/${trackingResult.weeklyLimit}`);
+    } else {
+      console.log(`⚠️ Persistent weekly tracking: ${trackingResult.reason}`);
+    }
+  }
+  
+  console.log(`💾 Weekly job saving with persistent tracking completed: ${savedCount} jobs saved`);
   
   return savedCount;
 }
 
-// UTILITY FUNCTIONS
-function parseLocation(locationString) {
-  if (!locationString) return { remote: true };
-  
-  const lower = locationString.toLowerCase();
-  if (lower.includes('remote')) {
+// 🔧 NEW: Get user weekly job stats using persistent tracking
+async function getUserWeeklyJobStatsWithPersistentTracking(userId, weeklyLimit) {
+  try {
+    console.log(`📅 Getting persistent weekly stats for user ${userId}`);
+    
+    // Use the new persistent tracking method
+    const persistentStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, weeklyLimit);
+    
+    console.log(`📊 Persistent weekly summary: ${persistentStats.jobsFoundThisWeek}/${persistentStats.weeklyLimit} used, ${persistentStats.remainingThisWeek} remaining, limit reached: ${persistentStats.isLimitReached}`);
+    
+    return persistentStats;
+    
+  } catch (error) {
+    console.error('Error getting persistent weekly stats:', error);
+    return {
+      jobsFoundThisWeek: 0,
+      weeklyLimit: weeklyLimit,
+      remainingThisWeek: weeklyLimit,
+      isLimitReached: false,
+      weekStart: new Date(),
+      weekEnd: new Date(),
+      error: error.message,
+      calculationMethod: 'persistent_tracking_error_fallback'
+    };
+  }
+}
+
+// 🆕 NEW: Enhanced location parsing
+function parseLocationEnhanced(locationData) {
+  if (!locationData) {
     return { remote: true, city: null, country: 'USA' };
   }
   
-  const parts = locationString.split(',').map(p => p.trim());
-  return {
-    city: parts[0] || null,
-    state: parts[1] || null,
-    country: parts[2] || 'USA',
-    remote: false
+  // If already parsed
+  if (locationData.parsed) {
+    return {
+      city: locationData.parsed.city,
+      state: locationData.parsed.state,
+      country: locationData.parsed.country || 'USA',
+      remote: locationData.parsed.isRemote || false,
+      coordinates: locationData.parsed.coordinates,
+      originalLocation: locationData.original
+    };
+  }
+  
+  // Parse from string
+  const locationString = locationData.original || locationData;
+  if (typeof locationString === 'string') {
+    const lower = locationString.toLowerCase();
+    if (lower.includes('remote')) {
+      return { remote: true, city: null, country: 'USA', originalLocation: locationString };
+    }
+    
+    const parts = locationString.split(',').map(p => p.trim());
+    return {
+      city: parts[0] || null,
+      state: parts[1] || null,
+      country: parts[2] || 'USA',
+      remote: false,
+      originalLocation: locationString
+    };
+  }
+  
+  return { remote: true, city: null, country: 'USA' };
+}
+
+// 🆕 NEW: Parse and validate salary data
+function parseAndValidateSalary(salaryData) {
+  if (!salaryData) {
+    return {};
+  }
+  
+  const salary = {
+    min: salaryData.min || null,
+    max: salaryData.max || null,
+    currency: salaryData.currency || 'USD',
+    period: salaryData.period || 'annually',
+    isExplicit: !!(salaryData.min || salaryData.max),
+    source: salaryData.source || 'unknown',
+    extractionMethod: salaryData.extractionMethod || 'unknown',
+    confidence: salaryData.confidence || 0
   };
+  
+  // Validate salary numbers
+  if (salary.min && (salary.min < 1000 || salary.min > 1000000)) {
+    salary.min = null;
+  }
+  if (salary.max && (salary.max < 1000 || salary.max > 1000000)) {
+    salary.max = null;
+  }
+  
+  // Ensure logical range
+  if (salary.min && salary.max && salary.min > salary.max) {
+    [salary.min, salary.max] = [salary.max, salary.min];
+  }
+  
+  return salary;
 }
 
 function createValidActiveJobsDBSourcePlatform(originalPlatform) {
-  if (!originalPlatform) return 'ACTIVE_JOBS_DB_DIRECT';
+  if (!originalPlatform) return 'ACTIVE_JOBS_DB_WEEKLY';
   
   const platform = originalPlatform.toLowerCase();
   
@@ -999,7 +1144,7 @@ function createValidActiveJobsDBSourcePlatform(originalPlatform) {
     }
   }
   
-  return 'ACTIVE_JOBS_DB_OTHER';
+  return 'ACTIVE_JOBS_DB_WEEKLY_OTHER';
 }
 
 function extractSearchCriteria(resumeData) {
@@ -1011,20 +1156,6 @@ function extractSearchCriteria(resumeData) {
   };
 }
 
-async function isDailyLimitReached(search) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  if (!search.lastSearchDate || search.lastSearchDate < today) {
-    search.jobsFoundToday = 0;
-    search.lastSearchDate = today;
-    await search.save();
-    return false;
-  }
-  
-  return search.jobsFoundToday >= search.dailyLimit;
-}
-
 async function updateSearchStatus(searchId, status, message) {
   await AiJobSearch.findByIdAndUpdate(searchId, {
     status,
@@ -1034,84 +1165,202 @@ async function updateSearchStatus(searchId, status, message) {
   console.log(`Search ${searchId}: ${status} - ${message}`);
 }
 
-function escapeRegex(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+// 🔧 NEW: Export function to get user weekly stats with persistent tracking
+exports.getUserWeeklyJobStats = getUserWeeklyJobStatsWithPersistentTracking;
 
-// EXISTING EXPORTS - UPDATED FOR OPTIMIZED SEARCH
+// 🔧 NEW: Export function to get user weekly stats for subscription service (uses persistent tracking)
+exports.getUserWeeklyJobStatsForSubscription = async (userId, weeklyLimit) => {
+  return await getUserWeeklyJobStatsWithPersistentTracking(userId, weeklyLimit);
+};
+
+// EXISTING EXPORTS - UPDATED FOR PERSISTENT WEEKLY TRACKING
 exports.getUserAiSearches = async (userId) => {
-  return await AiJobSearch.find({ userId }).sort({ createdAt: -1 });
+  try {
+    console.log(`📋 Getting AI searches for user ${userId}`);
+    
+    const searches = await AiJobSearch.find({ 
+      userId, 
+      status: { $ne: 'cancelled' } // Exclude cancelled/deleted searches
+    })
+    .populate('resumeId', 'name')
+    .sort({ createdAt: -1 })
+    .lean();
+    
+    console.log(`📊 Found ${searches.length} active AI searches for user ${userId}`);
+    
+    return searches;
+    
+  } catch (error) {
+    console.error(`❌ Error getting AI searches for user ${userId}:`, error);
+    throw new Error(`Failed to get AI searches: ${error.message}`);
+  }
 };
 
 exports.pauseAiSearch = async (userId, searchId) => {
-  const search = await AiJobSearch.findOne({ _id: searchId, userId });
-  if (!search) throw new Error('Search not found');
-  
-  await search.addReasoningLog(
-    'completion',
-    'Optimized AI search paused by user request - early duplicate detection preserved',
-    { 
-      phase: 'user_pause', 
-      pausedAt: new Date(), 
-      optimizedSearch: true,
-      duplicateDetection: 'Early detection enabled'
+  try {
+    console.log(`⏸️ Pausing AI search ${searchId} for user ${userId}`);
+    
+    const search = await AiJobSearch.findOne({ _id: searchId, userId });
+    if (!search) {
+      throw new Error('AI search not found');
     }
-  );
-  
-  search.status = 'paused';
-  search.lastUpdateMessage = 'Paused by user - optimized search preserved';
-  await search.save();
-  
-  return { message: 'Optimized AI search paused successfully' };
+    
+    await search.addReasoningLog(
+      'completion',
+      'Weekly AI search paused by user request - persistent tracking preserved',
+      { 
+        phase: 'user_pause', 
+        pausedAt: new Date(), 
+        weeklySearch: true,
+        persistentTracking: true,
+        weeklyProgress: search.getWeeklyProgress()
+      }
+    );
+    
+    // Use the safe update method
+    await AiJobSearch.safeUpdateStatus(searchId, userId, 'paused', 'Search paused by user - weekly search and persistent tracking preserved');
+    
+    console.log(`✅ Successfully paused AI search ${searchId}`);
+    
+    return {
+      success: true,
+      message: 'AI search paused successfully'
+    };
+    
+  } catch (error) {
+    console.error(`❌ Error pausing AI search ${searchId}:`, error);
+    
+    return {
+      success: false,
+      message: `Failed to pause AI search: ${error.message}`,
+      error: error.message
+    };
+  }
 };
 
 exports.resumeAiSearch = async (userId, searchId) => {
-  const search = await AiJobSearch.findOne({ _id: searchId, userId });
-  if (!search) throw new Error('Search not found');
-  
-  await search.addReasoningLog(
-    'initialization',
-    'Optimized AI search resumed by user - continuing with early duplicate detection',
-    { 
-      phase: 'user_resume', 
-      resumedAt: new Date(),
-      searchMethod: 'Optimized AI discovery with duplicate prevention',
-      analysisQuality: 'Premium GPT-4o analysis (fresh jobs only)'
+  try {
+    console.log(`▶️ Resuming AI search ${searchId} for user ${userId}`);
+    
+    const search = await AiJobSearch.findOne({ _id: searchId, userId });
+    if (!search) {
+      throw new Error('AI search not found');
     }
-  );
-  
-  search.status = 'running';
-  search.lastUpdateMessage = 'Resumed by user - optimized approach';
-  await search.save();
-  
-  const resume = await Resume.findById(search.resumeId);
-  if (resume) {
-    performOptimizedSearch(searchId, userId, resume).catch(error => {
-      console.error('Error resuming optimized search:', error);
-    });
+    
+    await search.addReasoningLog(
+      'initialization',
+      'Weekly AI search resumed by user - persistent tracking continues',
+      { 
+        phase: 'user_resume', 
+        resumedAt: new Date(),
+        searchMethod: 'Weekly multi-location discovery with persistent tracking',
+        weeklyLimit: search.weeklyLimit,
+        persistentTracking: true
+      }
+    );
+    
+    // Use the safe update method
+    await AiJobSearch.safeUpdateStatus(searchId, userId, 'running', 'Resumed by user - weekly approach with persistent tracking');
+    
+    console.log(`✅ Successfully resumed AI search ${searchId}`);
+    
+    // Don't immediately start a new search - let the scheduler handle it
+    console.log('Weekly search resumed - will run on next scheduled time');
+    
+    return {
+      success: true,
+      message: 'AI search resumed successfully'
+    };
+    
+  } catch (error) {
+    console.error(`❌ Error resuming AI search ${searchId}:`, error);
+    
+    return {
+      success: false,
+      message: `Failed to resume AI search: ${error.message}`,
+      error: error.message
+    };
   }
-  
-  return { message: 'Optimized AI search resumed successfully' };
 };
 
 exports.deleteAiSearch = async (userId, searchId) => {
-  const search = await AiJobSearch.findOne({ _id: searchId, userId });
-  if (!search) throw new Error('Search not found');
-  
-  await search.addReasoningLog(
-    'completion',
-    'Optimized AI search cancelled by user request',
-    { 
-      phase: 'user_cancellation', 
-      cancelledAt: new Date(),
-      searchMethod: 'Optimized AI discovery with duplicate prevention',
-      analysisQuality: 'Premium GPT-4o analysis'
+  try {
+    console.log(`🗑️ Deleting AI search ${searchId} for user ${userId}`);
+    
+    const search = await AiJobSearch.findOne({ _id: searchId, userId });
+    if (!search) {
+      throw new Error('AI search not found or does not belong to user');
     }
-  );
-  
-  search.status = 'cancelled';
-  search.lastUpdateMessage = 'Cancelled by user - optimized approach';
-  await search.save();
-  
-  return { message: 'Optimized AI search cancelled successfully' };
+    
+    console.log(`🔍 Found AI search: ${search.resumeName} (Status: ${search.status})`);
+    
+    await search.addReasoningLog(
+      'completion',
+      'Weekly AI search deleted by user request - persistent tracking marks as deleted but preserves job count',
+      { 
+        phase: 'user_deletion', 
+        deletedAt: new Date(),
+        searchMethod: 'Weekly multi-location discovery with persistent tracking',
+        weeklyProgress: search.getWeeklyProgress(),
+        totalJobsFound: search.totalJobsFound,
+        persistentTracking: true
+      }
+    );
+    
+    // 🔧 NEW: Mark search as deleted in persistent tracking (preserves job count)
+    await WeeklyJobTracking.markSearchAsDeleted(userId, searchId);
+    
+    // Use the safe delete method from the model
+    await AiJobSearch.safeDeleteById(searchId, userId);
+    
+    console.log(`✅ Successfully deleted AI search ${searchId} and marked in persistent tracking`);
+    
+    return {
+      success: true,
+      message: 'AI search deleted successfully - weekly job count preserved in tracking',
+      searchId: searchId,
+      searchName: search.resumeName
+    };
+    
+  } catch (error) {
+    console.error(`❌ Error deleting AI search ${searchId}:`, error);
+    
+    return {
+      success: false,
+      message: `Failed to delete AI search: ${error.message}`,
+      error: error.message
+    };
+  }
+};
+
+// 🔧 NEW: Function to get weekly tracking summary for UI
+exports.getWeeklyTrackingSummary = async (userId, weeklyLimit) => {
+  try {
+    const weeklyStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, weeklyLimit);
+    
+    // Get additional details if record exists
+    const { weekStart } = WeeklyJobTracking.calculateWeekDates();
+    const weeklyRecord = await WeeklyJobTracking.findOne({
+      userId,
+      weekStart: weekStart
+    });
+    
+    return {
+      ...weeklyStats,
+      searchRuns: weeklyRecord?.getSearchRunsBreakdown() || [],
+      summary: weeklyRecord?.getWeeklySummary() || null
+    };
+    
+  } catch (error) {
+    console.error('Error getting weekly tracking summary:', error);
+    return {
+      jobsFoundThisWeek: 0,
+      weeklyLimit: weeklyLimit,
+      remainingThisWeek: weeklyLimit,
+      isLimitReached: false,
+      searchRuns: [],
+      summary: null,
+      error: error.message
+    };
+  }
 };

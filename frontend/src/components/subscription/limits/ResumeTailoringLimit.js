@@ -48,7 +48,8 @@ const ResumeTailoringLimit = ({
         'AI-powered optimization',
         'Job-specific customization',
         'ATS compatibility analysis',
-        '25 job imports per month',
+        '25 manual job imports per month',
+        'Up to 50 Jobs Automatically Delivered per week',
         'Recruiter database access'
       ]
     },
@@ -62,8 +63,9 @@ const ResumeTailoringLimit = ({
         'Premium AI optimization',
         'Advanced customization',
         'Real-time ATS scoring',
-        'Unlimited job imports',
+        'Unlimited manual job imports',
         'AI Assistant access',
+        'Up to 100 Jobs Automatically Delivered per week',
         'Priority support'
       ]
     }

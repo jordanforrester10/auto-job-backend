@@ -51,19 +51,19 @@ const CurrentPlanCard = ({ subscription, planInfo, onPlanChange, onError, onSucc
     ],
     casual: [
       '5 Resume Uploads',
-      '25 Job Imports', 
+      '25 Manual Job Imports', 
       '25 Resume Tailoring',
       'Recruiter Database Access',
-      '25 Recruiter Unlocks',
-      '1 AI Job Discovery'
+      '25 Recruiter Contact Unlocks',
+      'Up to 50 Jobs Automatically Delivered per week'
     ],
     hunter: [
       'Unlimited Resume Uploads',
-      'Unlimited Job Imports',
+      'Unlimited Manual Job Imports',
       '50 Resume Tailoring',
       'Full Recruiter Database',
-      'Unlimited Recruiter Unlocks',
-      'Unlimited AI Job Discovery',
+      'Unlimited Recruiter Contact Unlocks',
+      'Up to 100 Jobs Automatically Delivered per week',
       'AI Assistant (5 conversations)',
       '20 Messages per conversation',
       'Priority Support'

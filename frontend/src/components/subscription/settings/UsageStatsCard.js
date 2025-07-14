@@ -1,4 +1,4 @@
-// src/components/subscription/settings/UsageStatsCard.js - COMPLETE FIXED VERSION
+// src/components/subscription/settings/UsageStatsCard.js - CLEANED VERSION
 import React from 'react';
 import {
   Card,
@@ -13,19 +13,27 @@ import {
   Button,
   Alert,
   Divider,
-  Grid
+  Grid,
+  CircularProgress
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
   Upgrade as UpgradeIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  SmartToy as SmartToyIcon
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
+import { useSubscription } from '../../../context/SubscriptionContext';
 
 const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => {
   const theme = useTheme();
+  const { 
+    persistentWeeklyStats, 
+    getWeeklyJobStats,
+    hasPersistentTracking 
+  } = useSubscription();
 
   if (!usage || !planLimits) {
     return (
@@ -41,7 +49,7 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
             minHeight: 200,
             color: 'text.secondary'
           }}>
-            <InfoIcon sx={{ mr: 1 }} />
+            <CircularProgress size={24} sx={{ mr: 1 }} />
             <Typography variant="body2">
               Loading usage data...
             </Typography>
@@ -52,6 +60,15 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
   }
 
   const currentTier = subscription?.subscriptionTier || 'free';
+
+  // Get persistent weekly stats
+  const weeklyStats = getWeeklyJobStats() || persistentWeeklyStats || {
+    weeklyLimit: 0,
+    weeklyUsed: 0,
+    weeklyRemaining: 0,
+    weeklyPercentage: 0,
+    isWeeklyLimitReached: false
+  };
 
   // Feature display names and icons
   const featureConfig = {
@@ -76,9 +93,14 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
       description: 'Recruiter contacts unlocked'
     },
     aiJobDiscovery: {
-      name: 'AI Job Discovery',
+      name: 'AI Search Slots',
       icon: '🤖',
-      description: 'AI-powered job searches'
+      description: 'Active AI job searches'
+    },
+    aiJobsThisWeek: {
+      name: 'Jobs This Week',
+      icon: '📅',
+      description: 'Jobs discovered this week'
     },
     aiConversations: {
       name: 'AI Conversations',
@@ -92,15 +114,43 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
     const stats = [];
 
     Object.keys(featureConfig).forEach(feature => {
-      const limit = planLimits[feature];
-      const used = usage[feature]?.used || 0;
+      let limit, used, unlimited, percentage, remaining, status;
       
-      // Skip features not available in current plan
-      if (limit === false || limit === 0) return;
+      if (feature === 'aiJobsThisWeek') {
+        // Use persistent weekly stats
+        limit = weeklyStats.weeklyLimit;
+        used = weeklyStats.weeklyUsed;
+        unlimited = false;
+        percentage = weeklyStats.weeklyPercentage;
+        remaining = weeklyStats.weeklyRemaining;
+        status = getWeeklyUsageStatus(percentage);
+        
+        // Only show if user has AI discovery access
+        if (!planLimits.aiJobDiscovery || limit === 0) return;
+      } else if (feature === 'aiJobDiscovery') {
+        // AI Search Slots
+        limit = planLimits.aiJobDiscoverySlots || 0;
+        used = usage[feature]?.used || 0;
+        unlimited = false;
+        percentage = limit > 0 ? Math.round((used / limit) * 100) : 0;
+        remaining = Math.max(0, limit - used);
+        status = getUsageStatus(used, limit);
+        
+        if (!planLimits.aiJobDiscovery || limit === 0) return;
+      } else {
+        // Standard monthly features
+        limit = planLimits[feature];
+        used = usage[feature]?.used || 0;
+        
+        if (limit === false || limit === 0) return;
+        
+        unlimited = limit === -1;
+        percentage = unlimited ? 0 : Math.round((used / limit) * 100);
+        remaining = unlimited ? '∞' : Math.max(0, limit - used);
+        status = getUsageStatus(used, limit);
+      }
       
       const config = featureConfig[feature];
-      const unlimited = limit === -1;
-      const percentage = unlimited ? 0 : Math.round((used / limit) * 100);
       
       stats.push({
         feature,
@@ -111,8 +161,9 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
         limit,
         unlimited,
         percentage,
-        remaining: unlimited ? '∞' : Math.max(0, limit - used),
-        status: getUsageStatus(used, limit)
+        remaining,
+        status,
+        isWeekly: feature === 'aiJobsThisWeek'
       });
     });
 
@@ -126,6 +177,14 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
     
     const percentage = (used / limit) * 100;
     
+    if (percentage >= 100) return 'exceeded';
+    if (percentage >= 90) return 'critical';
+    if (percentage >= 75) return 'warning';
+    return 'normal';
+  };
+
+  // Get weekly usage status
+  const getWeeklyUsageStatus = (percentage) => {
     if (percentage >= 100) return 'exceeded';
     if (percentage >= 90) return 'critical';
     if (percentage >= 75) return 'warning';
@@ -161,7 +220,7 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
   const criticalUsage = usageStats.filter(stat => stat.status === 'critical' || stat.status === 'exceeded');
   const warningUsage = usageStats.filter(stat => stat.status === 'warning');
 
-  // Get reset date
+  // Get reset date for monthly features
   const getResetDate = () => {
     if (!usage.resetDate) return 'Unknown';
     
@@ -191,10 +250,25 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
               Usage Statistics
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Resets on {getResetDate()}
+              Resets {getResetDate()}
             </Typography>
           </Box>
         </Box>
+
+        {/* Weekly Limit Alert */}
+        {weeklyStats.isWeeklyLimitReached && (
+          <Alert 
+            severity="warning" 
+            sx={{ mb: 3, borderRadius: 2 }}
+          >
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              Weekly job discovery limit reached ({weeklyStats.weeklyUsed}/{weeklyStats.weeklyLimit})
+            </Typography>
+            <Typography variant="caption">
+              Weekly limit resets on Monday
+            </Typography>
+          </Alert>
+        )}
 
         {/* Critical Usage Warnings */}
         {criticalUsage.length > 0 && (
@@ -317,6 +391,7 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
                           }}
                         >
                           {stat.remaining} remaining
+                          {stat.isWeekly && ' this week'}
                         </Typography>
                       )}
                     </Box>
@@ -326,6 +401,8 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
             </ListItem>
           ))}
         </List>
+
+
 
         {/* Features Not Available */}
         {currentTier !== 'hunter' && (
@@ -381,7 +458,7 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
                   </Grid>
                   <Grid item>
                     <Chip
-                      label="🔄 Unlimited Features"
+                      label="🚀 100 Jobs/Week (vs 50)"
                       size="small"
                       variant="outlined"
                       color="warning"
@@ -403,7 +480,7 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
                 }}
               >
                 {currentTier === 'free' 
-                  ? 'Upgrade'
+                  ? 'Upgrade to Casual ($19.99/month)'
                   : 'Upgrade to Hunter ($34.99/month)'
                 }
               </Button>

@@ -1,4 +1,4 @@
-// src/components/jobs/components/AiSearchSummaryCards.js
+// src/components/jobs/components/AiSearchSummaryCards.js - FIXED WEEKLY PROGRESS DISPLAY
 import React from 'react';
 import {
   Grid,
@@ -12,13 +12,87 @@ import {
   PlayArrow as PlayIcon,
   Work as WorkIcon,
   TrendingUp as TrendingUpIcon,
-  Schedule as ScheduleIcon
+  Schedule as ScheduleIcon,
+  CalendarToday as CalendarIcon
 } from '@mui/icons-material';
 
-const AiSearchSummaryCards = ({ searches }) => {
+const AiSearchSummaryCards = ({ 
+  searches, 
+  weeklyModel = false, 
+  weeklyStats = null, 
+  slotStatus = null 
+}) => {
   const theme = useTheme();
 
-  const summaryData = [
+  // 🔧 FIXED: Use actual weekly stats instead of calculating from searches
+  const getWeeklyJobsFound = () => {
+    if (weeklyStats) {
+      return weeklyStats.weeklyUsed || 0;
+    }
+    // Fallback to calculating from searches
+    return searches.reduce((sum, s) => sum + (s.jobsFoundThisWeek || 0), 0);
+  };
+
+  // 🔧 FIXED: Use today's jobs from search progress
+  const getTodayJobsFound = () => {
+    // For weekly model, we don't track "today" separately since it's weekly batches
+    if (weeklyModel) {
+      return searches.reduce((sum, s) => {
+        // Count jobs found in the last 24 hours
+        const today = new Date();
+        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+        return sum + (s.jobsFound?.filter(job => 
+          new Date(job.foundAt) >= yesterday
+        )?.length || 0);
+      }, 0);
+    }
+    return searches.reduce((sum, s) => sum + (s.jobsFoundToday || 0), 0);
+  };
+
+  // 🔧 FIXED: Get appropriate limit based on model
+  const getJobLimit = () => {
+    if (weeklyModel && weeklyStats) {
+      return weeklyStats.weeklyLimit || 100;
+    }
+    // For legacy daily model
+    return searches.reduce((sum, s) => sum + (s.dailyLimit || 0), 0);
+  };
+
+  const summaryData = weeklyModel ? [
+    {
+      title: 'Active Searches',
+      value: searches.filter(s => s.status === 'running').length,
+      subtitle: 'Currently running',
+      icon: <PlayIcon fontSize="small" sx={{ mr: 0.5, opacity: 0.8 }} />,
+      gradient: `linear-gradient(45deg, ${theme.palette.primary.main} 30%, ${theme.palette.primary.light} 90%)`,
+      shadowColor: 'rgba(26, 115, 232, 0.25)'
+    },
+    {
+      title: 'Jobs This Week',
+      value: getWeeklyJobsFound(),
+      subtitle: `${weeklyStats?.weeklyRemaining || 0} remaining`,
+      icon: <CalendarIcon fontSize="small" sx={{ mr: 0.5, opacity: 0.8 }} />,
+      gradient: `linear-gradient(45deg, ${theme.palette.secondary.main} 30%, ${theme.palette.secondary.light} 90%)`,
+      shadowColor: 'rgba(0, 196, 180, 0.25)'
+    },
+    {
+      title: 'Total Jobs Found',
+      value: searches.reduce((sum, s) => sum + (s.totalJobsFound || 0), 0),
+      subtitle: 'All time discoveries',
+      icon: <WorkIcon fontSize="small" sx={{ mr: 0.5, opacity: 0.8 }} />,
+      gradient: `linear-gradient(45deg, ${theme.palette.success.main} 30%, ${theme.palette.success.light} 90%)`,
+      shadowColor: 'rgba(52, 168, 83, 0.25)'
+    },
+    {
+      title: 'Weekly Limit',
+      value: getJobLimit(),
+      subtitle: 'Jobs per week',
+      icon: <ScheduleIcon fontSize="small" sx={{ mr: 0.5, opacity: 0.8 }} />,
+      gradient: `linear-gradient(45deg, ${theme.palette.warning.main} 30%, ${theme.palette.warning.light} 90%)`,
+      shadowColor: 'rgba(251, 188, 4, 0.25)'
+    }
+  ] : [
+    // Legacy daily model cards
     {
       title: 'Active Searches',
       value: searches.filter(s => s.status === 'running').length,
@@ -29,7 +103,7 @@ const AiSearchSummaryCards = ({ searches }) => {
     },
     {
       title: 'Total Jobs Found',
-      value: searches.reduce((sum, s) => sum + s.totalJobsFound, 0),
+      value: searches.reduce((sum, s) => sum + (s.totalJobsFound || 0), 0),
       subtitle: 'Across all searches',
       icon: <WorkIcon fontSize="small" sx={{ mr: 0.5, opacity: 0.8 }} />,
       gradient: `linear-gradient(45deg, ${theme.palette.secondary.main} 30%, ${theme.palette.secondary.light} 90%)`,
@@ -37,7 +111,7 @@ const AiSearchSummaryCards = ({ searches }) => {
     },
     {
       title: 'Jobs Found Today',
-      value: searches.reduce((sum, s) => sum + s.jobsFoundToday, 0),
+      value: getTodayJobsFound(),
       subtitle: 'New discoveries',
       icon: <TrendingUpIcon fontSize="small" sx={{ mr: 0.5, opacity: 0.8 }} />,
       gradient: `linear-gradient(45deg, ${theme.palette.success.main} 30%, ${theme.palette.success.light} 90%)`,
@@ -45,7 +119,7 @@ const AiSearchSummaryCards = ({ searches }) => {
     },
     {
       title: 'Daily Limit',
-      value: searches.reduce((sum, s) => sum + s.dailyLimit, 0),
+      value: getJobLimit(),
       subtitle: 'Maximum per day',
       icon: <ScheduleIcon fontSize="small" sx={{ mr: 0.5, opacity: 0.8 }} />,
       gradient: `linear-gradient(45deg, ${theme.palette.warning.main} 30%, ${theme.palette.warning.light} 90%)`,

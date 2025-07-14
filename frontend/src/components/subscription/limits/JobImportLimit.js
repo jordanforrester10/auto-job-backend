@@ -43,12 +43,12 @@ const JobImportLimit = ({
       color: theme.palette.primary.main,
       jobImports: 25,
       features: [
-        '25 job imports per month',
+        '25 manual job imports per month',
         'AI-powered job analysis',
         'Resume-job matching',
         'Recruiter database access',
-        '25 recruiter unlocks per month',
-        '1 AI job discovery per month'
+        '25 recruiter contact unlocks per month',
+        'Up to 50 Jobs Automatically Delivered per week'
       ]
     },
     hunter: {
@@ -57,12 +57,12 @@ const JobImportLimit = ({
       color: theme.palette.warning.main,
       jobImports: 'Unlimited',
       features: [
-        'Unlimited job imports',
+        'Unlimited manual job imports',
         'Premium AI job analysis',
         'Advanced resume matching',
         'Full recruiter access',
-        'Unlimited recruiter unlocks',
-        'Unlimited AI job discovery',
+        'Unlimited recruiter contact unlocks',
+        'Up to 100 Jobs Automatically Delivered per week',
         'AI Assistant access',
         '50 resume tailorings per month'
       ]

@@ -1,4 +1,4 @@
-// src/utils/jobService.js - Updated with getTotalJobCount for onboarding flow
+// src/utils/jobService.js - FIXED WITH PROPER LOCATION DATA FLOW
 import api from './axios';
 
 const jobService = {
@@ -208,24 +208,105 @@ const jobService = {
     }
   },
 
-  // Enhanced: Find jobs with AI (now with better error handling and status)
-  findJobsWithAi: async (resumeId) => {
+  // 🔧 FIXED: Find jobs with AI - now properly sends location data to backend
+  findJobsWithAi: async (resumeId, searchCriteria = {}) => {
     try {
-      const response = await api.post(`/jobs/find-with-ai/${resumeId}`);
+      console.log('🚀 Frontend: Starting weekly AI job search with full criteria:', {
+        resumeId,
+        searchCriteria
+      });
+      
+      // 🔧 FIX: Ensure proper data structure is sent to backend
+      const requestPayload = {
+        resumeId,
+        searchCriteria: {
+          searchLocations: searchCriteria.searchLocations || [{ name: 'Remote', type: 'remote' }],
+          includeRemote: searchCriteria.includeRemote !== false,
+          experienceLevel: searchCriteria.experienceLevel || 'mid',
+          jobTypes: searchCriteria.jobTypes || ['FULL_TIME'],
+          salaryRange: searchCriteria.salaryRange || null,
+          workEnvironment: searchCriteria.workEnvironment || 'any'
+        }
+      };
+      
+      console.log('📍 Frontend: Sending locations to backend:', requestPayload.searchCriteria.searchLocations);
+      console.log('🏠 Frontend: Include remote:', requestPayload.searchCriteria.includeRemote);
+      
+      // 🔧 FIX: Send the data in the request body, not just searchCriteria
+      const response = await api.post(`/jobs/find-with-ai/${resumeId}`, requestPayload.searchCriteria);
+      
+      console.log('✅ Frontend: Weekly AI job search response:', response.data);
+      
       return response.data;
     } catch (error) {
-      console.error('Error finding jobs with AI:', error);
+      console.error('❌ Frontend: Error finding jobs with AI:', error);
+      
+      // Check if this is a subscription limit error
+      if (error.response?.status === 403) {
+        const errorData = error.response.data;
+        if (errorData.upgradeRequired) {
+          // This is a plan limitation error, re-throw with context
+          const planError = new Error(errorData.message || errorData.error);
+          planError.upgradeRequired = true;
+          planError.currentPlan = errorData.currentPlan;
+          planError.feature = errorData.feature;
+          planError.availableOn = errorData.availableOn;
+          throw planError;
+        }
+      }
+      
       throw error;
     }
   },
 
-  // AI Job Search Management
+  // 🆕 NEW: Check if user can create AI job search (slot-based)
+  canCreateAiJobSearch: async () => {
+    try {
+      const response = await api.get('/jobs/ai-search/can-create');
+      return response.data;
+    } catch (error) {
+      console.error('Error checking AI search creation capability:', error);
+      return {
+        allowed: false,
+        reason: 'Unable to check permissions'
+      };
+    }
+  },
+
+  // 🆕 NEW: Get weekly job discovery statistics
+  getWeeklyJobStats: async () => {
+    try {
+      const response = await api.get('/jobs/ai-search/weekly-stats');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching weekly job stats:', error);
+      return {
+        weeklyLimit: 0,
+        weeklyUsed: 0,
+        weeklyRemaining: 0,
+        weeklyPercentage: 0
+      };
+    }
+  },
+
+  // AI Job Search Management - UPDATED with weekly model
   getAiSearches: async () => {
     try {
       const response = await api.get('/jobs/ai-searches');
       return response.data.searches;
     } catch (error) {
       console.error('Error fetching AI searches:', error);
+      throw error;
+    }
+  },
+
+  // 🔄 UPDATED: Get AI search details with weekly information
+  getAiSearchById: async (searchId) => {
+    try {
+      const response = await api.get(`/jobs/ai-search/${searchId}`);
+      return response.data.search;
+    } catch (error) {
+      console.error('Error fetching AI search details:', error);
       throw error;
     }
   },
@@ -256,6 +337,41 @@ const jobService = {
       return response.data;
     } catch (error) {
       console.error('Error deleting AI search:', error);
+      throw error;
+    }
+  },
+
+  // 🆕 NEW: Get AI search performance summary
+  getAiSearchPerformance: async (searchId) => {
+    try {
+      const response = await api.get(`/jobs/ai-search/${searchId}/performance`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching AI search performance:', error);
+      throw error;
+    }
+  },
+
+  // 🆕 NEW: Update AI search locations
+  updateAiSearchLocations: async (searchId, locations) => {
+    try {
+      const response = await api.put(`/jobs/ai-search/${searchId}/locations`, {
+        searchLocations: locations
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating AI search locations:', error);
+      throw error;
+    }
+  },
+
+  // 🆕 NEW: Get AI search reasoning logs
+  getAiSearchLogs: async (searchId) => {
+    try {
+      const response = await api.get(`/jobs/ai-search/${searchId}/logs`);
+      return response.data.logs;
+    } catch (error) {
+      console.error('Error fetching AI search logs:', error);
       throw error;
     }
   },
@@ -300,6 +416,43 @@ const jobService = {
       return response.data;
     } catch (error) {
       console.error('Error re-matching job:', error);
+      throw error;
+    }
+  },
+
+  // 🆕 NEW: Get jobs filtered by location
+  getJobsByLocation: async (location) => {
+    try {
+      const response = await api.get(`/jobs/by-location?location=${encodeURIComponent(location)}`);
+      return response.data.jobs;
+    } catch (error) {
+      console.error('Error fetching jobs by location:', error);
+      throw error;
+    }
+  },
+
+  // 🆕 NEW: Get jobs with salary information
+  getJobsWithSalary: async (minSalary = null, maxSalary = null) => {
+    try {
+      const params = new URLSearchParams();
+      if (minSalary) params.append('minSalary', minSalary);
+      if (maxSalary) params.append('maxSalary', maxSalary);
+      
+      const response = await api.get(`/jobs/with-salary?${params.toString()}`);
+      return response.data.jobs;
+    } catch (error) {
+      console.error('Error fetching jobs with salary:', error);
+      throw error;
+    }
+  },
+
+  // 🆕 NEW: Get weekly job discovery analytics
+  getWeeklyDiscoveryAnalytics: async () => {
+    try {
+      const response = await api.get('/jobs/weekly-analytics');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching weekly discovery analytics:', error);
       throw error;
     }
   },
@@ -363,6 +516,114 @@ const jobService = {
       return skill.name || skill.skill || 'Unknown Skill';
     }
     return 'Unknown Skill';
+  },
+
+  // 🆕 NEW: Check if job is from weekly AI discovery
+  isWeeklyAiDiscoveredJob: (job) => {
+    return job && 
+           job.sourcePlatform && 
+           (job.sourcePlatform.includes('ACTIVE_JOBS_DB') || 
+            job.aiSearchMetadata?.weeklyDiscovery === true ||
+            job.analysisStatus?.weeklySearch === true);
+  },
+
+  // 🆕 NEW: Get job location information
+  getJobLocationInfo: (job) => {
+    if (!job) return null;
+    
+    // Check for enhanced location data first
+    if (job.parsedData?.locationData) {
+      return {
+        original: job.parsedData.locationData.original,
+        city: job.parsedData.locationData.parsed?.city,
+        state: job.parsedData.locationData.parsed?.state,
+        country: job.parsedData.locationData.parsed?.country || 'USA',
+        isRemote: job.parsedData.locationData.isRemote,
+        workArrangement: job.parsedData.locationData.workArrangement,
+        confidence: job.parsedData.locationData.locationConfidence || 80
+      };
+    }
+    
+    // Fallback to basic location data
+    if (job.location) {
+      return {
+        original: job.location.originalLocation || job.location.city,
+        city: job.location.city,
+        state: job.location.state,
+        country: job.location.country || 'USA',
+        isRemote: job.location.remote || false,
+        workArrangement: job.parsedData?.workArrangement || 'unknown',
+        confidence: 70
+      };
+    }
+    
+    return null;
+  },
+
+  // 🆕 NEW: Get job salary information
+  getJobSalaryInfo: (job) => {
+    if (!job) return null;
+    
+    // Check for enhanced salary data first
+    if (job.parsedData?.salaryData) {
+      return {
+        min: job.parsedData.salaryData.min,
+        max: job.parsedData.salaryData.max,
+        currency: job.parsedData.salaryData.currency || 'USD',
+        period: job.parsedData.salaryData.period || 'annually',
+        source: job.parsedData.salaryData.source,
+        confidence: job.parsedData.salaryData.confidence || 0,
+        extractionMethod: job.parsedData.salaryData.extractionMethod,
+        isEstimated: job.parsedData.salaryData.isEstimated || false
+      };
+    }
+    
+    // Fallback to basic salary data
+    if (job.salary) {
+      return {
+        min: job.salary.min,
+        max: job.salary.max,
+        currency: job.salary.currency || 'USD',
+        period: job.salary.period || 'annually',
+        source: job.salary.source || 'unknown',
+        confidence: job.salary.confidence || 50,
+        extractionMethod: 'basic',
+        isEstimated: false
+      };
+    }
+    
+    return null;
+  },
+
+  // 🆕 NEW: Format salary range for display
+  formatSalaryRange: (salaryInfo) => {
+    if (!salaryInfo || (!salaryInfo.min && !salaryInfo.max)) {
+      return 'Salary not specified';
+    }
+    
+    const currency = salaryInfo.currency === 'USD' ? '$' : salaryInfo.currency;
+    const period = salaryInfo.period === 'annually' ? '/year' : 
+                   salaryInfo.period === 'monthly' ? '/month' : 
+                   salaryInfo.period === 'hourly' ? '/hour' : '';
+    
+    const formatNumber = (num) => {
+      if (num >= 1000000) {
+        return (num / 1000000).toFixed(1) + 'M';
+      } else if (num >= 1000) {
+        return (num / 1000).toFixed(0) + 'K';
+      }
+      return num.toLocaleString();
+    };
+    
+    if (salaryInfo.min && salaryInfo.max) {
+      return `${currency}${formatNumber(salaryInfo.min)} - ${currency}${formatNumber(salaryInfo.max)}${period}`;
+    } else if (salaryInfo.min) {
+      return `${currency}${formatNumber(salaryInfo.min)}+${period}`;
+    } else if (salaryInfo.max) {
+      return `Up to ${currency}${formatNumber(salaryInfo.max)}${period}`;
+    }
+    
+    return 'Salary not specified';
   },
 
   // NEW: Create job with status tracking

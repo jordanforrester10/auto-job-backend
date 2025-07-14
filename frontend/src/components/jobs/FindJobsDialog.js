@@ -1,4 +1,4 @@
-// src/components/jobs/FindJobsDialog.js - Enhanced with Subscription Validation
+// src/components/jobs/FindJobsDialog.js - Enhanced with Location Support and Weekly Model
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -27,7 +27,14 @@ import {
   Divider,
   StepConnector,
   stepConnectorClasses,
-  styled
+  styled,
+  TextField,
+  Autocomplete,
+  FormControlLabel,
+  Switch,
+  Grid,
+  Card,
+  CardContent
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -40,7 +47,12 @@ import {
   Work as WorkIcon,
   CalendarToday as CalendarIcon,
   Speed as SpeedIcon,
-  Upgrade as UpgradeIcon
+  Upgrade as UpgradeIcon,
+  LocationOn as LocationOnIcon,
+  Public as PublicIcon,
+  Home as HomeIcon,
+  Business as BusinessIcon,
+  AccessTime as AccessTimeIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import resumeService from '../../utils/resumeService';
@@ -93,6 +105,30 @@ const SuccessBox = styled(Paper)(({ theme }) => ({
   },
 }));
 
+// 🆕 NEW: Popular US cities for job search
+const POPULAR_CITIES = [
+  'Remote',
+  'New York, NY',
+  'San Francisco, CA',
+  'Los Angeles, CA',
+  'Chicago, IL',
+  'Seattle, WA',
+  'Boston, MA',
+  'Austin, TX',
+  'Denver, CO',
+  'Atlanta, GA',
+  'Dallas, TX',
+  'Miami, FL',
+  'Portland, OR',
+  'San Diego, CA',
+  'Philadelphia, PA',
+  'Washington, DC',
+  'Nashville, TN',
+  'Phoenix, AZ',
+  'Minneapolis, MN',
+  'Detroit, MI'
+];
+
 const FindJobsDialog = ({ open, onClose }) => {
   const navigate = useNavigate();
   const { 
@@ -112,13 +148,17 @@ const FindJobsDialog = ({ open, onClose }) => {
   const [searchStarted, setSearchStarted] = useState(false);
   const [resumesLoading, setResumesLoading] = useState(true);
 
-  const steps = ['Select Resume', 'Confirm Search', 'Search Started'];
+  // 🆕 NEW: Location state management
+  const [searchLocations, setSearchLocations] = useState(['Remote']);
+  const [includeRemote, setIncludeRemote] = useState(true);
+  const [locationInput, setLocationInput] = useState('');
+
+  const steps = ['Select Resume', 'Choose Locations', 'Confirm Search', 'Search Started'];
 
   // Get current subscription info
   const currentPlan = subscription?.subscriptionTier || 'free';
-  const aiDiscoveryUsage = usage?.aiJobDiscovery || { used: 0, limit: planLimits?.aiJobDiscovery || 0 };
-  const aiDiscoveryLimit = planLimits?.aiJobDiscovery || 0;
-  const isAtLimit = aiDiscoveryLimit !== -1 && aiDiscoveryUsage.used >= aiDiscoveryLimit;
+  const aiDiscoverySlots = planLimits?.aiJobDiscoverySlots || 0;
+  const weeklyJobLimit = planLimits?.aiJobsPerWeek || 0;
 
   useEffect(() => {
     if (open) {
@@ -126,6 +166,9 @@ const FindJobsDialog = ({ open, onClose }) => {
       // Reset state when dialog opens
       setActiveStep(0);
       setSelectedResumeId('');
+      setSearchLocations(['Remote']);
+      setIncludeRemote(true);
+      setLocationInput('');
       setError('');
       setSearchStarted(false);
     }
@@ -155,7 +198,12 @@ const FindJobsDialog = ({ open, onClose }) => {
       return;
     }
     
-    if (activeStep === 1) {
+    if (activeStep === 1 && searchLocations.length === 0) {
+      setError('Please select at least one location');
+      return;
+    }
+    
+    if (activeStep === 2) {
       handleStartSearch();
     } else {
       setActiveStep((prevStep) => prevStep + 1);
@@ -169,9 +217,12 @@ const FindJobsDialog = ({ open, onClose }) => {
   };
 
   const handleClose = () => {
-    if (!searchStarted || activeStep === 2) {
+    if (!searchStarted || activeStep === 3) {
       setActiveStep(0);
       setSelectedResumeId('');
+      setSearchLocations(['Remote']);
+      setIncludeRemote(true);
+      setLocationInput('');
       setError('');
       setSearchStarted(false);
       onClose();
@@ -190,28 +241,57 @@ const FindJobsDialog = ({ open, onClose }) => {
         throw new Error(permission.reason);
       }
 
-      const response = await jobService.findJobsWithAi(selectedResumeId);
+      // Prepare search criteria with locations
+      const searchCriteria = {
+        resumeId: selectedResumeId,
+        searchLocations: searchLocations.map(location => ({
+          name: location,
+          type: location === 'Remote' ? 'remote' : 'city',
+          radius: location === 'Remote' ? 0 : 25
+        })),
+        includeRemote: includeRemote
+      };
+
+      const response = await jobService.findJobsWithAi(selectedResumeId, searchCriteria);
       
-      // The backend returns a 202 status with a message
-      // This is actually a success response, not an error
-      console.log('AI Search Response:', response);
+      console.log('Weekly AI Search Response:', response);
       
       // Move to success step
-      setActiveStep(2);
+      setActiveStep(3);
     } catch (err) {
-      console.error('Error starting AI job search:', err);
+      console.error('Error starting weekly AI job search:', err);
       
       // Check if this is actually a success response (202 status)
       if (err.response && err.response.status === 202) {
-        // This is actually success - the backend returns 202 for async operations
-        setActiveStep(2);
+        setActiveStep(3);
       } else {
-        // This is a real error
-        setError(err.response?.data?.message || err.message || 'Failed to start job search. Please try again.');
+        setError(err.response?.data?.message || err.message || 'Failed to start weekly job search. Please try again.');
         setSearchStarted(false);
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAddLocation = (location) => {
+    if (location && !searchLocations.includes(location)) {
+      setSearchLocations([...searchLocations, location]);
+      setLocationInput('');
+    }
+  };
+
+  const handleRemoveLocation = (locationToRemove) => {
+    setSearchLocations(searchLocations.filter(loc => loc !== locationToRemove));
+  };
+
+  const handleRemoteToggle = (event) => {
+    const checked = event.target.checked;
+    setIncludeRemote(checked);
+    
+    if (checked && !searchLocations.includes('Remote')) {
+      setSearchLocations(['Remote', ...searchLocations]);
+    } else if (!checked && searchLocations.includes('Remote')) {
+      setSearchLocations(searchLocations.filter(loc => loc !== 'Remote'));
     }
   };
 
@@ -225,7 +305,7 @@ const FindJobsDialog = ({ open, onClose }) => {
         return (
           <Box sx={{ mt: 2 }}>
             <Typography variant="body1" paragraph color="text.secondary">
-              Select a resume to use for AI job discovery. AJ will analyze your resume and search for relevant job opportunities for you.
+              Select a resume to use for weekly AI job discovery. AJ will analyze your resume and search for relevant job opportunities weekly.
             </Typography>
 
             {/* Subscription Info Alert */}
@@ -241,25 +321,11 @@ const FindJobsDialog = ({ open, onClose }) => {
                 }}
               >
                 <Typography variant="body2" fontWeight={600} gutterBottom>
-                  Casual Plan: {aiDiscoveryUsage.used}/{aiDiscoveryLimit} AI Job Discoveries Used
+                  Casual Plan: Weekly AI Job Discovery
                 </Typography>
                 <Typography variant="body2">
-                  {isAtLimit 
-                    ? 'You\'ve reached your monthly limit. Upgrade to Hunter for unlimited AI job searches.'
-                    : `You have ${aiDiscoveryLimit - aiDiscoveryUsage.used} AI job discovery remaining this month.`
-                  }
+                  You can create {aiDiscoverySlots} AI search that finds up to {weeklyJobLimit} jobs per week.
                 </Typography>
-                {isAtLimit && (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<UpgradeIcon />}
-                    onClick={() => window.open('/pricing', '_blank')}
-                    sx={{ mt: 1, borderRadius: 2 }}
-                  >
-                    Upgrade to Hunter
-                  </Button>
-                )}
               </Alert>
             )}
 
@@ -275,10 +341,10 @@ const FindJobsDialog = ({ open, onClose }) => {
                 }}
               >
                 <Typography variant="body2" fontWeight={600} gutterBottom>
-                  Hunter Plan: Unlimited AI Job Discoveries
+                  Hunter Plan: Enhanced Weekly AI Job Discovery
                 </Typography>
                 <Typography variant="body2">
-                  Create as many AI job searches as you need to find your perfect role.
+                  You can create {aiDiscoverySlots} AI search that finds up to {weeklyJobLimit} jobs per week.
                 </Typography>
               </Alert>
             )}
@@ -302,7 +368,7 @@ const FindJobsDialog = ({ open, onClose }) => {
                   You don't have any resumes uploaded yet.
                 </Typography>
                 <Typography variant="body2">
-                  Please upload a resume first before using the AI job search feature.
+                  Please upload a resume first before using the weekly AI job search feature.
                 </Typography>
               </Alert>
             ) : (
@@ -387,6 +453,167 @@ const FindJobsDialog = ({ open, onClose }) => {
         );
 
       case 1:
+        return (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="h6" gutterBottom fontWeight={600} color="text.primary">
+              Choose Search Locations
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Select cities or locations where you'd like to search for jobs. Include "Remote" for work-from-home opportunities.
+            </Typography>
+
+            {/* Remote Work Toggle */}
+            <Card sx={{ mb: 3, borderRadius: 2 }}>
+              <CardContent sx={{ py: 2 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={includeRemote}
+                      onChange={handleRemoteToggle}
+                      color="primary"
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <HomeIcon fontSize="small" />
+                      <Typography variant="body2" fontWeight={500}>
+                        Include Remote Work Opportunities
+                      </Typography>
+                    </Box>
+                  }
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 4 }}>
+                  Search for work-from-home and distributed team positions
+                </Typography>
+              </CardContent>
+            </Card>
+
+            {/* Location Input */}
+            <Box sx={{ mb: 3 }}>
+              <Autocomplete
+                freeSolo
+                options={POPULAR_CITIES}
+                value={locationInput}
+                onChange={(event, newValue) => {
+                  if (newValue) {
+                    handleAddLocation(newValue);
+                  }
+                }}
+                onInputChange={(event, newInputValue) => {
+                  setLocationInput(newInputValue);
+                }}
+                onKeyPress={(event) => {
+                  if (event.key === 'Enter' && locationInput.trim()) {
+                    event.preventDefault();
+                    handleAddLocation(locationInput.trim());
+                  }
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Add Location"
+                    placeholder="Type a city name or select from suggestions"
+                    variant="outlined"
+                    fullWidth
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: <LocationOnIcon sx={{ color: 'text.secondary', mr: 1 }} />,
+                      endAdornment: (
+                        <Button
+                          size="small"
+                          onClick={() => handleAddLocation(locationInput.trim())}
+                          disabled={!locationInput.trim() || searchLocations.includes(locationInput.trim())}
+                          sx={{ ml: 1 }}
+                        >
+                          Add
+                        </Button>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                      }
+                    }}
+                  />
+                )}
+              />
+            </Box>
+
+            {/* Selected Locations */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                Selected Locations ({searchLocations.length})
+              </Typography>
+              {searchLocations.length === 0 ? (
+                <Alert severity="warning" sx={{ borderRadius: 2 }}>
+                  <Typography variant="body2">
+                    Please select at least one location to search for jobs.
+                  </Typography>
+                </Alert>
+              ) : (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {searchLocations.map((location, index) => (
+                    <Chip
+                      key={index}
+                      label={location}
+                      onDelete={() => handleRemoveLocation(location)}
+                      color={location === 'Remote' ? 'success' : 'primary'}
+                      variant={location === 'Remote' ? 'filled' : 'outlined'}
+                      icon={location === 'Remote' ? <HomeIcon /> : <LocationOnIcon />}
+                      sx={{
+                        borderRadius: 2,
+                        '& .MuiChip-deleteIcon': {
+                          fontSize: '18px'
+                        }
+                      }}
+                    />
+                  ))}
+                </Box>
+              )}
+            </Box>
+
+            {/* Location Tips */}
+            <FeatureBox>
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom color="primary">
+                Location Search Tips
+              </Typography>
+              <List dense>
+                <ListItem sx={{ px: 0 }}>
+                  <ListItemIcon>
+                    <PublicIcon fontSize="small" color="info" />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Major Cities"
+                    secondary="Include major tech hubs like SF, NYC, Seattle for more opportunities"
+                    primaryTypographyProps={{ fontWeight: 500 }}
+                  />
+                </ListItem>
+                <ListItem sx={{ px: 0 }}>
+                  <ListItemIcon>
+                    <BusinessIcon fontSize="small" color="warning" />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Multiple Locations"
+                    secondary="Add 2-4 locations to maximize your weekly job discoveries"
+                    primaryTypographyProps={{ fontWeight: 500 }}
+                  />
+                </ListItem>
+                <ListItem sx={{ px: 0 }}>
+                  <ListItemIcon>
+                    <HomeIcon fontSize="small" color="success" />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Remote First"
+                    secondary="Remote jobs often have higher salaries and more flexibility"
+                    primaryTypographyProps={{ fontWeight: 500 }}
+                  />
+                </ListItem>
+              </List>
+            </FeatureBox>
+          </Box>
+        );
+
+      case 2:
         const selectedResume = getSelectedResume();
         return (
           <Box sx={{ mt: 2 }}>
@@ -398,35 +625,78 @@ const FindJobsDialog = ({ open, onClose }) => {
                 sx={{ mb: 2 }}
               />
               <Typography variant="h6" gutterBottom fontWeight={600} color="text.primary">
-                Ready to Let AJ our AI Agent Do Your Job Search?
+                Ready to Start Your Weekly AI Job Search?
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Our trained AI Agent will search for real job openings that match your profile
+                AJ will search for jobs matching your profile and locations every week
               </Typography>
             </Box>
 
+            {/* Search Summary */}
+            <FeatureBox sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom color="primary">
+                Search Configuration Summary
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <DescriptionIcon fontSize="small" color="info" />
+                    <Typography variant="body2" fontWeight={500}>Resume:</Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ ml: 3 }}>
+                    {selectedResume?.name}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <AccessTimeIcon fontSize="small" color="info" />
+                    <Typography variant="body2" fontWeight={500}>Frequency:</Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ ml: 3 }}>
+                    Weekly ({weeklyJobLimit} jobs/week max)
+                  </Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <LocationOnIcon fontSize="small" color="info" />
+                    <Typography variant="body2" fontWeight={500}>Locations ({searchLocations.length}):</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, ml: 3 }}>
+                    {searchLocations.map((location, index) => (
+                      <Chip
+                        key={index}
+                        label={location}
+                        size="small"
+                        color={location === 'Remote' ? 'success' : 'default'}
+                        icon={location === 'Remote' ? <HomeIcon /> : <LocationOnIcon />}
+                      />
+                    ))}
+                  </Box>
+                </Grid>
+              </Grid>
+            </FeatureBox>
+
             {/* Plan-specific messaging */}
-            {currentPlan === 'casual' && !isAtLimit && (
+            {currentPlan === 'casual' && (
               <Alert 
-                severity="warning" 
-                icon={<WarningIcon />} 
+                severity="info" 
+                icon={<InfoIcon />} 
                 sx={{ 
                   mb: 3,
                   borderRadius: 2,
-                  backgroundColor: 'warning.light',
+                  backgroundColor: 'info.light',
                   border: '1px solid',
-                  borderColor: 'warning.main',
+                  borderColor: 'info.main',
                   '& .MuiAlert-icon': {
                     fontSize: '1.5rem'
                   }
                 }}
               >
                 <Typography variant="body2" fontWeight={600} gutterBottom>
-                  Casual Plan Limitation
+                  Casual Plan - Weekly Job Discovery
                 </Typography>
                 <Typography variant="body2">
-                  This will use your {aiDiscoveryLimit - aiDiscoveryUsage.used} remaining AI job discovery for this month. 
-                  Upgrade to Hunter for unlimited searches.
+                  Your AI search will find up to {weeklyJobLimit} relevant jobs every week across your selected locations.
                 </Typography>
               </Alert>
             )}
@@ -447,40 +717,17 @@ const FindJobsDialog = ({ open, onClose }) => {
                 }}
               >
                 <Typography variant="body2" fontWeight={600} gutterBottom>
-                  Hunter Plan - Unlimited Access
+                  Hunter Plan - Enhanced Weekly Discovery
                 </Typography>
                 <Typography variant="body2">
-                  You have unlimited AI job discoveries. Create as many searches as you need!
+                  Your AI search will find up to {weeklyJobLimit} high-quality jobs every week with premium analysis.
                 </Typography>
               </Alert>
             )}
 
-            <Alert 
-              severity="info" 
-              icon={<InfoIcon />} 
-              sx={{ 
-                mb: 3,
-                borderRadius: 2,
-                backgroundColor: 'info.light',
-                border: '1px solid',
-                borderColor: 'info.main',
-                '& .MuiAlert-icon': {
-                  fontSize: '1.5rem'
-                }
-              }}
-            >
-              <Typography variant="body2" fontWeight={600} gutterBottom>
-                Daily Job Limit: Up to 10 Jobs
-              </Typography>
-              <Typography variant="body2">
-                AJ will find and add up to 10 relevant job openings per day to your job list. 
-                The search will continue running daily until you pause or cancel it.
-              </Typography>
-            </Alert>
-
             <FeatureBox sx={{ mb: 3 }}>
               <Typography variant="subtitle2" fontWeight={600} gutterBottom color="primary">
-                How it works:
+                How Weekly AI Job Search Works:
               </Typography>
               <List dense>
                 <ListItem sx={{ px: 0 }}>
@@ -488,8 +735,8 @@ const FindJobsDialog = ({ open, onClose }) => {
                     <SearchIcon fontSize="small" color="success" />
                   </ListItemIcon>
                   <ListItemText 
-                    primary="Real Job Search"
-                    secondary="Our AI Agent acts like a human and searches for real openings"
+                    primary="Smart Location Search"
+                    secondary="Searches across all your selected locations for relevant opportunities"
                     primaryTypographyProps={{ fontWeight: 500 }}
                   />
                 </ListItem>
@@ -498,8 +745,8 @@ const FindJobsDialog = ({ open, onClose }) => {
                     <CalendarIcon fontSize="small" color="info" />
                   </ListItemIcon>
                   <ListItemText 
-                    primary="Daily Updates"
-                    secondary="Finds up to 10 new jobs per day matching your profile"
+                    primary="Weekly Automation"
+                    secondary={`Finds up to ${weeklyJobLimit} new jobs every Monday, delivered to your job list`}
                     primaryTypographyProps={{ fontWeight: 500 }}
                   />
                 </ListItem>
@@ -508,8 +755,8 @@ const FindJobsDialog = ({ open, onClose }) => {
                     <SpeedIcon fontSize="small" color="warning" />
                   </ListItemIcon>
                   <ListItemText 
-                    primary="Automatic Process"
-                    secondary="Runs in the background - you can close this and check back later"
+                    primary="Premium Analysis"
+                    secondary="Each job gets full AI analysis with salary extraction and skill matching"
                     primaryTypographyProps={{ fontWeight: 500 }}
                   />
                 </ListItem>
@@ -518,8 +765,8 @@ const FindJobsDialog = ({ open, onClose }) => {
                     <CheckCircleIcon fontSize="small" color="success" />
                   </ListItemIcon>
                   <ListItemText 
-                    primary="Quality Matches"
-                    secondary="Only adds jobs that closely match your skills and experience"
+                    primary="Quality Focused"
+                    secondary="Only saves jobs that closely match your skills, experience, and location preferences"
                     primaryTypographyProps={{ fontWeight: 500 }}
                   />
                 </ListItem>
@@ -540,7 +787,7 @@ const FindJobsDialog = ({ open, onClose }) => {
               }}
             >
               <Typography variant="body2">
-                <strong>Note:</strong> If no matching jobs are found, the search will notify you and provide suggestions for improving your search criteria.
+                <strong>Note:</strong> Your search will run automatically every week. You can pause, modify, or cancel it anytime from the AI Searches page.
               </Typography>
             </Alert>
 
@@ -552,21 +799,21 @@ const FindJobsDialog = ({ open, onClose }) => {
           </Box>
         );
 
-      case 2:
+      case 3:
         return (
           <Box sx={{ mt: 2, textAlign: 'center' }}>
             <CheckCircleIcon sx={{ fontSize: 80, color: 'success.main', mb: 2 }} />
             <Typography variant="h6" gutterBottom fontWeight={600}>
-              AI Job Search Started!
+              Weekly AI Job Search Started!
             </Typography>
             <Typography variant="body1" paragraph color="text.secondary">
-              Your AI job search is now running in the background.
+              Your weekly AI job search is now active and will run automatically.
             </Typography>
 
             {/* Plan-specific success messaging */}
             {currentPlan === 'casual' && (
               <Alert 
-                severity="info" 
+                severity="success" 
                 sx={{ 
                   mb: 3,
                   borderRadius: 2,
@@ -576,13 +823,30 @@ const FindJobsDialog = ({ open, onClose }) => {
                 }}
               >
                 <Typography variant="body2" fontWeight={600} gutterBottom>
-                  Casual Plan: {aiDiscoveryUsage.used + 1}/{aiDiscoveryLimit} AI Job Discoveries Used
+                  Casual Plan: Weekly Search Active
                 </Typography>
                 <Typography variant="body2">
-                  {aiDiscoveryUsage.used + 1 >= aiDiscoveryLimit 
-                    ? 'You\'ve used all your AI job discoveries for this month. Upgrade to Hunter for unlimited searches.'
-                    : `You have ${aiDiscoveryLimit - (aiDiscoveryUsage.used + 1)} AI job discovery remaining this month.`
+                  AJ will find up to {weeklyJobLimit} relevant jobs every week across {searchLocations.length} location{searchLocations.length > 1 ? 's' : ''}.
+                </Typography>
+              </Alert>
+            )}
+
+            {currentPlan === 'hunter' && (
+              <Alert 
+                severity="success" 
+                sx={{ 
+                  mb: 3,
+                  borderRadius: 2,
+                  '& .MuiAlert-icon': {
+                    fontSize: '1.5rem'
                   }
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} gutterBottom>
+                  Hunter Plan: Enhanced Weekly Search Active
+                </Typography>
+                <Typography variant="body2">
+                  AJ will find up to {weeklyJobLimit} high-quality jobs every week with premium analysis and salary extraction.
                 </Typography>
               </Alert>
             )}
@@ -594,7 +858,7 @@ const FindJobsDialog = ({ open, onClose }) => {
               <List dense>
                 <ListItem sx={{ px: 0 }}>
                   <ListItemText 
-                    primary="• Up to 10 relevant jobs will be added daily"
+                    primary={`• Up to ${weeklyJobLimit} relevant jobs will be found every Monday`}
                     primaryTypographyProps={{ 
                       variant: 'body2',
                       sx: { color: 'success.dark' }
@@ -603,7 +867,7 @@ const FindJobsDialog = ({ open, onClose }) => {
                 </ListItem>
                 <ListItem sx={{ px: 0 }}>
                   <ListItemText 
-                    primary="• Jobs will appear in your job list marked with 'AI Found'"
+                    primary={`• Jobs will be searched across ${searchLocations.length} location${searchLocations.length > 1 ? 's' : ''}: ${searchLocations.join(', ')}`}
                     primaryTypographyProps={{ 
                       variant: 'body2',
                       sx: { color: 'success.dark' }
@@ -612,7 +876,16 @@ const FindJobsDialog = ({ open, onClose }) => {
                 </ListItem>
                 <ListItem sx={{ px: 0 }}>
                   <ListItemText 
-                    primary="• You'll receive notifications for new matches"
+                    primary="• Each job will include salary extraction and skill matching analysis"
+                    primaryTypographyProps={{ 
+                      variant: 'body2',
+                      sx: { color: 'success.dark' }
+                    }}
+                  />
+                </ListItem>
+                <ListItem sx={{ px: 0 }}>
+                  <ListItemText 
+                    primary="• You'll receive weekly notifications about new job discoveries"
                     primaryTypographyProps={{ 
                       variant: 'body2',
                       sx: { color: 'success.dark' }
@@ -638,11 +911,11 @@ const FindJobsDialog = ({ open, onClose }) => {
                 textTransform: 'none'
               }}
             >
-              View AI Searches
+              Manage AI Searches
             </Button>
             
             <Typography variant="body2" color="text.secondary">
-              You can manage your AI job searches from the AI Discovery page
+              You can pause, modify, or view progress from the AI Searches page
             </Typography>
           </Box>
         );
@@ -658,10 +931,12 @@ const FindJobsDialog = ({ open, onClose }) => {
       return selectedResumeId && !resumesLoading && resumes.length > 0;
     }
     if (activeStep === 1) {
+      return searchLocations.length > 0;
+    }
+    if (activeStep === 2) {
       // Check subscription limits before allowing search
       if (currentPlan === 'free') return false;
-      if (currentPlan === 'casual' && isAtLimit) return false;
-      return true;
+      return aiDiscoverySlots > 0;
     }
     return true;
   };
@@ -670,9 +945,9 @@ const FindJobsDialog = ({ open, onClose }) => {
     <Dialog 
       open={open} 
       onClose={handleClose}
-      maxWidth="sm"
+      maxWidth="md"
       fullWidth
-      disableEscapeKeyDown={searchStarted && activeStep !== 2}
+      disableEscapeKeyDown={searchStarted && activeStep !== 3}
       PaperProps={{
         sx: {
           borderRadius: 3,
@@ -690,7 +965,7 @@ const FindJobsDialog = ({ open, onClose }) => {
               sx={{ mr: 1.5 }}
             />
             <Typography variant="h6" fontWeight={600}>
-              Find Jobs with AJ
+              Start Weekly AI Job Search
               {currentPlan !== 'free' && (
                 <Chip 
                   label={planInfo?.displayName || currentPlan}
@@ -704,7 +979,7 @@ const FindJobsDialog = ({ open, onClose }) => {
           <IconButton 
             onClick={handleClose} 
             size="small"
-            disabled={searchStarted && activeStep !== 2}
+            disabled={searchStarted && activeStep !== 3}
             sx={{
               '&:hover': {
                 backgroundColor: 'action.hover',
@@ -762,7 +1037,7 @@ const FindJobsDialog = ({ open, onClose }) => {
       </DialogContent>
       
       <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-        {activeStep === 0 && (
+        {(activeStep === 0 || activeStep === 1) && (
           <>
             <Button 
               onClick={handleClose}
@@ -790,7 +1065,20 @@ const FindJobsDialog = ({ open, onClose }) => {
           </>
         )}
         
-        {activeStep === 1 && (
+        {activeStep === 1 && activeStep > 0 && (
+          <Button 
+            onClick={handleBack} 
+            sx={{ 
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 500
+            }}
+          >
+            Back
+          </Button>
+        )}
+        
+        {activeStep === 2 && (
           <>
             <Button 
               onClick={handleBack} 
@@ -815,12 +1103,12 @@ const FindJobsDialog = ({ open, onClose }) => {
                 px: 3
               }}
             >
-              {loading ? 'Starting...' : 'Start AI Search'}
+              {loading ? 'Starting...' : 'Start Weekly Search'}
             </Button>
           </>
         )}
         
-        {activeStep === 2 && (
+        {activeStep === 3 && (
           <Button 
             variant="contained" 
             onClick={handleClose}

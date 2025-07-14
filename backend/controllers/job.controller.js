@@ -112,6 +112,8 @@ async function updateJobAnalysisStatus(jobId, status, progress, message, additio
   }
 }
 
+
+
 // Create a new job with premium analysis - WITH USAGE LIMITS
 exports.createJob = async (req, res) => {
   try {
@@ -764,6 +766,7 @@ exports.tailorResumeToJob = async (req, res) => {
 };
 
 // Find jobs with ENHANCED AI (Real Job Board Integration) - WITH STRICT PLAN PERMISSIONS
+// 🔧 FIXED: Find jobs with AI - now properly extracts and passes location data
 exports.findJobsWithAi = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
@@ -866,23 +869,65 @@ exports.findJobsWithAi = async (req, res) => {
       return res.status(400).json({ message: 'Resume parsing not complete. Please try again later.' });
     }
     
+    // 🔧 FIX: Properly extract searchCriteria from request body
+    console.log('🚀 Backend: Received AI job search request');
+    console.log('📋 Backend: Resume ID:', resumeId);
+    console.log('👤 Backend: User ID:', userId);
+    console.log('📦 Backend: Full request body:', JSON.stringify(req.body, null, 2));
+    
+    // Extract searchCriteria from request body
+    const {
+      searchLocations,
+      includeRemote,
+      experienceLevel,
+      jobTypes,
+      salaryRange,
+      workEnvironment
+    } = req.body;
+    
+    // Build searchCriteria object with all received data
+    const searchCriteria = {
+      searchLocations: searchLocations || [{ name: 'Remote', type: 'remote' }],
+      includeRemote: includeRemote !== false,
+      experienceLevel: experienceLevel || 'mid',
+      jobTypes: jobTypes || ['FULL_TIME'],
+      salaryRange: salaryRange || null,
+      workEnvironment: workEnvironment || 'any'
+    };
+    
+    console.log('🌍 Backend: Extracted search locations:', JSON.stringify(searchCriteria.searchLocations, null, 2));
+    console.log('🏠 Backend: Include remote:', searchCriteria.includeRemote);
+    console.log('📊 Backend: Full search criteria:', JSON.stringify(searchCriteria, null, 2));
+    
+    // Validate searchLocations format
+    if (!Array.isArray(searchCriteria.searchLocations) || searchCriteria.searchLocations.length === 0) {
+      console.log('⚠️ Backend: Invalid searchLocations, defaulting to Remote');
+      searchCriteria.searchLocations = [{ name: 'Remote', type: 'remote' }];
+    }
+    
+    // Log the locations we're about to search
+    const locationNames = searchCriteria.searchLocations.map(loc => loc.name);
+    console.log(`🔍 Backend: Starting AI search for locations: ${locationNames.join(', ')}`);
+    
     // 🔒 FEATURE GATING: Track AI job discovery usage for Casual plan users
     try {
       if (currentSubscription.user.subscriptionTier === 'casual') {
         await usageService.trackUsage(userId, 'aiJobDiscovery', 1, {
           resumeId: resumeId,
-          searchType: 'enhanced_3_phase_real_job_boards',
+          searchType: 'weekly_multi_location_discovery',
           initiatedAt: new Date(),
-          planRestriction: 'casual_monthly_limit'
+          planRestriction: 'casual_monthly_limit',
+          locations: locationNames
         });
         console.log('✅ AI job discovery usage tracked for Casual plan user');
       } else if (currentSubscription.user.subscriptionTier === 'hunter') {
         // For Hunter users, we still track for analytics but don't enforce limits
         await usageService.trackUsage(userId, 'aiJobDiscovery', 1, {
           resumeId: resumeId,
-          searchType: 'enhanced_3_phase_real_job_boards',
+          searchType: 'weekly_multi_location_discovery',
           initiatedAt: new Date(),
-          planRestriction: 'hunter_unlimited'
+          planRestriction: 'hunter_unlimited',
+          locations: locationNames
         });
         console.log('✅ AI job discovery usage tracked for Hunter plan user (unlimited)');
       }
@@ -891,10 +936,30 @@ exports.findJobsWithAi = async (req, res) => {
       // Don't fail the job discovery if tracking fails, but log the issue
     }
     
-    // Start ENHANCED AI job search with REAL Job Board Integration
+    // 🔧 FIX: Call jobSearchService with proper parameter order and data
+    console.log('🚀 Backend: Calling jobSearchService.findJobsWithAi with:', {
+      userId,
+      resumeId,
+      searchCriteria
+    });
+    
+    // Start ENHANCED AI job search with proper location data
+    const searchResult = await jobSearchService.findJobsWithAi(userId, resumeId, searchCriteria);
+    
+    console.log('✅ Backend: AI job search initiated successfully');
+    console.log('📊 Backend: Search result:', JSON.stringify(searchResult, null, 2));
+    
+    // Return success response
     res.status(202).json({
-      message: 'ENHANCED 3-Phase AI job search with REAL job board integration initiated! Jobs will be discovered from actual company postings.',
+      message: searchResult.message || 'Weekly AI job search with multi-location support initiated successfully!',
       status: 'processing',
+      data: {
+        searchId: searchResult.searchId,
+        searchMethod: searchResult.searchMethod || 'Weekly Multi-Location Discovery',
+        weeklyLimit: searchResult.weeklyLimit,
+        locations: locationNames,
+        nextRun: searchResult.nextRun
+      },
       planInfo: {
         currentPlan: currentSubscription?.user?.subscriptionTier || 'unknown',
         unlimited: currentSubscription?.user?.subscriptionTier === 'hunter',
@@ -902,43 +967,25 @@ exports.findJobsWithAi = async (req, res) => {
           ? Math.max(0, 1 - (currentSubscription?.usageStats?.aiJobDiscovery?.used || 0))
           : -1 // unlimited for hunter
       },
-      realJobBoardIntegrationInfo: {
-        phase1: 'Career Analysis (GPT-4 Turbo) - $0.05',
-        phase2: 'REAL Job Board Discovery (Claude 3.5 Sonnet + Web Search) - $0.30-0.50',
-        phase3: 'Premium Analysis (GPT-4o batch) - $0.01-0.02',
-        totalCost: '$0.36-0.57 per search',
-        targetJobBoards: ['Greenhouse', 'Lever', 'Indeed'],
-        enhancements: [
-          'Search actual company job boards (Greenhouse, Lever, Indeed)',
-          'Extract real job postings from company ATS platforms',
-          'Premium GPT-4o analysis for all discovered jobs',
-          'Same quality as manually uploaded jobs',
-          'Direct company posting verification',
-          'Enhanced job matching with real job content'
-        ],
-        expectedResults: [
-          'Higher quality job content from real company postings',
-          'More accurate job requirements from ATS platforms',
-          'Better skill matching with actual job descriptions',
-          'Verified company postings (no recruiter spam)',
-          'Faster processing with premium analysis pipeline',
-          'Comprehensive job details including tech stack and team info'
+      weeklySearchInfo: {
+        searchApproach: 'Weekly Multi-Location Discovery with Enhanced Salary Extraction',
+        targetLocations: locationNames,
+        weeklyJobLimit: searchResult.weeklyLimit,
+        searchFrequency: 'Every Monday at 9 AM',
+        features: [
+          'Smart location-based job discovery',
+          'Enhanced salary extraction from job descriptions',
+          'Premium analysis with GPT-4o for all discovered jobs',
+          'Direct employer links and company verification',
+          'Weekly automation with pause/resume controls'
         ]
       }
     });
     
-    // Perform ENHANCED AI job search with REAL Job Board Integration in the background
-    jobSearchService.findJobsWithAi(userId, resumeId)
-      .then(result => {
-        console.log('ENHANCED AI job search with real job board integration completed:', result);
-      })
-      .catch(error => {
-        console.error('ENHANCED AI job search with real job board integration error:', error);
-      });
   } catch (error) {
-    console.error('Error initiating ENHANCED AI job search with real job board integration:', error);
+    console.error('❌ Backend: Error initiating weekly AI job search:', error);
     res.status(500).json({ 
-      message: 'Failed to initiate ENHANCED AI job search with real job board integration', 
+      message: 'Failed to initiate weekly AI job search with multi-location support', 
       error: error.message 
     });
   }
@@ -1473,7 +1520,7 @@ exports.resumeAiSearch = async (req, res) => {
   }
 };
 
-// Delete AI search - WITH PLAN PERMISSIONS
+// Delete AI search - WITH PLAN PERMISSIONS AND USAGE DECREMENT
 exports.deleteAiSearch = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
@@ -1502,9 +1549,29 @@ exports.deleteAiSearch = async (req, res) => {
       });
     }
     
-    const result = await jobSearchService.deleteAiSearch(userId, searchId);
+    console.log(`🗑️ Attempting to delete AI search ${searchId} for user ${userId}`);
     
-    res.status(200).json(result);
+    // 🔧 FIX: Use the safe delete method and decrement usage
+    try {
+      const result = await jobSearchService.deleteAiSearch(userId, searchId);
+      
+      // 🔧 NEW: Decrement AI job discovery usage count after successful deletion
+      try {
+        await subscriptionService.decrementAiJobDiscoveryUsage(userId);
+        console.log('✅ Decremented AI job discovery usage after deletion');
+      } catch (decrementError) {
+        console.error('❌ Error decrementing usage (non-critical):', decrementError);
+        // Don't fail the deletion if usage decrement fails
+      }
+      
+      res.status(200).json(result);
+    } catch (deleteError) {
+      console.error('❌ Error deleting AI search:', deleteError);
+      res.status(500).json({ 
+        message: 'Failed to delete AI search', 
+        error: deleteError.message 
+      });
+    }
   } catch (error) {
     console.error('Error deleting AI search:', error);
     res.status(500).json({ 

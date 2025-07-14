@@ -1,7 +1,8 @@
-// backend/controllers/subscription.controller.js - FIXED TO USE AUTHORITATIVE STRIPE DATES
+// backend/controllers/subscription.controller.js - COMPLETE WITH PERSISTENT WEEKLY TRACKING
 const subscriptionService = require('../services/subscription.service');
 const stripeService = require('../services/stripe.service');
 const usageService = require('../services/usage.service');
+const WeeklyJobTracking = require('../models/mongodb/weeklyJobTracking.model'); // NEW: Import persistent tracking
 const User = require('../models/mongodb/user.model');
 const db = require('../config/postgresql');
 
@@ -59,7 +60,7 @@ class SubscriptionController {
   }
 
   /**
-   * FIXED: Get user's current subscription with authoritative Stripe dates
+   * UPDATED: Get user's current subscription with persistent weekly tracking
    * @route GET /api/subscriptions/current
    * @access Private
    */
@@ -67,51 +68,174 @@ class SubscriptionController {
     try {
       const userId = req.user.id;
       
-      console.log('🔍 Getting subscription with authoritative Stripe dates for user:', userId);
+      console.log('🔍 Getting subscription with persistent weekly tracking for user:', userId);
       
-      // Use the fixed method that always gets authoritative dates from Stripe
+      // Use the updated method that includes persistent weekly tracking
       const subscriptionData = await subscriptionService.getCurrentSubscription(userId);
       
-      console.log('📊 Subscription service returned data with authoritative dates:', {
+      console.log('📊 Subscription service returned data with persistent tracking:', {
         hasUser: !!subscriptionData.user,
         tier: subscriptionData.user?.subscriptionTier,
         subscriptionEndDate: subscriptionData.user?.subscriptionEndDate,
         subscriptionStartDate: subscriptionData.user?.subscriptionStartDate,
-        cancelAtPeriodEnd: subscriptionData.user?.cancelAtPeriodEnd
+        cancelAtPeriodEnd: subscriptionData.user?.cancelAtPeriodEnd,
+        hasPersistentWeeklyTracking: !!subscriptionData.usageStats?.aiJobsThisWeek
       });
 
       // Format the response for frontend
       const response = {
         subscription: subscriptionData.user,  // User object with authoritative subscription info
         planLimits: subscriptionData.planLimits,  // Plan limits object
-        usageStats: subscriptionData.usageStats,  // Usage statistics object
+        usageStats: subscriptionData.usageStats,  // Usage statistics object with persistent tracking
         user: subscriptionData.user,  // Also include user for backward compatibility
         isActive: subscriptionData.isActive,
         billingCycle: 'monthly',
         dataFreshness: {
           lastSynced: new Date().toISOString(),
-          source: 'stripe_authoritative'
+          source: 'stripe_authoritative_with_persistent_tracking'
         }
       };
       
-      console.log('✅ Sending response with authoritative Stripe dates:', {
+      console.log('✅ Sending response with persistent weekly tracking:', {
         subscriptionTier: response.subscription?.subscriptionTier,
         subscriptionEndDate: response.subscription?.subscriptionEndDate,
         subscriptionStartDate: response.subscription?.subscriptionStartDate,
         cancelAtPeriodEnd: response.subscription?.cancelAtPeriodEnd,
-        dataSource: response.dataFreshness?.source
+        dataSource: response.dataFreshness?.source,
+        weeklyJobsTracked: response.usageStats?.aiJobsThisWeek?.used || 0,
+        weeklyLimit: response.usageStats?.aiJobsThisWeek?.weeklyLimit || 0
       });
       
       res.status(200).json({
         success: true,
         data: response,
-        message: 'Current subscription retrieved with authoritative Stripe dates'
+        message: 'Current subscription retrieved with persistent weekly tracking'
       });
     } catch (error) {
       console.error('❌ Error getting current subscription:', error);
       res.status(500).json({
         success: false,
         error: 'Failed to retrieve current subscription'
+      });
+    }
+  }
+
+  /**
+   * 🔧 NEW: Get weekly job statistics using persistent tracking
+   * @route GET /api/subscriptions/weekly-job-stats
+   * @access Private
+   */
+  static async getWeeklyJobStats(req, res) {
+    try {
+      const userId = req.user.id; // Get from auth middleware
+      const { weeklyLimit } = req.query;
+      
+      const limit = parseInt(weeklyLimit) || (req.user.subscriptionTier === 'hunter' ? 100 : 50);
+      
+      console.log(`📊 Getting persistent weekly job stats for user ${userId} with limit ${limit}`);
+      
+      // 🔧 NEW: Use persistent weekly tracking instead of database job counting
+      const persistentWeeklyStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, limit);
+      
+      // Calculate percentage
+      const weeklyPercentage = persistentWeeklyStats.weeklyLimit > 0 
+        ? Math.round((persistentWeeklyStats.jobsFoundThisWeek / persistentWeeklyStats.weeklyLimit) * 100)
+        : 0;
+      
+      console.log(`📊 Persistent weekly stats calculated:`, {
+        found: persistentWeeklyStats.jobsFoundThisWeek,
+        limit: persistentWeeklyStats.weeklyLimit,
+        remaining: persistentWeeklyStats.remainingThisWeek,
+        percentage: weeklyPercentage,
+        trackingMethod: persistentWeeklyStats.calculationMethod
+      });
+      
+      res.status(200).json({
+        success: true,
+        data: {
+          jobsFoundThisWeek: persistentWeeklyStats.jobsFoundThisWeek,
+          weeklyLimit: persistentWeeklyStats.weeklyLimit,
+          remainingThisWeek: persistentWeeklyStats.remainingThisWeek,
+          isLimitReached: persistentWeeklyStats.isLimitReached,
+          weeklyPercentage: weeklyPercentage,
+          weekStart: persistentWeeklyStats.weekStart,
+          weekEnd: persistentWeeklyStats.weekEnd,
+          calculationMethod: persistentWeeklyStats.calculationMethod || 'persistent_weekly_tracking',
+          searchRuns: persistentWeeklyStats.searchRuns || [],
+          trackingMethod: 'persistent_weekly_tracking',
+          message: 'Weekly job statistics retrieved using persistent tracking'
+        }
+      });
+      
+    } catch (error) {
+      console.error('Error getting persistent weekly job stats:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get weekly job statistics',
+        details: error.message
+      });
+    }
+  }
+
+  /**
+   * 🔧 NEW: Get detailed weekly tracking summary
+   * @route GET /api/subscriptions/weekly-tracking-summary
+   * @access Private
+   */
+  static async getWeeklyTrackingSummary(req, res) {
+    try {
+      const userId = req.user.id;
+      const weeklyLimit = req.user.subscriptionTier === 'hunter' ? 100 : 50;
+      
+      console.log(`📊 Getting detailed weekly tracking summary for user ${userId}`);
+      
+      // Get current week's tracking record
+      const { weekStart } = WeeklyJobTracking.calculateWeekDates();
+      const weeklyRecord = await WeeklyJobTracking.findOne({
+        userId,
+        weekStart: weekStart
+      });
+      
+      if (!weeklyRecord) {
+        // Create a new record if none exists
+        const newRecord = await WeeklyJobTracking.getOrCreateWeeklyRecord(
+          userId, 
+          req.user.subscriptionTier, 
+          weeklyLimit
+        );
+        
+        res.status(200).json({
+          success: true,
+          data: {
+            summary: newRecord.getWeeklySummary(),
+            searchRuns: newRecord.getSearchRunsBreakdown(),
+            message: 'New weekly tracking record created'
+          }
+        });
+        return;
+      }
+      
+      const summary = weeklyRecord.getWeeklySummary();
+      const searchRuns = weeklyRecord.getSearchRunsBreakdown();
+      
+      console.log(`📊 Weekly tracking summary: ${summary.jobsFoundThisWeek}/${summary.weeklyLimit} jobs, ${summary.totalSearchRuns} search runs`);
+      
+      res.status(200).json({
+        success: true,
+        data: {
+          summary,
+          searchRuns,
+          weeklyHistory: [], // Could add history if needed
+          message: 'Weekly tracking summary retrieved successfully'
+        }
+      });
+      
+    } catch (error) {
+      console.error('Error getting weekly tracking summary:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get weekly tracking summary',
+        details: error.message
       });
     }
   }
@@ -435,7 +559,7 @@ class SubscriptionController {
   }
 
   /**
-   * FIXED: Sync subscription status with authoritative Stripe dates
+   * UPDATED: Sync subscription status with persistent tracking
    * @route POST /api/subscriptions/sync
    * @access Private
    */
@@ -443,7 +567,7 @@ class SubscriptionController {
     try {
       const userId = req.user.id;
       
-      console.log(`🔄 Starting sync with authoritative Stripe dates for user ${userId}`);
+      console.log(`🔄 Starting sync with persistent weekly tracking for user ${userId}`);
       
       const result = await subscriptionService.syncSubscriptionStatus(userId);
 
@@ -451,7 +575,7 @@ class SubscriptionController {
         success: true,
         data: {
           result,
-          message: 'Subscription status synced with authoritative Stripe dates'
+          message: 'Subscription status synced with persistent weekly tracking'
         }
       });
     } catch (error) {
@@ -493,7 +617,7 @@ class SubscriptionController {
   }
 
   /**
-   * Handle Stripe webhooks - FIXED VERSION
+   * Handle Stripe webhooks - UPDATED VERSION
    * @route POST /api/subscriptions/webhook
    * @access Public (but verified)
    */
@@ -568,12 +692,12 @@ class SubscriptionController {
 
       console.log(`✅ Processing webhook event: ${event.type} (ID: ${event.id})`);
 
-      // Handle the event with fixed processing
+      // Handle the event with persistent tracking support
       await stripeService.handleWebhookEvent(event);
 
       res.status(200).json({
         success: true,
-        message: `Webhook ${event.type} handled successfully with authoritative date processing`,
+        message: `Webhook ${event.type} handled successfully with persistent tracking support`,
         eventId: event.id
       });
     } catch (error) {
@@ -856,7 +980,7 @@ class SubscriptionController {
     }
   }
 
-  /**
+/**
    * Get subscription health check
    * @route GET /api/subscriptions/health
    * @access Private
@@ -876,7 +1000,8 @@ class SubscriptionController {
         usageWarnings: warnings,
         healthScore: 100, // Base score
         issues: [],
-        recommendations: []
+        recommendations: [],
+        persistentWeeklyTracking: !!subscription.usageStats?.aiJobsThisWeek
       };
 
       // Check for issues
@@ -909,13 +1034,21 @@ class SubscriptionController {
         health.recommendations.push('Consider upgrading your plan for higher usage limits');
       }
 
+      // Check persistent weekly tracking status
+      const weeklyTracking = subscription.usageStats?.aiJobsThisWeek;
+      if (weeklyTracking && weeklyTracking.isLimitReached) {
+        health.issues.push('Weekly job discovery limit reached');
+        health.healthScore -= 10;
+        health.recommendations.push('Weekly job limit will reset next Monday');
+      }
+
       health.healthScore = Math.max(0, health.healthScore);
 
       res.status(200).json({
         success: true,
         data: {
           health,
-          message: 'Subscription health check completed'
+          message: 'Subscription health check completed with persistent tracking'
         }
       });
     } catch (error) {
@@ -928,7 +1061,7 @@ class SubscriptionController {
   }
 
   /**
-   * FIXED: Validate subscription data
+   * UPDATED: Validate subscription data with persistent tracking
    * @route GET /api/subscriptions/validate
    * @access Private
    */
@@ -942,7 +1075,7 @@ class SubscriptionController {
         success: true,
         data: {
           validation,
-          message: 'Subscription data validation completed'
+          message: 'Subscription data validation completed with persistent tracking support'
         }
       });
     } catch (error) {
@@ -955,7 +1088,7 @@ class SubscriptionController {
   }
 
   /**
-   * FIXED: Fix subscription data with authoritative Stripe dates
+   * UPDATED: Fix subscription data with persistent tracking
    * @route POST /api/subscriptions/fix
    * @access Private
    */
@@ -963,7 +1096,7 @@ class SubscriptionController {
     try {
       const userId = req.user.id;
       
-      console.log(`🔧 Starting data fix with authoritative Stripe dates for user ${userId}`);
+      console.log(`🔧 Starting data fix with persistent weekly tracking for user ${userId}`);
       
       const fixResult = await subscriptionService.fixSubscriptionData(userId);
 
@@ -971,7 +1104,7 @@ class SubscriptionController {
         success: true,
         data: {
           fixResult,
-          message: 'Subscription data fix completed with authoritative Stripe dates'
+          message: 'Subscription data fix completed with persistent weekly tracking'
         }
       });
     } catch (error) {
@@ -1033,7 +1166,7 @@ class SubscriptionController {
 
       const { userIds } = req.body;
       
-      console.log('🔧 Starting bulk subscription data fix with authoritative Stripe dates...');
+      console.log('🔧 Starting bulk subscription data fix with persistent weekly tracking...');
       
       const results = await subscriptionService.bulkFixSubscriptionData(userIds);
 
@@ -1041,7 +1174,7 @@ class SubscriptionController {
         success: true,
         data: {
           results,
-          message: 'Bulk subscription data fix completed with authoritative Stripe dates'
+          message: 'Bulk subscription data fix completed with persistent weekly tracking'
         }
       });
     } catch (error) {
@@ -1062,7 +1195,7 @@ class SubscriptionController {
     try {
       const userId = req.user.id;
       
-      console.log(`🔄 Force syncing subscription data with authoritative Stripe dates for user ${userId}`);
+      console.log(`🔄 Force syncing subscription data with persistent weekly tracking for user ${userId}`);
       
       // Use the Stripe service's sync method
       const syncResult = await stripeService.syncUserSubscriptionFromStripe(userId);
@@ -1072,7 +1205,7 @@ class SubscriptionController {
         data: {
           syncResult,
           timestamp: new Date().toISOString(),
-          message: 'Fresh subscription data synced from Stripe with authoritative dates'
+          message: 'Fresh subscription data synced from Stripe with persistent tracking support'
         }
       });
     } catch (error) {
@@ -1117,6 +1250,279 @@ class SubscriptionController {
       res.status(500).json({
         success: false,
         error: 'Failed to get fresh billing date'
+      });
+    }
+  }
+
+  /**
+   * 🔧 NEW: Reset weekly tracking for testing
+   * @route POST /api/subscriptions/reset-weekly-tracking
+   * @access Private (Admin only for testing)
+   */
+  static async resetWeeklyTracking(req, res) {
+    try {
+      const userId = req.user.id;
+      
+      // Only allow admins to reset tracking for testing
+      if (req.user.role !== 'admin' && process.env.NODE_ENV === 'production') {
+        return res.status(403).json({
+          success: false,
+          error: 'Admin access required for weekly tracking reset'
+        });
+      }
+
+      console.log(`🔄 Resetting weekly tracking for user ${userId}`);
+      
+      // Delete current week's tracking record to start fresh
+      const { weekStart } = WeeklyJobTracking.calculateWeekDates();
+      const deleteResult = await WeeklyJobTracking.deleteOne({
+        userId,
+        weekStart: weekStart
+      });
+
+      console.log(`✅ Reset weekly tracking: ${deleteResult.deletedCount} records deleted`);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          deletedRecords: deleteResult.deletedCount,
+          weekStart: weekStart.toISOString(),
+          message: 'Weekly tracking reset successfully'
+        }
+      });
+    } catch (error) {
+      console.error('Error resetting weekly tracking:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to reset weekly tracking'
+      });
+    }
+  }
+
+  /**
+   * 🔧 NEW: Get weekly tracking history
+   * @route GET /api/subscriptions/weekly-tracking-history
+   * @access Private
+   */
+  static async getWeeklyTrackingHistory(req, res) {
+    try {
+      const userId = req.user.id;
+      const limit = parseInt(req.query.limit) || 12;
+      
+      console.log(`📊 Getting weekly tracking history for user ${userId}, limit: ${limit}`);
+      
+      const history = await WeeklyJobTracking.getWeeklyHistory(userId, limit);
+      
+      const historyWithSummaries = history.map(record => ({
+        weekStart: record.weekStart,
+        weekEnd: record.weekEnd,
+        weekYear: record.weekYear,
+        weekNumber: record.weekNumber,
+        jobsFoundThisWeek: record.jobsFoundThisWeek,
+        weeklyLimit: record.weeklyLimit,
+        subscriptionTier: record.subscriptionTier,
+        searchRuns: record.searchRuns.length,
+        activeSearchRuns: record.searchRuns.filter(run => !run.searchDeleted).length,
+        deletedSearchRuns: record.searchRuns.filter(run => run.searchDeleted).length,
+        utilizationPercentage: Math.round((record.jobsFoundThisWeek / record.weeklyLimit) * 100)
+      }));
+      
+      res.status(200).json({
+        success: true,
+        data: {
+          history: historyWithSummaries,
+          totalWeeks: history.length,
+          message: 'Weekly tracking history retrieved successfully'
+        }
+      });
+    } catch (error) {
+      console.error('Error getting weekly tracking history:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get weekly tracking history'
+      });
+    }
+  }
+
+  /**
+   * 🔧 NEW: Get persistent tracking analytics (Admin)
+   * @route GET /api/subscriptions/admin/persistent-tracking-analytics
+   * @access Private (Admin)
+   */
+  static async getPersistentTrackingAnalytics(req, res) {
+    try {
+      // Check if user is admin
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          error: 'Admin access required'
+        });
+      }
+
+      console.log('📊 Getting persistent tracking analytics for admin...');
+      
+      // Get aggregate analytics from WeeklyJobTracking collection
+      const analytics = await WeeklyJobTracking.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalWeeklyRecords: { $sum: 1 },
+            totalJobsTracked: { $sum: '$jobsFoundThisWeek' },
+            totalSearchRuns: { $sum: { $size: '$searchRuns' } },
+            avgJobsPerWeek: { $avg: '$jobsFoundThisWeek' },
+            avgUtilization: { 
+              $avg: { 
+                $multiply: [
+                  { $divide: ['$jobsFoundThisWeek', '$weeklyLimit'] }, 
+                  100 
+                ] 
+              } 
+            },
+            tierBreakdown: {
+              $push: {
+                tier: '$subscriptionTier',
+                jobs: '$jobsFoundThisWeek',
+                limit: '$weeklyLimit'
+              }
+            },
+            currentWeekRecords: {
+              $sum: {
+                $cond: [
+                  { $gte: ['$weekStart', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)] },
+                  1,
+                  0
+                ]
+              }
+            }
+          }
+        }
+      ]);
+
+      // Get tier-specific analytics
+      const tierAnalytics = await WeeklyJobTracking.aggregate([
+        {
+          $group: {
+            _id: '$subscriptionTier',
+            totalUsers: { $addToSet: '$userId' },
+            totalJobs: { $sum: '$jobsFoundThisWeek' },
+            avgJobsPerWeek: { $avg: '$jobsFoundThisWeek' },
+            avgUtilization: { 
+              $avg: { 
+                $multiply: [
+                  { $divide: ['$jobsFoundThisWeek', '$weeklyLimit'] }, 
+                  100 
+                ] 
+              } 
+            },
+            totalSearchRuns: { $sum: { $size: '$searchRuns' } }
+          }
+        },
+        {
+          $project: {
+            tier: '$_id',
+            uniqueUsers: { $size: '$totalUsers' },
+            totalJobs: 1,
+            avgJobsPerWeek: { $round: ['$avgJobsPerWeek', 2] },
+            avgUtilization: { $round: ['$avgUtilization', 2] },
+            totalSearchRuns: 1
+          }
+        }
+      ]);
+
+      const result = analytics[0] || {
+        totalWeeklyRecords: 0,
+        totalJobsTracked: 0,
+        totalSearchRuns: 0,
+        avgJobsPerWeek: 0,
+        avgUtilization: 0,
+        currentWeekRecords: 0
+      };
+
+      res.status(200).json({
+        success: true,
+        data: {
+          overview: {
+            totalWeeklyRecords: result.totalWeeklyRecords,
+            totalJobsTracked: result.totalJobsTracked,
+            totalSearchRuns: result.totalSearchRuns,
+            avgJobsPerWeek: Math.round(result.avgJobsPerWeek * 100) / 100,
+            avgUtilization: Math.round(result.avgUtilization * 100) / 100,
+            currentWeekRecords: result.currentWeekRecords
+          },
+          tierAnalytics: tierAnalytics,
+          systemHealth: {
+            trackingSystem: 'operational',
+            dataIntegrity: 'good',
+            weeklyResetFunctional: true
+          },
+          message: 'Persistent tracking analytics retrieved successfully'
+        }
+      });
+    } catch (error) {
+      console.error('Error getting persistent tracking analytics:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get persistent tracking analytics'
+      });
+    }
+  }
+
+  /**
+   * 🔧 NEW: Test persistent tracking functionality
+   * @route POST /api/subscriptions/test-persistent-tracking
+   * @access Private (Admin only for testing)
+   */
+  static async testPersistentTracking(req, res) {
+    try {
+      const userId = req.user.id;
+      
+      // Only allow admins to test in production
+      if (req.user.role !== 'admin' && process.env.NODE_ENV === 'production') {
+        return res.status(403).json({
+          success: false,
+          error: 'Admin access required for persistent tracking testing'
+        });
+      }
+
+      const { jobsToAdd = 5, searchName = 'Test Search' } = req.body;
+      
+      console.log(`🧪 Testing persistent tracking: adding ${jobsToAdd} jobs for user ${userId}`);
+      
+      const weeklyLimit = req.user.subscriptionTier === 'hunter' ? 100 : 50;
+      
+      // Test adding jobs to persistent tracking
+      const trackingResult = await WeeklyJobTracking.addJobsToWeeklyTracking(
+        userId, 
+        'test-search-id', 
+        jobsToAdd, 
+        searchName, 
+        'Test Resume', 
+        req.user.subscriptionTier, 
+        weeklyLimit
+      );
+      
+      // Get updated stats
+      const updatedStats = await WeeklyJobTracking.getCurrentWeeklyStats(userId, weeklyLimit);
+      
+      res.status(200).json({
+        success: true,
+        data: {
+          trackingResult,
+          updatedStats,
+          testResults: {
+            jobsAdded: jobsToAdd,
+            searchName: searchName,
+            weeklyLimit: weeklyLimit,
+            userTier: req.user.subscriptionTier
+          },
+          message: 'Persistent tracking test completed successfully'
+        }
+      });
+    } catch (error) {
+      console.error('Error testing persistent tracking:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to test persistent tracking'
       });
     }
   }

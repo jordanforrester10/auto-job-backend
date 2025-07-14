@@ -7,6 +7,7 @@ const SubscriptionMiddleware = require('../middleware/subscription.middleware');
 const UsageMiddleware = require('../middleware/usage.middleware');
 const { body, param, query, validationResult } = require('express-validator');
 
+
 const router = express.Router();
 
 // Rate limiting for subscription operations
@@ -247,6 +248,13 @@ router.post('/cancel',
   SubscriptionMiddleware.requireSubscription(['casual', 'hunter']),
   SubscriptionController.cancelSubscription
 );
+
+router.get('/weekly-job-stats', 
+  subscriptionLimiter,
+  authMiddleware.protect,
+  SubscriptionController.getWeeklyJobStats
+);
+
 
 /**
  * @route POST /api/subscriptions/resume
