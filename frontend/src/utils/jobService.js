@@ -1,5 +1,5 @@
 // src/utils/jobService.js - FIXED WITH PROPER LOCATION DATA FLOW
-import api from './axios';
+import api, { aiApi } from './axios'; // 🔧 ADDED: Import aiApi
 
 const jobService = {
   // Create a new job
@@ -164,10 +164,12 @@ const jobService = {
     }
   },
 
-  // Get tailoring recommendations
+  // 🔧 CRITICAL FIX: Get tailoring recommendations with extended timeout
   getTailoringRecommendations: async (jobId, resumeId) => {
     try {
-      const response = await api.post(`/jobs/tailor/${jobId}/${resumeId}`);
+      console.log('🔧 Using AI API for tailoring recommendations with 3-minute timeout');
+      // 🔧 FIXED: Use aiApi instead of regular api for extended timeout
+      const response = await aiApi.post(`/jobs/tailor/${jobId}/${resumeId}`);
       return response.data;
     } catch (error) {
       console.error('Error getting tailoring recommendations:', error);

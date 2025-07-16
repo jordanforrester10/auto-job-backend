@@ -1,5 +1,5 @@
-// src/utils/resumeService.js - Updated with job suggestions functionality
-import api from './axios';
+// src/utils/resumeService.js - Updated with job suggestions functionality and extended timeout for AI operations
+import api, { aiApi } from './axios'; // 🔧 ADDED: Import aiApi for long-running operations
 
 const resumeService = {
   // Get all resumes for the user
@@ -87,10 +87,12 @@ const resumeService = {
     });
   },
   
-  // Analyze a resume
+  // 🔧 UPDATED: Analyze a resume (long-running AI operation)
   analyzeResume: async (resumeId) => {
     try {
-      const response = await api.post(`/resumes/analyze/${resumeId}`);
+      console.log('🔧 Using AI API for resume analysis with 3-minute timeout');
+      // Use aiApi for extended timeout since analysis involves AI processing
+      const response = await aiApi.post(`/resumes/analyze/${resumeId}`);
       return response.data;
     } catch (error) {
       console.error('Error analyzing resume:', error);
@@ -113,10 +115,12 @@ const resumeService = {
     }
   },
   
-  // Create a tailored resume
+  // 🔧 CRITICAL FIX: Create a tailored resume with extended timeout
   createTailoredResume: async (resumeId, jobId, options = {}) => {
     try {
-      const response = await api.post(`/resumes/tailor/${resumeId}/${jobId}`, options);
+      console.log('🔧 Using AI API for tailored resume creation with 3-minute timeout');
+      // 🔧 FIXED: Use aiApi instead of regular api for extended timeout
+      const response = await aiApi.post(`/resumes/tailor/${resumeId}/${jobId}`, options);
       return response.data;
     } catch (error) {
       console.error('Error creating tailored resume:', error);
@@ -135,11 +139,13 @@ const resumeService = {
     }
   },
 
-  // NEW: Get AI-generated job suggestions based on resume analysis
+  // 🔧 UPDATED: Get AI-generated job suggestions (long-running AI operation)
   getJobSuggestions: async (resumeId) => {
     try {
       console.log('🔍 Fetching AI job suggestions for resume:', resumeId);
-      const response = await api.get(`/resumes/${resumeId}/job-suggestions`);
+      console.log('🔧 Using AI API for job suggestions with 3-minute timeout');
+      // Use aiApi for AI-powered job suggestions
+      const response = await aiApi.get(`/resumes/${resumeId}/job-suggestions`);
       return response.data.suggestions || response.data;
     } catch (error) {
       console.error('Error fetching job suggestions:', error);

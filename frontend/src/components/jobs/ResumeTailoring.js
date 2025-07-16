@@ -61,7 +61,8 @@ const ResumeTailoring = () => {
     planLimits, 
     canPerformAction, 
     getUsagePercentage,
-    planInfo 
+    planInfo ,
+    refreshSubscription // 🔧 ADD: This line
   } = useSubscription();
   
   const [job, setJob] = useState(null);
@@ -212,6 +213,16 @@ const ResumeTailoring = () => {
       
       console.log('Tailored resume creation response:', response);
       
+      // 🔧 CRITICAL FIX: Force refresh subscription data after successful tailoring
+      console.log('🔄 Forcing subscription data refresh after tailoring...');
+      try {
+        await refreshSubscription(true); // Force refresh bypasses cache
+        console.log('✅ Subscription data refreshed successfully');
+      } catch (refreshError) {
+        console.error('❌ Error refreshing subscription (non-critical):', refreshError);
+        // Continue with success flow even if refresh fails
+      }
+      
       // Show success message with analysis info
       const analysisInfo = response.resume?.analysis?.overallScore 
         ? ` (New Resume Score: ${response.resume.analysis.overallScore}%)`
@@ -246,6 +257,15 @@ const ResumeTailoring = () => {
         setShowUpgradePrompt(true);
         setCanCreateTailoredResume(false);
         showSnackbar('Resume tailoring limit reached. Please upgrade your plan.', 'error');
+        
+        // 🔧 REFRESH: Even on error, refresh to get latest usage data
+        try {
+          console.log('🔄 Refreshing subscription after error to get accurate usage...');
+          await refreshSubscription(true);
+          console.log('✅ Subscription refreshed after error');
+        } catch (refreshError) {
+          console.error('❌ Error refreshing subscription after error:', refreshError);
+        }
       } else {
         let errorMessage = 'Failed to create tailored resume. Please try again.';
         
@@ -259,7 +279,7 @@ const ResumeTailoring = () => {
       }
       setTailoringSaving(false);
     }
-  };
+};
 
   // Calculate usage percentage and status
   const usagePercentage = usageData ? getUsagePercentage('resumeTailoring') : 0;

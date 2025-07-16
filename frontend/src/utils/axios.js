@@ -1,4 +1,4 @@
-// frontend/src/utils/axios.js - ENHANCED WITH RATE LIMITING PROTECTION
+// frontend/src/utils/axios.js - UPDATED WITH TAILORING TIMEOUT FIX
 import axios from 'axios';
 
 // Determine the API base URL based on environment
@@ -15,7 +15,18 @@ const api = axios.create({
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
-  timeout: 60000, // 60 second timeout for AI requests
+  timeout: 60000, // 60 second timeout for regular requests
+});
+
+// 🔧 NEW: Create special axios instance for long-running AI operations
+const aiApi = axios.create({
+  baseURL: getApiBaseUrl(),
+  withCredentials: true,
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  },
+  timeout: 180000, // 3 minutes timeout for AI operations (tailoring, analysis, etc.)
 });
 
 // Debug log to see which API URL is being used
@@ -55,156 +66,170 @@ const handleRateLimit = (retryAfter = 60) => {
   }, retryAfter * 1000);
 };
 
-// Request interceptor to add auth token and handle requests
-api.interceptors.request.use(
-  (config) => {
-    // Add timestamp to prevent caching issues
-    config.metadata = { startTime: new Date() };
-    
-    // Get token from localStorage
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+// 🔧 NEW: Setup interceptors for both api instances
+const setupInterceptors = (apiInstance, instanceName = 'api') => {
+  // Request interceptor to add auth token and handle requests
+  apiInstance.interceptors.request.use(
+    (config) => {
+      // Add timestamp to prevent caching issues
+      config.metadata = { startTime: new Date() };
+      
+      // Get token from localStorage
+      const token = localStorage.getItem('token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      
+      // Log request in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🚀 ${instanceName.toUpperCase()} Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url} (timeout: ${config.timeout}ms)`);
+      }
+      
+      return config;
+    },
+    (error) => {
+      console.error(`❌ ${instanceName} Request interceptor error:`, error);
+      return Promise.reject(error);
     }
-    
-    // Log request in development
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
-    }
-    
-    return config;
-  },
-  (error) => {
-    console.error('❌ Request interceptor error:', error);
-    return Promise.reject(error);
-  }
-);
+  );
 
-// Response interceptor to handle responses and errors
-api.interceptors.response.use(
-  (response) => {
-    // Log response time in development
-    if (process.env.NODE_ENV === 'development' && response.config.metadata) {
-      const duration = new Date() - response.config.metadata.startTime;
-      console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url} - ${duration}ms - Status: ${response.status}`);
-    }
-    
-    return response;
-  },
-  async (error) => {
-    const originalRequest = error.config;
-    
-    // Log error details
-    console.error('❌ API Error Details:', {
-      message: error.message,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      url: error.config?.url,
-      method: error.config?.method?.toUpperCase(),
-      responseData: error.response?.data,
-      timeout: error.config?.timeout
-    });
-    
-    // Handle rate limiting (429) - NEW FEATURE
-    if (error.response?.status === 429) {
-      const retryAfter = parseInt(error.response.headers['retry-after']) || 60;
-      
-      console.warn(`⏱️ Rate limited - too many requests. Waiting ${retryAfter} seconds.`);
-      
-      // If not already handling rate limit, start the delay
-      if (!isRateLimited) {
-        handleRateLimit(retryAfter);
+  // Response interceptor to handle responses and errors
+  apiInstance.interceptors.response.use(
+    (response) => {
+      // Log response time in development
+      if (process.env.NODE_ENV === 'development' && response.config.metadata) {
+        const duration = new Date() - response.config.metadata.startTime;
+        console.log(`✅ ${instanceName.toUpperCase()} Response: ${response.config.method?.toUpperCase()} ${response.config.url} - ${duration}ms - Status: ${response.status}`);
       }
       
-      // Queue the request for retry
-      return new Promise((resolve) => {
-        retryQueue.push({ resolve, config: originalRequest });
+      return response;
+    },
+    async (error) => {
+      const originalRequest = error.config;
+      
+      // Log error details
+      console.error(`❌ ${instanceName.toUpperCase()} API Error Details:`, {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        url: error.config?.url,
+        method: error.config?.method?.toUpperCase(),
+        responseData: error.response?.data,
+        timeout: error.config?.timeout,
+        duration: error.config?.metadata ? new Date() - error.config.metadata.startTime : 'unknown'
       });
-    }
-    
-    // Handle different types of errors
-    if (error.response) {
-      // Server responded with error status
-      const { status, data } = error.response;
       
-      switch (status) {
-        case 401:
-          // Unauthorized - token expired or invalid
-          console.warn('🔒 Authentication error - clearing token and redirecting');
-          localStorage.removeItem('token');
-          delete api.defaults.headers.common['Authorization'];
-          
-          // Only redirect if not already on auth pages
-          const currentPath = window.location.pathname;
-          if (!currentPath.includes('/login') && 
-              !currentPath.includes('/register') && 
-              !currentPath.includes('/forgot-password') &&
-              !currentPath.includes('/reset-password')) {
-            
-            // Use a small delay to prevent multiple redirects
-            setTimeout(() => {
-              window.location.href = '/login?expired=true';
-            }, 100);
-          }
-          break;
-          
-        case 403:
-          // Forbidden - user doesn't have permission
-          console.warn('🚫 Access forbidden:', data?.error || 'Permission denied');
-          break;
-          
-        case 404:
-          // Not found - API endpoint doesn't exist
-          console.warn('🔍 API endpoint not found:', error.config?.url);
-          console.warn('💡 Check if the backend server is running and routes are properly configured');
-          break;
-          
-        case 429:
-          // Rate limited - already handled above
-          console.warn('⏱️ Rate limited - request queued for retry');
-          break;
-          
-        case 500:
-          // Server error
-          console.error('🔥 Server error occurred');
-          break;
-          
-        default:
-          console.error(`❌ HTTP ${status}:`, data?.error || error.message);
-      }
-      
-      // Enhance error object with additional info
-      error.isApiError = true;
-      error.apiStatus = status;
-      error.apiMessage = data?.error || data?.message || 'An error occurred';
-      
-    } else if (error.request) {
-      // Network error - no response received
-      if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
-        console.error('⏱️ Request timed out after', error.config?.timeout, 'ms');
-        error.isTimeoutError = true;
-        error.apiMessage = 'The request is taking longer than expected. AI processing can take up to 60 seconds for complex requests. Please try again.';
-      } else {
-        console.error('🌐 Network error - server may be down:', error.message);
-        error.isNetworkError = true;
-        error.apiMessage = 'Network error - please check your connection and try again';
+      // Handle rate limiting (429) - NEW FEATURE
+      if (error.response?.status === 429) {
+        const retryAfter = parseInt(error.response.headers['retry-after']) || 60;
         
-        // Check if backend server is running
-        if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
-          error.apiMessage = 'Cannot connect to server. Please ensure the backend is running on ' + getApiBaseUrl();
-          console.error('💡 Backend server might not be running. Check: npm start in backend directory');
+        console.warn(`⏱️ Rate limited - too many requests. Waiting ${retryAfter} seconds.`);
+        
+        // If not already handling rate limit, start the delay
+        if (!isRateLimited) {
+          handleRateLimit(retryAfter);
         }
+        
+        // Queue the request for retry
+        return new Promise((resolve) => {
+          retryQueue.push({ resolve, config: originalRequest });
+        });
       }
       
-    } else {
-      // Request setup error
-      console.error('⚙️ Request setup error:', error.message);
-      error.apiMessage = 'Request configuration error';
+      // Handle different types of errors
+      if (error.response) {
+        // Server responded with error status
+        const { status, data } = error.response;
+        
+        switch (status) {
+          case 401:
+            // Unauthorized - token expired or invalid
+            console.warn('🔒 Authentication error - clearing token and redirecting');
+            localStorage.removeItem('token');
+            delete apiInstance.defaults.headers.common['Authorization'];
+            
+            // Only redirect if not already on auth pages
+            const currentPath = window.location.pathname;
+            if (!currentPath.includes('/login') && 
+                !currentPath.includes('/register') && 
+                !currentPath.includes('/forgot-password') &&
+                !currentPath.includes('/reset-password')) {
+              
+              // Use a small delay to prevent multiple redirects
+              setTimeout(() => {
+                window.location.href = '/login?expired=true';
+              }, 100);
+            }
+            break;
+            
+          case 403:
+            // Forbidden - user doesn't have permission
+            console.warn('🚫 Access forbidden:', data?.error || 'Permission denied');
+            break;
+            
+          case 404:
+            // Not found - API endpoint doesn't exist
+            console.warn('🔍 API endpoint not found:', error.config?.url);
+            console.warn('💡 Check if the backend server is running and routes are properly configured');
+            break;
+            
+          case 429:
+            // Rate limited - already handled above
+            console.warn('⏱️ Rate limited - request queued for retry');
+            break;
+            
+          case 500:
+            // Server error
+            console.error('🔥 Server error occurred');
+            break;
+            
+          default:
+            console.error(`❌ HTTP ${status}:`, data?.error || error.message);
+        }
+        
+        // Enhance error object with additional info
+        error.isApiError = true;
+        error.apiStatus = status;
+        error.apiMessage = data?.error || data?.message || 'An error occurred';
+        
+      } else if (error.request) {
+        // Network error - no response received
+        if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
+          console.error(`⏱️ ${instanceName.toUpperCase()} Request timed out after`, error.config?.timeout, 'ms');
+          error.isTimeoutError = true;
+          
+          // Special message for AI operations
+          if (instanceName === 'aiApi') {
+            error.apiMessage = 'AI processing is taking longer than expected (3+ minutes). This may indicate a backend issue. Please try again or contact support if the problem persists.';
+          } else {
+            error.apiMessage = 'The request is taking longer than expected. AI processing can take up to 60 seconds for complex requests. Please try again.';
+          }
+        } else {
+          console.error('🌐 Network error - server may be down:', error.message);
+          error.isNetworkError = true;
+          error.apiMessage = 'Network error - please check your connection and try again';
+          
+          // Check if backend server is running
+          if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
+            error.apiMessage = 'Cannot connect to server. Please ensure the backend is running on ' + getApiBaseUrl();
+            console.error('💡 Backend server might not be running. Check: npm start in backend directory');
+          }
+        }
+        
+      } else {
+        // Request setup error
+        console.error('⚙️ Request setup error:', error.message);
+        error.apiMessage = 'Request configuration error';
+      }
+      
+      return Promise.reject(error);
     }
-    
-    return Promise.reject(error);
-  }
-);
+  );
+};
+
+// Setup interceptors for both instances
+setupInterceptors(api, 'api');
+setupInterceptors(aiApi, 'aiApi');
 
 // Helper function to check if error is authentication related
 export const isAuthError = (error) => {
@@ -280,5 +305,8 @@ export const clearRateLimit = () => {
   }
   retryQueue = [];
 };
+
+// 🔧 NEW: Export the AI API instance for long-running operations
+export { aiApi };
 
 export default api;

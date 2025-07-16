@@ -1,4 +1,4 @@
-// src/components/resumes/ResumeDetail.js - FIXED ESLINT ERRORS
+// src/components/resumes/ResumeDetail.js - ENHANCED TAILORED RESUME DISPLAY
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -22,7 +22,8 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  LinearProgress
+  LinearProgress,
+  Tooltip
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -41,7 +42,9 @@ import {
   Add as AddIcon,
   Speed as SpeedIcon,
   Assignment as AssignmentIcon,
-  Insights as InsightsIcon
+  Insights as InsightsIcon,
+  CompareArrows as CompareArrowsIcon,
+  EmojiEvents as EmojiEventsIcon
 } from '@mui/icons-material';
 import MainLayout from '../layout/MainLayout';
 
@@ -64,7 +67,7 @@ import ContentTab from './tabs/ContentTab';
 import resumeService from '../../utils/resumeService';
 
 /**
- * Enhanced ResumeDetail component with onboarding flow for first-time users
+ * Enhanced ResumeDetail component with tailored resume detection and comparison
  */
 const ResumeDetail = () => {
   const theme = useTheme();
@@ -78,6 +81,8 @@ const ResumeDetail = () => {
   const [showComparison, setShowComparison] = useState(false);
   const [jobSuggestions, setJobSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [originalResume, setOriginalResume] = useState(null);
+  const [loadingOriginal, setLoadingOriginal] = useState(false);
 
   // Custom hooks for data and AI integration
   const { 
@@ -99,18 +104,36 @@ const ResumeDetail = () => {
     comparisonData
   } = useAiIntegration(resume, forceRefreshResume);
 
+  // ENHANCED: Fetch original resume for comparison if this is a tailored resume
+  const fetchOriginalResumeForComparison = useCallback(async () => {
+    if (!resume?.isTailored || !resume?.tailoredForJob?.originalResumeId) return;
+    
+    setLoadingOriginal(true);
+    try {
+      const originalResumeData = await resumeService.getResumeById(resume.tailoredForJob.originalResumeId);
+      setOriginalResume(originalResumeData.resume);
+      console.log('📊 Original resume loaded for comparison:', {
+        originalScore: originalResumeData.resume?.analysis?.overallScore,
+        tailoredScore: resume?.analysis?.overallScore,
+        improvement: resume?.analysis?.overallScore - originalResumeData.resume?.analysis?.overallScore
+      });
+    } catch (error) {
+      console.error('Error fetching original resume for comparison:', error);
+    } finally {
+      setLoadingOriginal(false);
+    }
+  }, [resume]);
+
   // Fetch AI-generated job suggestions for onboarding
   const fetchJobSuggestions = useCallback(async () => {
     if (!resume || !resume.analysis) return;
     
     setLoadingSuggestions(true);
     try {
-      // Call backend to get AI-generated job suggestions based on resume
       const suggestions = await resumeService.getJobSuggestions(resume._id);
       setJobSuggestions(suggestions || []);
     } catch (error) {
       console.error('Error fetching job suggestions:', error);
-      // Fallback to generic suggestions if API fails
       setJobSuggestions([
         'Senior Software Developer',
         'Full Stack Engineer', 
@@ -127,6 +150,13 @@ const ResumeDetail = () => {
       fetchJobSuggestions();
     }
   }, [showOnboarding, resume, fetchJobSuggestions]);
+
+  // ENHANCED: Load original resume for tailored resume comparison
+  useEffect(() => {
+    if (resume?.isTailored) {
+      fetchOriginalResumeForComparison();
+    }
+  }, [resume, fetchOriginalResumeForComparison]);
 
   // Show comparison dialog when optimization completes
   useEffect(() => {
@@ -233,6 +263,172 @@ const ResumeDetail = () => {
 
   const handleImportJob = () => {
     navigate('/jobs', { state: { openCreateDialog: true } });
+  };
+
+  const handleViewOriginalResume = () => {
+    if (resume?.tailoredForJob?.originalResumeId) {
+      navigate(`/resumes/${resume.tailoredForJob.originalResumeId}`);
+    }
+  };
+
+  // ENHANCED: Tailored Resume Comparison Component
+  const TailoredResumeComparison = () => {
+    if (!resume?.isTailored || !originalResume) return null;
+
+    const currentScore = resume?.analysis?.overallScore || 0;
+    const originalScore = originalResume?.analysis?.overallScore || 0;
+    const improvement = currentScore - originalScore;
+    const currentAtsScore = resume?.analysis?.atsCompatibility || 0;
+    const originalAtsScore = originalResume?.analysis?.atsCompatibility || 0;
+    const atsImprovement = currentAtsScore - originalAtsScore;
+
+    return (
+      <Paper 
+        sx={{ 
+          p: 3, 
+          mb: 3, 
+          borderRadius: 3,
+          background: `linear-gradient(135deg, ${theme.palette.success.main}08 0%, ${theme.palette.info.main}08 100%)`,
+          border: `2px solid ${theme.palette.success.main}30`
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <EmojiEventsIcon sx={{ color: 'success.main', fontSize: 28, mr: 1.5 }} />
+          <Typography variant="h6" fontWeight={600} color="success.dark">
+            🎯 Tailored Resume Performance
+          </Typography>
+        </Box>
+        
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          This resume has been AI-tailored for <strong>{resume.tailoredForJob?.jobTitle}</strong> at <strong>{resume.tailoredForJob?.company}</strong>
+        </Typography>
+
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <Card sx={{ borderRadius: 2, border: `1px solid ${theme.palette.success.main}30` }}>
+              <CardContent sx={{ textAlign: 'center' }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Overall Resume Score
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                    {originalScore}%
+                  </Typography>
+                  <CompareArrowsIcon color="action" />
+                  <Typography variant="h4" fontWeight={700} color="success.main" sx={{ ml: 1 }}>
+                    {currentScore}%
+                  </Typography>
+                </Box>
+                {improvement > 0 && (
+                  <Chip 
+                    label={`+${improvement} points`} 
+                    color="success" 
+                    size="small"
+                    icon={<TrendingUpIcon />}
+                  />
+                )}
+                {improvement === 0 && (
+                  <Chip 
+                    label="No change detected" 
+                    color="warning" 
+                    size="small"
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <Card sx={{ borderRadius: 2, border: `1px solid ${theme.palette.info.main}30` }}>
+              <CardContent sx={{ textAlign: 'center' }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  ATS Compatibility
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                    {originalAtsScore}%
+                  </Typography>
+                  <CompareArrowsIcon color="action" />
+                  <Typography variant="h4" fontWeight={700} color="info.main" sx={{ ml: 1 }}>
+                    {currentAtsScore}%
+                  </Typography>
+                </Box>
+                {atsImprovement > 0 && (
+                  <Chip 
+                    label={`+${atsImprovement} points`} 
+                    color="info" 
+                    size="small"
+                    icon={<TrendingUpIcon />}
+                  />
+                )}
+                {atsImprovement === 0 && (
+                  <Chip 
+                    label="No change detected" 
+                    color="warning" 
+                    size="small"
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Tailoring Details */}
+        {resume.parsedData?.tailoringMetadata && (
+          <Box sx={{ mt: 3, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
+            <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+              Tailoring Optimizations Applied:
+            </Typography>
+            <Grid container spacing={2}>
+              {resume.parsedData.tailoringMetadata.improvementsApplied?.summaryUpdated && (
+                <Grid item xs={6} sm={3}>
+                  <Chip label="Summary Optimized" color="success" size="small" />
+                </Grid>
+              )}
+              {resume.parsedData.tailoringMetadata.improvementsApplied?.experienceEnhanced && (
+                <Grid item xs={6} sm={3}>
+                  <Chip label="Experience Enhanced" color="success" size="small" />
+                </Grid>
+              )}
+              {resume.parsedData.tailoringMetadata.improvementsApplied?.skillsOptimized && (
+                <Grid item xs={6} sm={3}>
+                  <Chip label="Skills Optimized" color="success" size="small" />
+                </Grid>
+              )}
+              {resume.parsedData.tailoringMetadata.improvementsApplied?.keywordsAdded && (
+                <Grid item xs={6} sm={3}>
+                  <Chip label="Keywords Added" color="success" size="small" />
+                </Grid>
+              )}
+            </Grid>
+          </Box>
+        )}
+
+        <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<VisibilityIcon />}
+            onClick={handleViewOriginalResume}
+          >
+            View Original Resume
+          </Button>
+          {improvement === 0 && (
+            <Tooltip title="If scores haven't improved, try refreshing the analysis">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<RefreshIcon />}
+                onClick={handleManualRefresh}
+                color="warning"
+              >
+                Refresh Analysis
+              </Button>
+            </Tooltip>
+          )}
+        </Box>
+      </Paper>
+    );
   };
 
   // Enhanced Onboarding Component
@@ -343,41 +539,7 @@ const ResumeDetail = () => {
             </Grid>
           </Grid>
 
-          {/* Score Breakdown */}
-          <Paper sx={{ p: 3, mb: 4, borderRadius: 3 }}>
-            <Typography variant="h6" fontWeight={600} gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-              <InsightsIcon sx={{ mr: 1, color: 'primary.main' }} />
-              What Your Scores Mean
-            </Typography>
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
-                  <Typography variant="subtitle2" fontWeight={600} gutterBottom>
-                    Overall Score ({overallScore}/100)
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {overallScore >= 80 && "Excellent! Your resume is well-optimized and should perform great in most applications."}
-                    {overallScore >= 60 && overallScore < 80 && "Good foundation! With some improvements, you can significantly boost your interview chances."}
-                    {overallScore < 60 && "There's room for improvement. Focus on the suggestions below to strengthen your resume."}
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
-                  <Typography variant="subtitle2" fontWeight={600} gutterBottom>
-                    ATS Compatibility ({atsScore}%)
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {atsScore >= 80 && "Great! Your resume should pass through most automated screening systems."}
-                    {atsScore >= 60 && atsScore < 80 && "Decent compatibility. Some formatting improvements could help with automated systems."}
-                    {atsScore < 60 && "Your resume may struggle with automated screening. Consider restructuring for better ATS compatibility."}
-                  </Typography>
-                </Box>
-              </Grid>
-            </Grid>
-          </Paper>
-
-          {/* Call to Action - Moved up for better visibility */}
+          {/* Call to Action */}
           <Paper sx={{ 
             p: 4, 
             textAlign: 'center',
@@ -415,116 +577,6 @@ const ResumeDetail = () => {
             >
               Import Your First Job Description
             </Button>
-            <Typography variant="body2" sx={{ mt: 2, opacity: 0.8 }}>
-              It takes less than 30 seconds to paste a job posting and see the results
-            </Typography>
-          </Paper>
-
-          {/* Job Suggestions */}
-          <Paper sx={{ p: 3, mb: 4, borderRadius: 3 }}>
-            <Typography variant="h6" fontWeight={600} gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-              <WorkOutlineIcon sx={{ mr: 1, color: 'secondary.main' }} />
-              Based on Your Skills, Look for Jobs Like:
-            </Typography>
-            {loadingSuggestions ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', py: 2 }}>
-                <CircularProgress size={20} sx={{ mr: 2 }} />
-                <Typography variant="body2" color="text.secondary">
-                  AI is analyzing your profile to suggest relevant job types...
-                </Typography>
-              </Box>
-            ) : (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                {jobSuggestions.map((job, index) => (
-                  <Chip 
-                    key={index}
-                    label={job}
-                    variant="outlined"
-                    color="secondary"
-                    sx={{ fontWeight: 500 }}
-                  />
-                ))}
-              </Box>
-            )}
-            <Typography variant="body2" color="text.secondary">
-              These job types align well with your experience and skills. Use these as keywords when searching job boards.
-            </Typography>
-          </Paper>
-
-          {/* Tailoring Preview */}
-          <Paper sx={{ 
-            p: 3, 
-            mb: 4, 
-            borderRadius: 3,
-            background: `linear-gradient(135deg, ${theme.palette.warning.main}08 0%, ${theme.palette.warning.light}05 100%)`,
-            border: `1px solid ${theme.palette.warning.main}20`
-          }}>
-            <Typography variant="h6" fontWeight={600} gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-              <AutoAwesomeIcon sx={{ mr: 1, color: 'warning.main' }} />
-              What You Could Achieve with Job Tailoring
-            </Typography>
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={12} sm={4}>
-                <Box sx={{ textAlign: 'center', p: 2 }}>
-                  <Typography variant="h4" fontWeight={600} color="success.main">
-                    +15-25
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    points in match scores
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <Box sx={{ textAlign: 'center', p: 2 }}>
-                  <Typography variant="h4" fontWeight={600} color="info.main">
-                    90%+
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    ATS system pass rate
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <Box sx={{ textAlign: 'center', p: 2 }}>
-                  <Typography variant="h4" fontWeight={600} color="warning.main">
-                    3x
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    more interview callbacks
-                  </Typography>
-                </Box>
-              </Grid>
-            </Grid>
-            
-            <List dense>
-              <ListItem>
-                <ListItemIcon>
-                  <TrendingUpIcon color="success" fontSize="small" />
-                </ListItemIcon>
-                <ListItemText 
-                  primary="Highlight relevant experience for each specific role"
-                  secondary="AI identifies and emphasizes the most important skills and experiences"
-                />
-              </ListItem>
-              <ListItem>
-                <ListItemIcon>
-                  <PsychologyIcon color="info" fontSize="small" />
-                </ListItemIcon>
-                <ListItemText 
-                  primary="Optimize keywords for automated screening systems"
-                  secondary="Get past ATS filters that 75% of resumes fail to pass"
-                />
-              </ListItem>
-              <ListItem>
-                <ListItemIcon>
-                  <StarIcon color="warning" fontSize="small" />
-                </ListItemIcon>
-                <ListItemText 
-                  primary="Personalized improvement suggestions for each application"
-                  secondary="Specific recommendations based on job requirements analysis"
-                />
-              </ListItem>
-            </List>
           </Paper>
         </Box>
       </Fade>
@@ -627,6 +679,11 @@ const ResumeDetail = () => {
           </Fade>
         )}
 
+        {/* ENHANCED: Show Tailored Resume Comparison */}
+        {!showOnboarding && resume?.isTailored && (
+          <TailoredResumeComparison />
+        )}
+
         {/* Show Enhanced Onboarding Experience for First-Time Users */}
         {showOnboarding && resume && resume.analysis && (
           <OnboardingExperience />
@@ -644,20 +701,31 @@ const ResumeDetail = () => {
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
             <Box sx={{ maxWidth: { xs: '80%', sm: '70%', md: '75%' } }}>
-              <Typography 
-                variant="h4" 
-                component="h1" 
-                fontWeight={700} 
-                color="primary"
-                sx={{ 
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  mb: 0.5
-                }}
-              >
-                {resume.name}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <Typography 
+                  variant="h4" 
+                  component="h1" 
+                  fontWeight={700} 
+                  color="primary"
+                  sx={{ 
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    mr: 2
+                  }}
+                >
+                  {resume.name}
+                </Typography>
+                {resume.isTailored && (
+                  <Chip 
+                    icon={<AutoAwesomeIcon />} 
+                    label="AI Tailored" 
+                    color="success" 
+                    size="small"
+                    sx={{ fontWeight: 600 }}
+                  />
+                )}
+              </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, flexWrap: 'wrap' }}>
                 <Chip 
                   icon={<DescriptionIcon />} 
@@ -665,11 +733,11 @@ const ResumeDetail = () => {
                   size="small" 
                   sx={{ mr: 1, mb: 0.5 }} 
                 />
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={{ mr: 2 }}>
                   Last updated: {new Date(resume.updatedAt).toLocaleDateString()}
                 </Typography>
                 {resume.analysis && (
-                  <Box sx={{ ml: 2, display: 'flex', gap: 1 }}>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
                     <Chip 
                       label={`Score: ${resume.analysis.overallScore || 0}%`}
                       size="small"
