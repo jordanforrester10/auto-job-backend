@@ -44,8 +44,12 @@ const NextStepsGuide = ({
 
   // Navigation handlers
   const handleUpgrade = () => {
-    navigate('/settings', { 
-      state: { scrollTo: 'subscription' } 
+    // Navigate to settings with subscription tab URL parameter and state
+    navigate('/settings?tab=subscription', { 
+      state: { 
+        openTab: 'subscription',
+        scrollTo: 'subscription'
+      } 
     });
   };
 

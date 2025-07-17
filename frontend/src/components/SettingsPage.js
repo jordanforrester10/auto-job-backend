@@ -1,5 +1,6 @@
-// src/components/SettingsPage.js - WITH SUBSCRIPTION INTEGRATION
+// src/components/SettingsPage.js - WITH SUBSCRIPTION INTEGRATION AND NAVIGATION HANDLING
 import React, { useState, useEffect } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -55,9 +56,26 @@ const SettingsPage = () => {
   const theme = useTheme();
   const { currentUser, refreshUser } = useAuth();
   const { subscription, loading: subscriptionLoading } = useSubscription();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   
-  // Tab state
-  const [activeTab, setActiveTab] = useState(0);
+  // Tab state - Initialize based on URL parameters or navigation state
+  const [activeTab, setActiveTab] = useState(() => {
+    // Check URL parameter first
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'subscription') return 2;
+    if (tabParam === 'security') return 1;
+    if (tabParam === 'profile') return 0;
+    
+    // Check navigation state
+    const navState = location.state;
+    if (navState?.openTab === 'subscription') return 2;
+    if (navState?.openTab === 'security') return 1;
+    if (navState?.openTab === 'profile') return 0;
+    
+    // Default to profile tab
+    return 0;
+  });
   
   // Form state
   const [profileData, setProfileData] = useState({
@@ -111,6 +129,26 @@ const SettingsPage = () => {
       value: 2
     }
   ];
+
+  // Handle navigation to subscription tab from external sources
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    const navState = location.state;
+    
+    if (tabParam === 'subscription' || navState?.openTab === 'subscription') {
+      setActiveTab(2);
+      
+      // Optional: Scroll to subscription section if needed
+      if (navState?.scrollTo === 'subscription') {
+        setTimeout(() => {
+          const subscriptionElement = document.getElementById('subscription-section');
+          if (subscriptionElement) {
+            subscriptionElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 100);
+      }
+    }
+  }, [searchParams, location.state]);
 
   // Initialize form data when user data loads
   useEffect(() => {
@@ -496,399 +534,401 @@ const SettingsPage = () => {
                           edge="end"
                         >
                           {showPasswords.new ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                        </IconButton>
-                      )
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 2
-                      }
-                    }}
-                  />
-                  {passwordData.newPassword && (
-                    <Box sx={{ mt: 1 }}>
-                      <LinearProgress
-                        variant="determinate"
-                        value={passwordStrength.strength}
-                        color={passwordStrength.color}
-                        sx={{ height: 6, borderRadius: 3 }}
-                      />
-                      <Typography variant="caption" color={`${passwordStrength.color}.main`} sx={{ mt: 0.5, display: 'block' }}>
-                        Password strength: {passwordStrength.label}
-                      </Typography>
-                    </Box>
-                  )}
-                </Grid>
+                          </IconButton>
+                     )
+                   }}
+                   sx={{
+                     '& .MuiOutlinedInput-root': {
+                       borderRadius: 2
+                     }
+                   }}
+                 />
+                 {passwordData.newPassword && (
+                   <Box sx={{ mt: 1 }}>
+                     <LinearProgress
+                       variant="determinate"
+                       value={passwordStrength.strength}
+                       color={passwordStrength.color}
+                       sx={{ height: 6, borderRadius: 3 }}
+                     />
+                     <Typography variant="caption" color={`${passwordStrength.color}.main`} sx={{ mt: 0.5, display: 'block' }}>
+                       Password strength: {passwordStrength.label}
+                     </Typography>
+                   </Box>
+                 )}
+               </Grid>
 
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="Confirm New Password"
-                    type={showPasswords.confirm ? 'text' : 'password'}
-                    value={passwordData.confirmPassword}
-                    onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                    error={passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword}
-                    helperText={
-                      passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword
-                        ? 'Passwords do not match'
-                        : ''
-                    }
-                    InputProps={{
-                      endAdornment: (
-                        <IconButton
-                          onClick={() => togglePasswordVisibility('confirm')}
-                          edge="end"
-                        >
-                          {showPasswords.confirm ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                        </IconButton>
-                      )
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 2
-                      }
-                    }}
-                  />
-                </Grid>
+               <Grid item xs={12}>
+                 <TextField
+                   fullWidth
+                   label="Confirm New Password"
+                   type={showPasswords.confirm ? 'text' : 'password'}
+                   value={passwordData.confirmPassword}
+                   onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                   error={passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword}
+                   helperText={
+                     passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword
+                       ? 'Passwords do not match'
+                       : ''
+                   }
+                   InputProps={{
+                     endAdornment: (
+                       <IconButton
+                         onClick={() => togglePasswordVisibility('confirm')}
+                         edge="end"
+                       >
+                         {showPasswords.confirm ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                       </IconButton>
+                     )
+                   }}
+                   sx={{
+                     '& .MuiOutlinedInput-root': {
+                       borderRadius: 2
+                     }
+                   }}
+                 />
+               </Grid>
 
-                <Grid item xs={12}>
-                  <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-                    <Button
-                      variant="outlined"
-                      onClick={() => {
-                        setIsChangingPassword(false);
-                        setPasswordData({
-                          currentPassword: '',
-                          newPassword: '',
-                          confirmPassword: ''
-                        });
-                      }}
-                      sx={{ borderRadius: 2 }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="contained"
-                      startIcon={loading.password ? <LinearProgress sx={{ width: 20 }} /> : <LockIcon />}
-                      onClick={handlePasswordChange}
-                      disabled={
-                        loading.password ||
-                        !passwordData.currentPassword ||
-                        !passwordData.newPassword ||
-                        passwordData.newPassword !== passwordData.confirmPassword
-                      }
-                      sx={{ 
-                        borderRadius: 2,
-                        background: `linear-gradient(45deg, ${theme.palette.warning.main}, ${theme.palette.warning.dark})`
-                      }}
-                    >
-                      {loading.password ? 'Changing...' : 'Change Password'}
-                    </Button>
-                  </Box>
-                </Grid>
-              </Grid>
-            </Paper>
-          )}
-        </Box>
+               <Grid item xs={12}>
+                 <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                   <Button
+                     variant="outlined"
+                     onClick={() => {
+                       setIsChangingPassword(false);
+                       setPasswordData({
+                         currentPassword: '',
+                         newPassword: '',
+                         confirmPassword: ''
+                       });
+                     }}
+                     sx={{ borderRadius: 2 }}
+                   >
+                     Cancel
+                   </Button>
+                   <Button
+                     variant="contained"
+                     startIcon={loading.password ? <LinearProgress sx={{ width: 20 }} /> : <LockIcon />}
+                     onClick={handlePasswordChange}
+                     disabled={
+                       loading.password ||
+                       !passwordData.currentPassword ||
+                       !passwordData.newPassword ||
+                       passwordData.newPassword !== passwordData.confirmPassword
+                     }
+                     sx={{ 
+                       borderRadius: 2,
+                       background: `linear-gradient(45deg, ${theme.palette.warning.main}, ${theme.palette.warning.dark})`
+                     }}
+                   >
+                     {loading.password ? 'Changing...' : 'Change Password'}
+                   </Button>
+                 </Box>
+               </Grid>
+             </Grid>
+           </Paper>
+         )}
+       </Box>
 
-        <Divider sx={{ my: 4 }} />
+       <Divider sx={{ my: 4 }} />
 
-        {/* Delete Account Section */}
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 600, color: theme.palette.error.main, mb: 1 }}>
-            Delete Account
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Permanently delete your account and all associated data. This action cannot be undone.
-          </Typography>
-          
-          <Alert severity="warning" sx={{ mb: 3, borderRadius: 2 }}>
-            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-              Before deleting your account, please note:
-            </Typography>
-            <List dense sx={{ mt: 1 }}>
-              <ListItem sx={{ py: 0.5 }}>
-                <ListItemText 
-                  primary="• All your resumes and job applications will be permanently deleted"
-                  primaryTypographyProps={{ variant: 'body2' }}
-                />
-              </ListItem>
-              <ListItem sx={{ py: 0.5 }}>
-                <ListItemText 
-                  primary="• Your AI search history and preferences will be lost"
-                  primaryTypographyProps={{ variant: 'body2' }}
-                />
-              </ListItem>
-              <ListItem sx={{ py: 0.5 }}>
-                <ListItemText 
-                  primary="• Any active outreach campaigns will be terminated"
-                  primaryTypographyProps={{ variant: 'body2' }}
-                />
-              </ListItem>
-            </List>
-          </Alert>
+       {/* Delete Account Section */}
+       <Box>
+         <Typography variant="h6" sx={{ fontWeight: 600, color: theme.palette.error.main, mb: 1 }}>
+           Delete Account
+         </Typography>
+         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+           Permanently delete your account and all associated data. This action cannot be undone.
+         </Typography>
+         
+         <Alert severity="warning" sx={{ mb: 3, borderRadius: 2 }}>
+           <Typography variant="body2" sx={{ fontWeight: 500 }}>
+             Before deleting your account, please note:
+           </Typography>
+           <List dense sx={{ mt: 1 }}>
+             <ListItem sx={{ py: 0.5 }}>
+               <ListItemText 
+                 primary="• All your resumes and job applications will be permanently deleted"
+                 primaryTypographyProps={{ variant: 'body2' }}
+               />
+             </ListItem>
+             <ListItem sx={{ py: 0.5 }}>
+               <ListItemText 
+                 primary="• Your AI search history and preferences will be lost"
+                 primaryTypographyProps={{ variant: 'body2' }}
+               />
+             </ListItem>
+             <ListItem sx={{ py: 0.5 }}>
+               <ListItemText 
+                 primary="• Any active outreach campaigns will be terminated"
+                 primaryTypographyProps={{ variant: 'body2' }}
+               />
+             </ListItem>
+           </List>
+         </Alert>
 
-          <Button
-            variant="outlined"
-            color="error"
-            startIcon={<DeleteIcon />}
-            onClick={() => setShowDeleteDialog(true)}
-            sx={{ borderRadius: 2 }}
-          >
-            Delete My Account
-          </Button>
-        </Box>
-      </CardContent>
-    </Card>
-  );
+         <Button
+           variant="outlined"
+           color="error"
+           startIcon={<DeleteIcon />}
+           onClick={() => setShowDeleteDialog(true)}
+           sx={{ borderRadius: 2 }}
+         >
+           Delete My Account
+         </Button>
+       </Box>
+     </CardContent>
+   </Card>
+ );
 
-  // Get plan-specific info for sidebar
-  const getPlanBadgeColor = () => {
-    if (subscriptionLoading) return 'default';
-    
-    switch (subscription?.subscriptionTier) {
-      case 'hunter': return 'warning';
-      case 'casual': return 'primary';
-      case 'free':
-      default: return 'default';
-    }
-  };
+ // Get plan-specific info for sidebar
+ const getPlanBadgeColor = () => {
+   if (subscriptionLoading) return 'default';
+   
+   switch (subscription?.subscriptionTier) {
+     case 'hunter': return 'warning';
+     case 'casual': return 'primary';
+     case 'free':
+     default: return 'default';
+   }
+ };
 
-  const getPlanDisplayName = () => {
-    if (subscriptionLoading) return 'Loading...';
-    
-    switch (subscription?.subscriptionTier) {
-      case 'hunter': return 'Hunter Plan';
-      case 'casual': return 'Casual Plan';
-      case 'free':
-      default: return 'Free Plan';
-    }
-  };
+ const getPlanDisplayName = () => {
+   if (subscriptionLoading) return 'Loading...';
+   
+   switch (subscription?.subscriptionTier) {
+     case 'hunter': return 'Hunter Plan';
+     case 'casual': return 'Casual Plan';
+     case 'free':
+     default: return 'Free Plan';
+   }
+ };
 
-  return (
-    <MainLayout>
-      <Box sx={{ p: 3 }}>
-        {/* Page Header */}
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h4" component="h1" fontWeight={500}>
-            Settings
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Manage your account preferences, subscription, and security settings
-          </Typography>
-        </Box>
+ return (
+   <MainLayout>
+     <Box sx={{ p: 3 }}>
+       {/* Page Header */}
+       <Box sx={{ mb: 4 }}>
+         <Typography variant="h4" component="h1" fontWeight={500}>
+           Settings
+         </Typography>
+         <Typography variant="body1" color="text.secondary">
+           Manage your account preferences, subscription, and security settings
+         </Typography>
+       </Box>
 
-        {/* Status Messages */}
-        {error && (
-          <Alert 
-            severity="error" 
-            sx={{ mb: 3, borderRadius: 2 }}
-            onClose={() => setError('')}
-          >
-            {error}
-          </Alert>
-        )}
-        
-        {success && (
-          <Alert 
-            severity="success" 
-            sx={{ mb: 3, borderRadius: 2 }}
-            onClose={() => setSuccess('')}
-          >
-            {success}
-          </Alert>
-        )}
+       {/* Status Messages */}
+       {error && (
+         <Alert 
+           severity="error" 
+           sx={{ mb: 3, borderRadius: 2 }}
+           onClose={() => setError('')}
+         >
+           {error}
+         </Alert>
+       )}
+       
+       {success && (
+         <Alert 
+           severity="success" 
+           sx={{ mb: 3, borderRadius: 2 }}
+           onClose={() => setSuccess('')}
+         >
+           {success}
+         </Alert>
+       )}
 
-        <Grid container spacing={3}>
-          {/* Main Content */}
-          <Grid item xs={12} lg={8}>
-            {/* Tabs */}
-            <Card sx={{ borderRadius: 3, mb: 3 }}>
-              <Tabs
-                value={activeTab}
-                onChange={handleTabChange}
-                variant="fullWidth"
-                sx={{
-                  borderBottom: 1,
-                  borderColor: 'divider',
-                  '& .MuiTab-root': {
-                    minHeight: 72,
-                    textTransform: 'none',
-                    fontSize: '1rem',
-                    fontWeight: 500
-                  }
-                }}
-              >
-                {tabs.map((tab) => (
-                  <Tab
-                    key={tab.value}
-                    icon={tab.icon}
-                    label={tab.label}
-                    iconPosition="start"
-                    sx={{ gap: 1 }}
-                  />
-                ))}
-              </Tabs>
-            </Card>
+       <Grid container spacing={3}>
+         {/* Main Content */}
+         <Grid item xs={12} lg={8}>
+           {/* Tabs */}
+           <Card sx={{ borderRadius: 3, mb: 3 }}>
+             <Tabs
+               value={activeTab}
+               onChange={handleTabChange}
+               variant="fullWidth"
+               sx={{
+                 borderBottom: 1,
+                 borderColor: 'divider',
+                 '& .MuiTab-root': {
+                   minHeight: 72,
+                   textTransform: 'none',
+                   fontSize: '1rem',
+                   fontWeight: 500
+                 }
+               }}
+             >
+               {tabs.map((tab) => (
+                 <Tab
+                   key={tab.value}
+                   icon={tab.icon}
+                   label={tab.label}
+                   iconPosition="start"
+                   sx={{ gap: 1 }}
+                 />
+               ))}
+             </Tabs>
+           </Card>
 
-            {/* Tab Content */}
-            {activeTab === 0 && renderProfileTab()}
-            {activeTab === 1 && renderSecurityTab()}
-            {activeTab === 2 && (
-              <SubscriptionSection 
-                onError={setError}
-                onSuccess={setSuccess}
-              />
-            )}
-          </Grid>
+           {/* Tab Content */}
+           {activeTab === 0 && renderProfileTab()}
+           {activeTab === 1 && renderSecurityTab()}
+           {activeTab === 2 && (
+             <div id="subscription-section">
+               <SubscriptionSection 
+                 onError={setError}
+                 onSuccess={setSuccess}
+               />
+             </div>
+           )}
+         </Grid>
 
-          {/* Sidebar - Account Summary */}
-          <Grid item xs={12} lg={4}>
-            <Card sx={{ borderRadius: 3, position: 'sticky', top: 24 }}>
-              <CardContent sx={{ p: 3 }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
-                  Account Summary
-                </Typography>
-                
-                <List>
-                  <ListItem sx={{ px: 0 }}>
-                    <ListItemIcon>
-                      <PersonIcon color="primary" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary="Profile Completion"
-                      secondary={`${settingsService.calculateProfileCompletion(currentUser)}% complete`}
-                    />
-                  </ListItem>
+         {/* Sidebar - Account Summary */}
+         <Grid item xs={12} lg={4}>
+           <Card sx={{ borderRadius: 3, position: 'sticky', top: 24 }}>
+             <CardContent sx={{ p: 3 }}>
+               <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+                 Account Summary
+               </Typography>
+               
+               <List>
+                 <ListItem sx={{ px: 0 }}>
+                   <ListItemIcon>
+                     <PersonIcon color="primary" />
+                   </ListItemIcon>
+                   <ListItemText
+                     primary="Profile Completion"
+                     secondary={`${settingsService.calculateProfileCompletion(currentUser)}% complete`}
+                   />
+                 </ListItem>
 
-                  <ListItem sx={{ px: 0 }}>
-                    <ListItemIcon>
-                      <EmailIcon color={currentUser?.isEmailVerified ? 'success' : 'warning'} />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary="Email Status"
-                      secondary={currentUser?.isEmailVerified ? 'Verified' : 'Pending verification'}
-                    />
-                    <ListItemSecondaryAction>
-                      <Chip
-                        label={currentUser?.isEmailVerified ? 'Verified' : 'Unverified'}
-                        size="small"
-                        color={currentUser?.isEmailVerified ? 'success' : 'warning'}
-                        variant="outlined"
-                        sx={{ borderRadius: 1 }}
-                      />
-                    </ListItemSecondaryAction>
-                  </ListItem>
+                 <ListItem sx={{ px: 0 }}>
+                   <ListItemIcon>
+                     <EmailIcon color={currentUser?.isEmailVerified ? 'success' : 'warning'} />
+                   </ListItemIcon>
+                   <ListItemText
+                     primary="Email Status"
+                     secondary={currentUser?.isEmailVerified ? 'Verified' : 'Pending verification'}
+                   />
+                   <ListItemSecondaryAction>
+                     <Chip
+                       label={currentUser?.isEmailVerified ? 'Verified' : 'Unverified'}
+                       size="small"
+                       color={currentUser?.isEmailVerified ? 'success' : 'warning'}
+                       variant="outlined"
+                       sx={{ borderRadius: 1 }}
+                     />
+                   </ListItemSecondaryAction>
+                 </ListItem>
 
-                  <ListItem sx={{ px: 0 }}>
-                    <ListItemIcon>
-                      <CreditCardIcon color="info" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary="Current Plan"
-                      secondary={getPlanDisplayName()}
-                    />
-                    <ListItemSecondaryAction>
-                      <Chip
-                        label={getPlanDisplayName()}
-                        size="small"
-                        color={getPlanBadgeColor()}
-                        variant="outlined"
-                        sx={{ borderRadius: 1 }}
-                      />
-                    </ListItemSecondaryAction>
-                  </ListItem>
+                 <ListItem sx={{ px: 0 }}>
+                   <ListItemIcon>
+                     <CreditCardIcon color="info" />
+                   </ListItemIcon>
+                   <ListItemText
+                     primary="Current Plan"
+                     secondary={getPlanDisplayName()}
+                   />
+                   <ListItemSecondaryAction>
+                     <Chip
+                       label={getPlanDisplayName()}
+                       size="small"
+                       color={getPlanBadgeColor()}
+                       variant="outlined"
+                       sx={{ borderRadius: 1 }}
+                     />
+                   </ListItemSecondaryAction>
+                 </ListItem>
 
-                  <ListItem sx={{ px: 0 }}>
-                    <ListItemIcon>
-                      <SecurityIcon color="info" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary="Account Security"
-                      secondary="Password protected"
-                    />
-                    <ListItemSecondaryAction>
-                      <Chip
-                        label="Secure"
-                        size="small"
-                        color="success"
-                        variant="outlined"
-                        sx={{ borderRadius: 1 }}
-                      />
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                </List>
+                 <ListItem sx={{ px: 0 }}>
+                   <ListItemIcon>
+                     <SecurityIcon color="info" />
+                   </ListItemIcon>
+                   <ListItemText
+                     primary="Account Security"
+                     secondary="Password protected"
+                   />
+                   <ListItemSecondaryAction>
+                     <Chip
+                       label="Secure"
+                       size="small"
+                       color="success"
+                       variant="outlined"
+                       sx={{ borderRadius: 1 }}
+                     />
+                   </ListItemSecondaryAction>
+                 </ListItem>
+               </List>
 
-                <Divider sx={{ my: 2 }} />
+               <Divider sx={{ my: 2 }} />
 
-                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
-                  Member since {new Date(currentUser?.createdAt || Date.now()).toLocaleDateString('en-US', {
-                    month: 'long',
-                    year: 'numeric'
-                  })}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+               <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                 Member since {new Date(currentUser?.createdAt || Date.now()).toLocaleDateString('en-US', {
+                   month: 'long',
+                   year: 'numeric'
+                 })}
+               </Typography>
+             </CardContent>
+           </Card>
+         </Grid>
+       </Grid>
 
-        {/* Delete Account Confirmation Dialog */}
-        <Dialog
-          open={showDeleteDialog}
-          onClose={() => setShowDeleteDialog(false)}
-          maxWidth="sm"
-          fullWidth
-          PaperProps={{
-            sx: { borderRadius: 3 }
-          }}
-        >
-          <DialogTitle sx={{ 
-            color: theme.palette.error.main,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1
-          }}>
-            <DeleteIcon />
-            Confirm Account Deletion
-          </DialogTitle>
-          <DialogContent>
-            <Typography variant="body1" sx={{ mb: 2 }}>
-              Are you absolutely sure you want to delete your account? This action is permanent and cannot be undone.
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Type <strong>DELETE</strong> below to confirm:
-            </Typography>
-            <TextField
-              fullWidth
-              placeholder="Type DELETE to confirm"
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              sx={{ mt: 2 }}
-            />
-          </DialogContent>
-          <DialogActions sx={{ p: 3 }}>
-            <Button 
-              onClick={() => setShowDeleteDialog(false)}
-              variant="outlined"
-              sx={{ borderRadius: 2 }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleDeleteAccount}
-              variant="contained"
-              color="error"
-              startIcon={loading.delete ? <LinearProgress sx={{ width: 20 }} /> : <DeleteIcon />}
-              disabled={loading.delete || deleteConfirmText !== 'DELETE'}
-              sx={{ borderRadius: 2 }}
-            >
-              {loading.delete ? 'Deleting...' : 'Delete Account'}
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </Box>
-    </MainLayout>
-  );
+       {/* Delete Account Confirmation Dialog */}
+       <Dialog
+         open={showDeleteDialog}
+         onClose={() => setShowDeleteDialog(false)}
+         maxWidth="sm"
+         fullWidth
+         PaperProps={{
+           sx: { borderRadius: 3 }
+         }}
+       >
+         <DialogTitle sx={{ 
+           color: theme.palette.error.main,
+           display: 'flex',
+           alignItems: 'center',
+           gap: 1
+         }}>
+           <DeleteIcon />
+           Confirm Account Deletion
+         </DialogTitle>
+         <DialogContent>
+           <Typography variant="body1" sx={{ mb: 2 }}>
+             Are you absolutely sure you want to delete your account? This action is permanent and cannot be undone.
+           </Typography>
+           <Typography variant="body2" color="text.secondary">
+             Type <strong>DELETE</strong> below to confirm:
+           </Typography>
+           <TextField
+             fullWidth
+             placeholder="Type DELETE to confirm"
+             value={deleteConfirmText}
+             onChange={(e) => setDeleteConfirmText(e.target.value)}
+             sx={{ mt: 2 }}
+           />
+         </DialogContent>
+         <DialogActions sx={{ p: 3 }}>
+           <Button 
+             onClick={() => setShowDeleteDialog(false)}
+             variant="outlined"
+             sx={{ borderRadius: 2 }}
+           >
+             Cancel
+           </Button>
+           <Button
+             onClick={handleDeleteAccount}
+             variant="contained"
+             color="error"
+             startIcon={loading.delete ? <LinearProgress sx={{ width: 20 }} /> : <DeleteIcon />}
+             disabled={loading.delete || deleteConfirmText !== 'DELETE'}
+             sx={{ borderRadius: 2 }}
+           >
+             {loading.delete ? 'Deleting...' : 'Delete Account'}
+           </Button>
+         </DialogActions>
+       </Dialog>
+     </Box>
+   </MainLayout>
+ );
 };
 
 export default SettingsPage;

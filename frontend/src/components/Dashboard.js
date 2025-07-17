@@ -1,4 +1,4 @@
-// src/components/Dashboard.js - Updated with Fixed Resume Detection and Tailoring Step
+// src/components/Dashboard.js - Updated with Removed Apply & Track Functionality
 import React, { useState, useEffect, useContext } from 'react';
 import {
   Box,
@@ -29,13 +29,11 @@ import {
 import {
   Description as DescriptionIcon,
   Work as WorkIcon,
-  Assignment as AssignmentIcon,
   CheckCircle as CheckCircleIcon,
   Search as SearchIcon,
   People as PeopleIcon,
   Speed as SpeedIcon,
   AutoAwesome as AutoAwesomeIcon,
-  Send as SendIcon,
   SmartToy as SmartToyIcon,
   Upload as UploadIcon,
   Person as PersonIcon,
@@ -71,7 +69,6 @@ const Dashboard = () => {
   const [stats, setStats] = useState({
     resumeCount: 0,
     jobMatches: 0,
-    applications: 0,
     resumeScore: 0,
     hasActiveResume: false,
     hasAnalyzedResumes: false,
@@ -113,7 +110,6 @@ const Dashboard = () => {
         // Calculate stats with better detection logic
         const activeResume = resumesData.find(r => r.isActive);
         const completedJobs = jobsData.filter(j => j.analysisStatus?.status === 'completed');
-        const applications = jobsData.filter(j => j.applicationStatus && j.applicationStatus !== 'Not Applied');
         
         // Better resume analysis detection - check multiple possible structures
         const analyzedResumes = resumesData.filter(r => {
@@ -174,7 +170,6 @@ const Dashboard = () => {
         const finalStats = {
           resumeCount: resumesData.length,
           jobMatches: completedJobs.length,
-          applications: applications.length,
           resumeScore: resumeScore,
           hasActiveResume: !!activeResume,
           hasAnalyzedResumes: analyzedResumes.length > 0,
@@ -255,7 +250,6 @@ const Dashboard = () => {
   const isFirstTimeUser = stats.resumeCount === 0;
   const hasResumes = stats.resumeCount > 0;
   const hasJobs = stats.jobMatches > 0;
-  const hasApplications = stats.applications > 0;
   const hasTailoredResumes = stats.hasTailoredResumes;
 
   // Show embedded guide for first-time users or those with minimal activity
@@ -714,7 +708,7 @@ const Dashboard = () => {
     </Box>
   );
 
-  // Progress Steps Component (for users with some data) - Updated with Tailoring Step
+  // Progress Steps Component (for users with some data) - Updated WITHOUT Apply & Track
   const ProgressSteps = () => {
     const steps = [
       {
@@ -752,15 +746,6 @@ const Dashboard = () => {
         action: () => navigate('/jobs'),
         icon: <EditIcon />,
         actionText: hasTailoredResumes ? `View ${stats.tailoredResumeCount} Tailored` : 'Start Tailoring'
-      },
-      {
-        id: 'apply',
-        title: 'Apply & Track',
-        description: 'Submit applications',
-        completed: hasApplications,
-        action: () => navigate('/jobs'),
-        icon: <SendIcon />,
-        actionText: hasApplications ? 'Track Applications' : 'Start Applying'
       }
     ];
 
@@ -799,7 +784,7 @@ const Dashboard = () => {
           
           <Grid container spacing={2}>
             {steps.map((step, index) => (
-              <Grid item xs={12} sm={6} md={2.4} key={step.id}>
+              <Grid item xs={12} sm={6} md={3} key={step.id}>
                 <Box
                   sx={{
                     display: 'flex',
@@ -868,13 +853,13 @@ const Dashboard = () => {
     );
   };
 
-  // Stats Overview for existing users
+  // Stats Overview for existing users - Updated WITHOUT Applications
   const StatsOverview = () => {
     if (isFirstTimeUser) return null;
 
     return (
       <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={4}>
           <Card sx={{ 
             background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
             color: 'white'
@@ -890,7 +875,7 @@ const Dashboard = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={4}>
           <Card sx={{ 
             background: `linear-gradient(135deg, ${theme.palette.info.main} 0%, ${theme.palette.info.dark} 100%)`,
             color: 'white'
@@ -906,23 +891,7 @@ const Dashboard = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ 
-            background: `linear-gradient(135deg, ${theme.palette.success.main} 0%, ${theme.palette.success.dark} 100%)`,
-            color: 'white'
-          }}>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <AssignmentIcon sx={{ fontSize: 32, color: 'white', mb: 1 }} />
-              <Typography variant="h4" sx={{ fontWeight: 600, color: 'white' }}>
-                {stats.applications}
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                Applications
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={4}>
           <Card sx={{ 
             background: `linear-gradient(135deg, ${theme.palette.secondary.main} 0%, ${theme.palette.secondary.dark} 100%)`,
             color: 'white'
@@ -949,8 +918,8 @@ const Dashboard = () => {
           <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 3, mb: 3 }} />
           <Skeleton variant="rectangular" height={200} sx={{ borderRadius: 2, mb: 3 }} />
           <Grid container spacing={3}>
-            {[...Array(4)].map((_, i) => (
-              <Grid item xs={12} sm={6} md={3} key={i}>
+            {[...Array(3)].map((_, i) => (
+              <Grid item xs={12} sm={6} md={4} key={i}>
                 <Skeleton variant="rectangular" height={150} sx={{ borderRadius: 2 }} />
               </Grid>
             ))}
