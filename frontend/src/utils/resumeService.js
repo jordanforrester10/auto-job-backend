@@ -159,6 +159,25 @@ const resumeService = {
         'Project Manager'
       ];
     }
+  },
+
+  // NEW: Get first-time user onboarding analysis
+  getFirstResumeAnalysis: async (resumeId) => {
+    try {
+      console.log('🎯 Fetching first-time user onboarding analysis for resume:', resumeId);
+      
+      if (!resumeId) {
+        throw new Error('Resume ID is required for onboarding analysis');
+      }
+      
+      console.log('🔧 Using AI API for onboarding analysis with 3-minute timeout');
+      // Use aiApi for AI-powered onboarding analysis (aiApi already includes /api prefix)
+      const response = await aiApi.post(`/resumes/${resumeId}/onboarding-analysis`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching onboarding analysis:', error);
+      throw error.response?.data || error;
+    }
   }
 };
 

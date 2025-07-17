@@ -15,6 +15,9 @@ import ResumesPage from './components/resumes/ResumesPage';
 import ResumeUploadDialog from './components/resumes/ResumeUploadDialog';
 import ResumeDetail from './components/resumes/ResumeDetail';
 
+// Import onboarding components
+import OnboardingWelcome from './components/onboarding/OnboardingWelcome';
+
 // Import job-related components
 import JobsPage from './components/jobs/JobsPage';
 import JobDetail from './components/jobs/JobDetail';
@@ -135,6 +138,16 @@ function App() {
               element={
                 <ProtectedRouteWithSubscription>
                   <ResumeDetail />
+                </ProtectedRouteWithSubscription>
+              }
+            />
+            
+            {/* Onboarding Route */}
+            <Route
+              path="/onboarding/welcome/:id"
+              element={
+                <ProtectedRouteWithSubscription>
+                  <OnboardingWelcome />
                 </ProtectedRouteWithSubscription>
               }
             />

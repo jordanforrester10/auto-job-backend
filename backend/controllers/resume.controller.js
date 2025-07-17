@@ -1387,3 +1387,184 @@ exports.deleteResume = async (req, res) => {
     res.status(500).json({ message: 'Failed to delete resume', error: error.message });
   }
 };
+
+// NEW: First-time user onboarding analysis - combines resume analysis + job search + recruiter lookup
+exports.firstResumeAnalysis = async (req, res) => {
+  try {
+    const userId = req.user?._id || req.userId;
+    
+    if (!userId) {
+      return res.status(401).json({ message: 'User identification missing' });
+    }
+    
+    const resumeId = req.params.id;
+    
+    if (!mongoose.Types.ObjectId.isValid(resumeId)) {
+      return res.status(400).json({ message: 'Invalid resume ID' });
+    }
+    
+    console.log(`🎯 Starting first-time user onboarding analysis for resume ${resumeId}, user ${userId}`);
+    
+    // Get the resume and verify it belongs to the user
+    const resume = await Resume.findOne({ _id: resumeId, userId });
+    
+    if (!resume) {
+      return res.status(404).json({ message: 'Resume not found' });
+    }
+    
+    // Ensure resume has been analyzed
+    if (!resume.analysis || !resume.parsedData) {
+      return res.status(400).json({ 
+        message: 'Resume must be fully processed before onboarding analysis',
+        processingStatus: resume.processingStatus
+      });
+    }
+    
+    console.log(`📊 Resume found and analyzed: ${resume.name}`);
+    
+    // Import required services
+    const jobSearchService = require('../services/jobSearch.service');
+    const db = require('../config/postgresql');
+    
+    // Step 1: Get resume analysis (already available)
+    const resumeAnalysis = {
+      overallScore: resume.analysis.overallScore || 0,
+      atsCompatibility: resume.analysis.atsCompatibility || 0,
+      profileSummary: resume.analysis.profileSummary || {},
+      strengths: resume.analysis.strengths || [],
+      weaknesses: resume.analysis.weaknesses || [],
+      keywordsSuggestions: resume.analysis.keywordsSuggestions || [],
+      improvementAreas: resume.analysis.improvementAreas || []
+    };
+    
+    console.log(`✅ Resume analysis ready - Overall Score: ${resumeAnalysis.overallScore}%`);
+    
+    // Step 2: Find 3 jobs from anywhere in US using existing job search service
+    console.log(`🔍 Starting onboarding job search...`);
+    
+    let jobs = [];
+    try {
+      // Use the existing job search service with onboarding-specific parameters
+      const jobSearchResult = await jobSearchService.searchJobsForOnboarding(resumeId, 3);
+      jobs = jobSearchResult.jobs || [];
+      console.log(`✅ Found ${jobs.length} jobs for onboarding`);
+    } catch (jobSearchError) {
+      console.error('❌ Error in onboarding job search:', jobSearchError);
+      // Continue with empty jobs array - don't fail the entire onboarding
+      jobs = [];
+    }
+    
+    // Step 3: Find recruiters based on job companies
+    console.log(`👥 Starting recruiter lookup for ${jobs.length} companies...`);
+    
+    let recruiters = [];
+    try {
+      if (jobs.length > 0) {
+        // Extract unique company names from jobs
+        const companyNames = [...new Set(jobs.map(job => job.company).filter(Boolean))];
+        console.log(`🏢 Looking up recruiters for companies: ${companyNames.join(', ')}`);
+        
+        // Find one recruiter per company
+        const recruiterPromises = companyNames.slice(0, 3).map(async (companyName) => {
+          try {
+            const query = `
+              SELECT r.id, r.first_name, r.last_name, r.title, r.email, r.linkedin_profile_url,
+                     c.name as company_name, c.website as company_website, c.employee_count,
+                     i.name as industry_name
+              FROM recruiters r
+              JOIN companies c ON r.current_company_id = c.id
+              LEFT JOIN industries i ON c.industry_id = i.id
+              WHERE LOWER(c.name) LIKE LOWER($1)
+                AND r.email IS NOT NULL
+                AND r.email != ''
+              ORDER BY r.contact_accuracy_score DESC NULLS LAST
+              LIMIT 1
+            `;
+            
+            const result = await db.query(query, [`%${companyName}%`]);
+            
+            if (result.rows.length > 0) {
+              const recruiter = result.rows[0];
+              return {
+                id: recruiter.id,
+                firstName: recruiter.first_name,
+                lastName: recruiter.last_name,
+                fullName: `${recruiter.first_name} ${recruiter.last_name}`,
+                title: recruiter.title,
+                email: recruiter.email,
+                linkedinUrl: recruiter.linkedin_profile_url,
+                company: {
+                  name: recruiter.company_name,
+                  website: recruiter.company_website,
+                  employeeCount: recruiter.employee_count
+                },
+                industry: recruiter.industry_name,
+                isOnboardingRecruiter: true // Flag to indicate this is for onboarding
+              };
+            }
+            return null;
+          } catch (error) {
+            console.error(`❌ Error finding recruiter for ${companyName}:`, error);
+            return null;
+          }
+        });
+        
+        const recruiterResults = await Promise.all(recruiterPromises);
+        recruiters = recruiterResults.filter(Boolean);
+        
+        console.log(`✅ Found ${recruiters.length} recruiters for onboarding`);
+      }
+    } catch (recruiterError) {
+      console.error('❌ Error in recruiter lookup:', recruiterError);
+      // Continue with empty recruiters array - don't fail the entire onboarding
+      recruiters = [];
+    }
+    
+    // Step 4: Return combined data
+    const response = {
+      success: true,
+      message: 'First-time user onboarding analysis completed',
+      data: {
+        resumeAnalysis,
+        jobs: jobs.map(job => ({
+          id: job._id || job.id,
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          description: job.description,
+          salary: job.salary,
+          jobType: job.jobType,
+          sourceUrl: job.sourceUrl,
+          parsedData: job.parsedData,
+          isOnboardingJob: true // Flag to indicate this is for onboarding
+        })),
+        recruiters,
+        metadata: {
+          resumeId: resumeId,
+          userId: userId,
+          generatedAt: new Date().toISOString(),
+          jobsFound: jobs.length,
+          recruitersFound: recruiters.length,
+          isFirstTimeUser: true
+        }
+      }
+    };
+    
+    console.log(`🎉 Onboarding analysis completed successfully:`, {
+      resumeScore: resumeAnalysis.overallScore,
+      jobsFound: jobs.length,
+      recruitersFound: recruiters.length
+    });
+    
+    res.status(200).json(response);
+    
+  } catch (error) {
+    console.error('❌ Error in first-time user onboarding analysis:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to complete onboarding analysis', 
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+};

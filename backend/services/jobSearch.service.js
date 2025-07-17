@@ -1173,6 +1173,182 @@ exports.getUserWeeklyJobStatsForSubscription = async (userId, weeklyLimit) => {
   return await getUserWeeklyJobStatsWithPersistentTracking(userId, weeklyLimit);
 };
 
+// 🆕 NEW: Onboarding-specific job search - finds 3 jobs from anywhere in US for first-time users
+exports.searchJobsForOnboarding = async (resumeId, limit = 3) => {
+  try {
+    console.log(`🎯 Starting onboarding job search for resume ${resumeId}, limit: ${limit}`);
+    
+    const Resume = require('../models/mongodb/resume.model');
+    const resume = await Resume.findById(resumeId);
+    
+    if (!resume || !resume.parsedData) {
+      throw new Error('Resume not found or not parsed');
+    }
+    
+    console.log(`📊 Resume found: ${resume.name}`);
+    
+    // Extract search criteria from resume
+    const searchCriteria = {
+      jobTitle: resume.parsedData.experience?.[0]?.title || 'Professional',
+      skills: resume.parsedData.skills?.slice(0, 10).map(s => typeof s === 'string' ? s : s.name) || [],
+      experienceLevel: resume.analysis?.experienceLevel || 'Mid',
+      // For onboarding, search anywhere in US
+      searchLocations: [{ name: 'United States', type: 'country' }],
+      remoteWork: true // Include remote jobs for broader reach
+    };
+    
+    console.log(`🔍 Search criteria:`, {
+      jobTitle: searchCriteria.jobTitle,
+      skillsCount: searchCriteria.skills.length,
+      experienceLevel: searchCriteria.experienceLevel,
+      locations: searchCriteria.searchLocations.map(loc => loc.name)
+    });
+    
+    // Use existing ActiveJobsDB service for job discovery
+    const ActiveJobsDBExtractor = require('./activeJobsDB.service');
+    const activeJobsDBExtractor = new ActiveJobsDBExtractor();
+    
+    // Test API health first
+    const apiHealth = await activeJobsDBExtractor.getApiHealth();
+    if (apiHealth.status !== 'healthy') {
+      console.warn(`⚠️ ActiveJobs DB API not healthy: ${apiHealth.message}, using fallback`);
+      return { jobs: [], source: 'fallback_empty' };
+    }
+    
+    // Prepare search parameters for onboarding
+    const searchParams = {
+      jobTitle: searchCriteria.jobTitle,
+      searchLocations: searchCriteria.searchLocations,
+      experienceLevel: searchCriteria.experienceLevel,
+      keywords: searchCriteria.skills.slice(0, 5), // Top 5 skills
+      limit: limit,
+      onboardingSearch: true // Flag for onboarding
+    };
+    
+    console.log(`🌍 Executing onboarding job search...`);
+    
+    // Execute job search
+    const searchResults = await activeJobsDBExtractor.searchActiveJobsDBWithLocations(searchParams);
+    
+    if (!searchResults || !searchResults.jobs) {
+      console.warn(`⚠️ No search results returned`);
+      return { jobs: [], source: 'no_results' };
+    }
+    
+    const jobs = searchResults.jobs.slice(0, limit);
+    
+    console.log(`✅ Onboarding job search completed: ${jobs.length} jobs found`);
+    
+    // Enhance jobs with onboarding-specific analysis
+    const enhancedJobs = await Promise.all(jobs.map(async (job) => {
+      try {
+        // Use existing job analysis service for enhanced analysis
+        const jobAnalysisService = require('./jobAnalysis.service');
+        
+        const jobMetadata = {
+          title: job.title,
+          company: job.company,
+          location: job.location?.original || job.location,
+          salary: job.salary,
+          workArrangement: job.workArrangement,
+          isRemote: job.isRemote
+        };
+        
+        // Analyze job with onboarding focus
+        const analysis = await jobAnalysisService.analyzeJob(
+          job.description || job.fullContent || 'Job description not available',
+          jobMetadata,
+          {
+            isAiDiscovery: true,
+            prioritizeCost: true, // Use cost-effective analysis for onboarding
+            focusOnSalary: true,
+            enhanceLocation: true,
+            onboardingAnalysis: true // Flag for onboarding-specific analysis
+          }
+        );
+        
+        return {
+          ...job,
+          analysis,
+          isOnboardingJob: true,
+          enhancedForOnboarding: true
+        };
+        
+      } catch (analysisError) {
+        console.error(`❌ Error analyzing job ${job.title}:`, analysisError);
+        // Return job without enhanced analysis
+        return {
+          ...job,
+          analysis: createBasicOnboardingAnalysis(job),
+          isOnboardingJob: true,
+          enhancedForOnboarding: false
+        };
+      }
+    }));
+    
+    const result = {
+      jobs: enhancedJobs,
+      metadata: {
+        searchCriteria,
+        totalFound: enhancedJobs.length,
+        source: 'active_jobs_db',
+        searchType: 'onboarding',
+        enhancedAnalysis: true,
+        generatedAt: new Date().toISOString()
+      }
+    };
+    
+    console.log(`🎉 Onboarding job search completed successfully:`, {
+      jobsFound: result.jobs.length,
+      enhancedJobs: result.jobs.filter(j => j.enhancedForOnboarding).length,
+      source: result.metadata.source
+    });
+    
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Error in onboarding job search:', error);
+    
+    // Return fallback result instead of throwing
+    return {
+      jobs: [],
+      metadata: {
+        error: error.message,
+        source: 'error_fallback',
+        searchType: 'onboarding',
+        generatedAt: new Date().toISOString()
+      }
+    };
+  }
+};
+
+// Helper function to create basic analysis for onboarding jobs
+function createBasicOnboardingAnalysis(job) {
+  return {
+    requirements: ['Relevant experience', 'Strong communication skills'],
+    responsibilities: ['Execute key tasks', 'Collaborate with team'],
+    qualifications: {
+      required: ['Bachelor\'s degree or equivalent', 'Relevant experience'],
+      preferred: ['Advanced degree', 'Industry certifications']
+    },
+    keySkills: [
+      { name: 'Communication', importance: 7, category: 'soft', skillType: 'communication' },
+      { name: 'Problem Solving', importance: 7, category: 'soft', skillType: 'analytical' },
+      { name: 'Teamwork', importance: 6, category: 'soft', skillType: 'communication' }
+    ],
+    experienceLevel: 'mid',
+    workArrangement: job.workArrangement || 'unknown',
+    salary: job.salary || { min: null, max: null, currency: 'USD' },
+    analysisMetadata: {
+      analyzedAt: new Date(),
+      algorithmVersion: '1.0-onboarding-basic',
+      analysisType: 'onboarding_basic',
+      qualityLevel: 'basic',
+      onboardingAnalysis: true
+    }
+  };
+}
+
 // EXISTING EXPORTS - UPDATED FOR PERSISTENT WEEKLY TRACKING
 exports.getUserAiSearches = async (userId) => {
   try {

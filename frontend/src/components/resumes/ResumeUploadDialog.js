@@ -318,7 +318,7 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
               if (jobCount === 0) {
                 // First-time user flow - show enhanced onboarding
                 console.log('🎯 Navigating to onboarding flow');
-                navigate(`/resumes/${resumeId}?showOnboarding=true`);
+                navigate(`/onboarding/welcome/${resumeId}?showOnboarding=true`);
               } else {
                 // Existing user flow - normal resume detail
                 console.log('✅ Navigating to normal resume detail');
@@ -382,7 +382,7 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
       setTimeout(() => {
         if (jobCount === 0) {
           console.log('🎯 Navigating to onboarding flow from View Resume');
-          navigate(`/resumes/${resumeId}?showOnboarding=true`);
+          navigate(`/onboarding/welcome/${resumeId}?showOnboarding=true`);
         } else {
           console.log('✅ Navigating to normal resume detail from View Resume');
           navigate(`/resumes/${resumeId}`);

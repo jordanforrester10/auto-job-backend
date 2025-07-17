@@ -32,6 +32,9 @@ router.delete('/:id', resumeController.deleteResume);
 
 router.get('/:id/job-suggestions', resumeController.getJobSuggestions);
 
+// NEW: First-time user onboarding analysis endpoint
+router.post('/:id/onboarding-analysis', resumeController.firstResumeAnalysis);
+
 // Generic /:id route LAST
 router.get('/:id', resumeController.getResumeById);
 
