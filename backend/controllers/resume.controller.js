@@ -6,6 +6,7 @@ const Resume = require('../models/mongodb/resume.model');
 const resumeParserService = require('../services/resumeParser.service');
 const resumeAnalysisService = require('../services/resumeAnalysis.service');
 const subscriptionService = require('../services/subscription.service');
+const jobSearchService = require('../services/jobSearch.service'); // 🆕 ADD THIS LINE
 const usageService = require('../services/usage.service');
 const mongoose = require('mongoose');
 const path = require('path');
@@ -1389,6 +1390,7 @@ exports.deleteResume = async (req, res) => {
 };
 
 // NEW: First-time user onboarding analysis - combines resume analysis + job search + recruiter lookup
+// NEW: First-time user onboarding analysis with JOB CACHING
 exports.firstResumeAnalysis = async (req, res) => {
   try {
     const userId = req.user?._id || req.userId;
@@ -1422,10 +1424,6 @@ exports.firstResumeAnalysis = async (req, res) => {
     
     console.log(`📊 Resume found and analyzed: ${resume.name}`);
     
-    // Import required services
-    const jobSearchService = require('../services/jobSearch.service');
-    const db = require('../config/postgresql');
-    
     // Step 1: Get resume analysis (already available)
     const resumeAnalysis = {
       overallScore: resume.analysis.overallScore || 0,
@@ -1439,85 +1437,120 @@ exports.firstResumeAnalysis = async (req, res) => {
     
     console.log(`✅ Resume analysis ready - Overall Score: ${resumeAnalysis.overallScore}%`);
     
-    // Step 2: Find 3 jobs from anywhere in US using existing job search service
-    console.log(`🔍 Starting onboarding job search...`);
+    // 🔧 NEW: Step 2 - Check for cached onboarding jobs first
+    console.log(`🔍 Checking for cached onboarding jobs...`);
     
     let jobs = [];
-    try {
-      // Use the existing job search service with onboarding-specific parameters
-      const jobSearchResult = await jobSearchService.searchJobsForOnboarding(resumeId, 3);
-      jobs = jobSearchResult.jobs || [];
-      console.log(`✅ Found ${jobs.length} jobs for onboarding`);
-    } catch (jobSearchError) {
-      console.error('❌ Error in onboarding job search:', jobSearchError);
-      // Continue with empty jobs array - don't fail the entire onboarding
-      jobs = [];
-    }
-    
-    // Step 3: Find recruiters based on job companies
-    console.log(`👥 Starting recruiter lookup for ${jobs.length} companies...`);
-    
     let recruiters = [];
-    try {
-      if (jobs.length > 0) {
-        // Extract unique company names from jobs
-        const companyNames = [...new Set(jobs.map(job => job.company).filter(Boolean))];
-        console.log(`🏢 Looking up recruiters for companies: ${companyNames.join(', ')}`);
-        
-        // Find one recruiter per company
-        const recruiterPromises = companyNames.slice(0, 3).map(async (companyName) => {
-          try {
-            const query = `
-              SELECT r.id, r.first_name, r.last_name, r.title, r.email, r.linkedin_profile_url,
-                     c.name as company_name, c.website as company_website, c.employee_count,
-                     i.name as industry_name
-              FROM recruiters r
-              JOIN companies c ON r.current_company_id = c.id
-              LEFT JOIN industries i ON c.industry_id = i.id
-              WHERE LOWER(c.name) LIKE LOWER($1)
-                AND r.email IS NOT NULL
-                AND r.email != ''
-              ORDER BY r.contact_accuracy_score DESC NULLS LAST
-              LIMIT 1
-            `;
-            
-            const result = await db.query(query, [`%${companyName}%`]);
-            
-            if (result.rows.length > 0) {
-              const recruiter = result.rows[0];
-              return {
-                id: recruiter.id,
-                firstName: recruiter.first_name,
-                lastName: recruiter.last_name,
-                fullName: `${recruiter.first_name} ${recruiter.last_name}`,
-                title: recruiter.title,
-                email: recruiter.email,
-                linkedinUrl: recruiter.linkedin_profile_url,
-                company: {
-                  name: recruiter.company_name,
-                  website: recruiter.company_website,
-                  employeeCount: recruiter.employee_count
-                },
-                industry: recruiter.industry_name,
-                isOnboardingRecruiter: true // Flag to indicate this is for onboarding
-              };
-            }
-            return null;
-          } catch (error) {
-            console.error(`❌ Error finding recruiter for ${companyName}:`, error);
-            return null;
-          }
-        });
-        
-        const recruiterResults = await Promise.all(recruiterPromises);
-        recruiters = recruiterResults.filter(Boolean);
-        
-        console.log(`✅ Found ${recruiters.length} recruiters for onboarding`);
+    let fromCache = false;
+    
+    // Check if we have valid cached onboarding data
+    const cachedData = resume.getCachedOnboardingData();
+    
+    if (cachedData) {
+      console.log(`✅ Found valid cached onboarding data - ${cachedData.jobs.length} jobs, ${cachedData.recruiters.length} recruiters (${cachedData.metadata.cacheAge} hours old)`);
+      jobs = cachedData.jobs;
+      recruiters = cachedData.recruiters;
+      fromCache = true;
+    } else {
+      console.log(`🔄 No valid cache found - generating fresh onboarding data with API calls`);
+      
+      // Step 2: Find 3 jobs from anywhere in US using existing job search service
+      console.log(`🔍 Starting fresh onboarding job search...`);
+      
+      try {
+        // Use the existing job search service with onboarding-specific parameters
+        const jobSearchResult = await jobSearchService.searchJobsForOnboarding(resumeId, 3);
+        jobs = jobSearchResult.jobs || [];
+        console.log(`✅ Found ${jobs.length} jobs for onboarding`);
+      } catch (jobSearchError) {
+        console.error('❌ Error in onboarding job search:', jobSearchError);
+        // Continue with empty jobs array - don't fail the entire onboarding
+        jobs = [];
       }
-    } catch (recruiterError) {
-      console.error('❌ Error in recruiter lookup:', recruiterError);
-      // Continue with empty recruiters array - don't fail the entire onboarding
-      recruiters = [];
+      
+      // Step 3: Find recruiters based on job companies
+      console.log(`👥 Starting recruiter lookup for ${jobs.length} companies...`);
+      
+      try {
+        if (jobs.length > 0) {
+          // Extract unique company names from jobs
+          const companyNames = [...new Set(jobs.map(job => job.company).filter(Boolean))];
+          console.log(`🏢 Looking up recruiters for companies: ${companyNames.join(', ')}`);
+          
+          // Import required services
+          const db = require('../config/postgresql');
+          
+          // Find one recruiter per company
+          const recruiterPromises = companyNames.slice(0, 3).map(async (companyName) => {
+            try {
+              const query = `
+                SELECT r.id, r.first_name, r.last_name, r.title, r.email, r.linkedin_profile_url,
+                       c.name as company_name, c.website as company_website, c.employee_count,
+                       i.name as industry_name
+                FROM recruiters r
+                JOIN companies c ON r.current_company_id = c.id
+                LEFT JOIN industries i ON c.industry_id = i.id
+                WHERE LOWER(c.name) LIKE LOWER($1)
+                  AND r.email IS NOT NULL
+                  AND r.email != ''
+                ORDER BY r.contact_accuracy_score DESC NULLS LAST
+                LIMIT 1
+              `;
+              
+              const result = await db.query(query, [`%${companyName}%`]);
+              
+              if (result.rows.length > 0) {
+                const recruiter = result.rows[0];
+                return {
+                  id: recruiter.id,
+                  firstName: recruiter.first_name,
+                  lastName: recruiter.last_name,
+                  fullName: `${recruiter.first_name} ${recruiter.last_name}`,
+                  title: recruiter.title,
+                  email: recruiter.email,
+                  linkedinUrl: recruiter.linkedin_profile_url,
+                  company: {
+                    name: recruiter.company_name,
+                    website: recruiter.company_website,
+                    employeeCount: recruiter.employee_count
+                  },
+                  industry: recruiter.industry_name,
+                  isOnboardingRecruiter: true
+                };
+              }
+              return null;
+            } catch (error) {
+              console.error(`❌ Error finding recruiter for ${companyName}:`, error);
+              return null;
+            }
+          });
+          
+          const recruiterResults = await Promise.all(recruiterPromises);
+          recruiters = recruiterResults.filter(Boolean);
+          
+          console.log(`✅ Found ${recruiters.length} recruiters for onboarding`);
+        }
+      } catch (recruiterError) {
+        console.error('❌ Error in recruiter lookup:', recruiterError);
+        // Continue with empty recruiters array - don't fail the entire onboarding
+        recruiters = [];
+      }
+      
+      // 🆕 NEW: Cache the generated data to prevent future API calls
+      if (jobs.length > 0 || recruiters.length > 0) {
+        console.log(`💾 Caching onboarding data - ${jobs.length} jobs, ${recruiters.length} recruiters`);
+        try {
+          await resume.cacheOnboardingData(jobs, recruiters, {
+            searchCriteria: { jobTitle: 'Professional', location: 'United States' },
+            apiCallsMade: 1
+          });
+          console.log(`✅ Onboarding data cached successfully`);
+        } catch (cacheError) {
+          console.error('❌ Error caching onboarding data (non-critical):', cacheError);
+          // Don't fail if caching fails
+        }
+      }
     }
     
     // Step 4: Return combined data
@@ -1536,7 +1569,7 @@ exports.firstResumeAnalysis = async (req, res) => {
           jobType: job.jobType,
           sourceUrl: job.sourceUrl,
           parsedData: job.parsedData,
-          isOnboardingJob: true // Flag to indicate this is for onboarding
+          isOnboardingJob: true
         })),
         recruiters,
         metadata: {
@@ -1545,7 +1578,12 @@ exports.firstResumeAnalysis = async (req, res) => {
           generatedAt: new Date().toISOString(),
           jobsFound: jobs.length,
           recruitersFound: recruiters.length,
-          isFirstTimeUser: true
+          isFirstTimeUser: true,
+          fromCache: fromCache, // 🆕 NEW: Indicate if data came from cache
+          cacheInfo: fromCache ? {
+            cacheAge: Math.floor((Date.now() - new Date(resume.onboardingJobCache?.metadata?.generatedAt).getTime()) / (1000 * 60 * 60)),
+            cacheVersion: resume.onboardingJobCache?.metadata?.cacheVersion || '1.0'
+          } : null
         }
       }
     };
@@ -1553,7 +1591,8 @@ exports.firstResumeAnalysis = async (req, res) => {
     console.log(`🎉 Onboarding analysis completed successfully:`, {
       resumeScore: resumeAnalysis.overallScore,
       jobsFound: jobs.length,
-      recruitersFound: recruiters.length
+      recruitersFound: recruiters.length,
+      fromCache: fromCache
     });
     
     res.status(200).json(response);
