@@ -1,4 +1,4 @@
-// src/components/resumes/tabs/ContentTab.js
+// src/components/resumes/tabs/ContentTab.js - ENHANCED BULLET POINT RENDERING
 import React from 'react';
 import {
   Box,
@@ -24,12 +24,13 @@ import {
   Code as CodeIcon,
   CheckCircle as CheckCircleIcon,
   BusinessCenter as BusinessCenterIcon,
-  Timeline as TimelineIcon
+  Timeline as TimelineIcon,
+  FiberManualRecord as BulletIcon
 } from '@mui/icons-material';
-import { formatDateRange } from '../utils/resumeHelpers';
+import { formatDateRange, extractBulletPointsFromText, renderSmartBulletPoints } from '../utils/resumeHelpers';
 
 /**
- * Content tab component showing full resume content in structured format
+ * Content tab component showing full resume content in structured format with enhanced bullet point rendering
  * @param {object} props - Component props
  * @param {object} props.resume - Resume data
  * @param {object} props.theme - MUI theme object
@@ -44,6 +45,94 @@ const ContentTab = ({ resume, theme }) => {
     theme.palette.error.main,
     theme.palette.info.main
   ];
+
+  /**
+   * Smart bullet point renderer with fallback logic
+   * @param {object} item - Experience or education item
+   * @param {string} section - Section type ('experience' or 'education')
+   * @returns {JSX.Element} Rendered bullet points
+   */
+  const renderBulletPoints = (item, section = 'experience') => {
+    let bulletPoints = [];
+    
+    // Primary: Use highlights array if available
+    if (item.highlights && Array.isArray(item.highlights) && item.highlights.length > 0) {
+      bulletPoints = item.highlights;
+    } 
+    // Fallback: Extract from description if highlights are empty
+    else if (item.description) {
+      bulletPoints = extractBulletPointsFromText(item.description);
+    }
+
+    // If we have bullet points to render
+    if (bulletPoints.length > 0) {
+      return (
+        <Box sx={{ mt: 1.5 }}>
+          <Typography variant="body2" fontWeight="bold" color="primary">
+            {section === 'experience' ? 'Key Achievements:' : 'Highlights:'}
+          </Typography>
+          <List dense sx={{ pl: 1 }}>
+            {bulletPoints.map((point, idx) => (
+              <ListItem key={idx} sx={{ px: 0, py: 0.5, alignItems: 'flex-start' }}>
+                <ListItemIcon sx={{ minWidth: 28, mt: 0.5 }}>
+                  <CheckCircleIcon fontSize="small" color="success" />
+                </ListItemIcon>
+                <ListItemText 
+                  primary={point} 
+                  sx={{ 
+                    '& .MuiListItemText-primary': { 
+                      fontSize: '0.875rem',
+                      lineHeight: 1.5
+                    } 
+                  }} 
+                />
+              </ListItem>
+            ))}
+          </List>
+        </Box>
+      );
+    }
+    
+    // If no bullet points found, render description as paragraph (if it exists and has no bullet-like content)
+    if (item.description && !item.description.match(/^[-•*>→]\s+/m)) {
+      return (
+        <Typography variant="body2" sx={{ mt: 1.5, lineHeight: 1.6 }}>
+          {item.description}
+        </Typography>
+      );
+    }
+    
+    return null;
+  };
+
+  /**
+   * Render remaining description after bullet points are extracted
+   * @param {object} item - Experience or education item
+   * @returns {JSX.Element|null} Rendered description
+   */
+  const renderRemainingDescription = (item) => {
+    if (!item.description) return null;
+    
+    // If highlights exist, show only non-bullet description
+    if (item.highlights && item.highlights.length > 0) {
+      // Extract non-bullet content from description
+      const nonBulletContent = item.description
+        .split(/\r?\n/)
+        .filter(line => !line.trim().match(/^[-•*>→]\s+/))
+        .join('\n')
+        .trim();
+      
+      if (nonBulletContent && nonBulletContent.length > 20) {
+        return (
+          <Typography variant="body2" sx={{ mt: 1.5, lineHeight: 1.6 }}>
+            {nonBulletContent}
+          </Typography>
+        );
+      }
+    }
+    
+    return null;
+  };
 
   return (
     <Grid container spacing={3}>
@@ -116,7 +205,7 @@ const ContentTab = ({ resume, theme }) => {
         </Grid>
       )}
 
-      {/* Experience */}
+      {/* Experience - ENHANCED BULLET POINT RENDERING */}
       {resume.parsedData?.experience && resume.parsedData.experience.length > 0 && (
         <Grid item xs={12}>
           <Card elevation={2} sx={{ mb: 3, borderRadius: 3 }}>
@@ -170,29 +259,9 @@ const ContentTab = ({ resume, theme }) => {
                     </Typography>
                   )}
                   
-                  {exp.description && (
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-line', my: 1.5 }}>
-                      {exp.description}
-                    </Typography>
-                  )}
-                  
-                  {exp.highlights && exp.highlights.length > 0 && (
-                    <Box sx={{ mt: 1.5 }}>
-                      <Typography variant="body2" fontWeight="bold" color="primary">
-                        Key Achievements:
-                      </Typography>
-                      <List dense sx={{ pl: 2 }}>
-                        {exp.highlights.map((highlight, idx) => (
-                          <ListItem key={idx} sx={{ px: 0, py: 0.5 }}>
-                            <ListItemIcon sx={{ minWidth: 28 }}>
-                              <CheckCircleIcon fontSize="small" color="success" />
-                            </ListItemIcon>
-                            <ListItemText primary={highlight} />
-                          </ListItem>
-                        ))}
-                      </List>
-                    </Box>
-                  )}
+                  {/* ENHANCED: Smart bullet point rendering with fallback */}
+                  {renderRemainingDescription(exp)}
+                  {renderBulletPoints(exp, 'experience')}
                   
                   {exp.skills && exp.skills.length > 0 && (
                     <Box sx={{ mt: 1.5 }}>
@@ -221,7 +290,7 @@ const ContentTab = ({ resume, theme }) => {
         </Grid>
       )}
 
-      {/* Education */}
+      {/* Education - ENHANCED BULLET POINT RENDERING */}
       {resume.parsedData?.education && resume.parsedData.education.length > 0 && (
         <Grid item xs={12}>
           <Card elevation={2} sx={{ mb: 3, borderRadius: 3 }}>
@@ -266,23 +335,9 @@ const ContentTab = ({ resume, theme }) => {
                     </Typography>
                   )}
                   
-                  {edu.highlights && edu.highlights.length > 0 && (
-                    <Box sx={{ mt: 1.5 }}>
-                      <Typography variant="body2" fontWeight="bold" color="primary">
-                        Highlights:
-                      </Typography>
-                      <List dense sx={{ pl: 2 }}>
-                        {edu.highlights.map((highlight, idx) => (
-                          <ListItem key={idx} sx={{ px: 0, py: 0.5 }}>
-                            <ListItemIcon sx={{ minWidth: 28 }}>
-                              <CheckCircleIcon fontSize="small" color="success" />
-                            </ListItemIcon>
-                            <ListItemText primary={highlight} />
-                          </ListItem>
-                        ))}
-                      </List>
-                    </Box>
-                  )}
+                  {/* ENHANCED: Smart bullet point rendering for education */}
+                  {renderRemainingDescription(edu)}
+                  {renderBulletPoints(edu, 'education')}
                 </Box>
               ))}
             </CardContent>

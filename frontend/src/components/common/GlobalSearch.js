@@ -627,7 +627,7 @@ const GlobalSearch = ({ sx = {} }) => {
             
             <InputBase
               ref={inputRef}
-              placeholder="Search jobs, companies, skills..."
+              placeholder="Search recruiters, resumes, jobs..."
               value={query}
               onChange={handleInputChange}
               onFocus={openSearch}

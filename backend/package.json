@@ -44,6 +44,7 @@
     "openai": "^4.0.0",
     "papaparse": "^5.5.3",
     "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^4.10.38",
     "pdfkit": "^0.14.0",
     "pg": "^8.11.0",
     "playwright": "^1.53.1",
