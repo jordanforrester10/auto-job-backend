@@ -21,7 +21,8 @@ import {
   ClickAwayListener,
   Popper,
   Fade,
-  ListItemButton
+  ListItemButton,
+  Button
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -32,7 +33,10 @@ import {
   History as HistoryIcon,
   TrendingUp as TrendingUpIcon,
   KeyboardArrowRight as KeyboardArrowRightIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Add as AddIcon,
+  SearchOff as SearchOffIcon,
+  FindInPage as FindInPageIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import searchService from '../../utils/searchService';
@@ -347,6 +351,127 @@ const GlobalSearch = ({ sx = {} }) => {
     return results[category]?.length || 0;
   };
 
+  // Category-specific empty states
+  const renderJobsEmptyState = () => {
+    return (
+      <Box sx={{ p: 4, textAlign: 'center' }}>
+        <WorkIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+        <Typography variant="h6" gutterBottom>
+          No jobs found for "{query}"
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Add jobs to your jobs list that match your search criteria to see them here.
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            closeSearch();
+            navigate('/jobs');
+          }}
+          sx={{ mb: 2 }}
+        >
+          Add Jobs
+        </Button>
+        <Typography variant="caption" display="block" color="text.secondary">
+          Go to your jobs page to import or create new job listings
+        </Typography>
+      </Box>
+    );
+  };
+
+  const renderResumesEmptyState = () => {
+    return (
+      <Box sx={{ p: 4, textAlign: 'center' }}>
+        <DescriptionIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+        <Typography variant="h6" gutterBottom>
+          No resumes found for "{query}"
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Add a resume that matches your search criteria to see it here.
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            closeSearch();
+            navigate('/resumes');
+          }}
+          sx={{ mb: 2 }}
+        >
+          Add Resume
+        </Button>
+        <Typography variant="caption" display="block" color="text.secondary">
+          Go to your resumes page to upload or create a new resume
+        </Typography>
+      </Box>
+    );
+  };
+
+  const renderAllResultsEmptyState = () => {
+    return (
+      <Box sx={{ p: 4, textAlign: 'center' }}>
+        <SearchOffIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+        <Typography variant="h6" gutterBottom>
+          No results found for "{query}"
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Try refining your search with different keywords or check your spelling.
+        </Typography>
+        
+        {/* Suggestions if available */}
+        {suggestions.length > 0 && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Suggestions:
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+              {suggestions.slice(0, 3).map((suggestion, index) => (
+                <Chip
+                  key={index}
+                  label={suggestion.text}
+                  size="small"
+                  onClick={() => handleSuggestionClick(suggestion)}
+                  sx={{ cursor: 'pointer' }}
+                />
+              ))}
+            </Box>
+          </Box>
+        )}
+        
+        <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 2 }}>
+          Try searching for job titles, skills, company names, or resume content
+        </Typography>
+      </Box>
+    );
+  };
+
+  const renderRecruitersEmptyState = () => {
+    return (
+      <Box sx={{ p: 4, textAlign: 'center' }}>
+        <PersonIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+        <Typography variant="h6" gutterBottom>
+          No recruiters found for "{query}"
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Try refining your search with different keywords like company names, industries, or locations.
+        </Typography>
+        
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            Search tips:
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+            <Chip label="Company names" size="small" variant="outlined" />
+            <Chip label="Industries" size="small" variant="outlined" />
+            <Chip label="Job titles" size="small" variant="outlined" />
+            <Chip label="Locations" size="small" variant="outlined" />
+          </Box>
+        </Box>
+      </Box>
+    );
+  };
+
   const renderEmptyState = () => {
     if (query.trim().length === 0) {
       return (
@@ -446,7 +571,23 @@ const GlobalSearch = ({ sx = {} }) => {
       return renderEmptyState();
     }
 
-    const currentResults = results[selectedCategory] || [];
+    const currentResults = getResultsForCategory(selectedCategory);
+
+    // Category-specific empty states - NEW LOGIC
+    if (currentResults.length === 0) {
+      switch (selectedCategory) {
+        case 'jobs':
+          return renderJobsEmptyState();
+        case 'resumes':
+          return renderResumesEmptyState();
+        case 'recruiters':
+          return renderRecruitersEmptyState();
+        case 'all':
+          return renderAllResultsEmptyState();
+        default:
+          return renderAllResultsEmptyState();
+      }
+    }
 
     return (
       <Box>

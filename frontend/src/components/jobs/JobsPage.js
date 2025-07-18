@@ -950,7 +950,7 @@ const JobsPage = () => {
         )}
         {currentPlan === 'free' && (
           <Alert severity="warning" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
-            <strong>Upgrade to unlock AI Job Discovery:</strong> Let our AI agent find relevant job opportunities automatically.
+            <strong>Upgrade to unlock Automated AI Job Discovery:</strong> Let our AI agent find relevant job opportunities weekly for you.
           </Alert>
         )}
       </Paper>
