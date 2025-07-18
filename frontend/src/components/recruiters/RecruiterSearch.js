@@ -1,4 +1,4 @@
-// src/components/recruiters/RecruiterSearch.js - UPDATED WITH SHOW UNLOCKED ONLY FILTER
+// src/components/recruiters/RecruiterSearch.js - UPDATED WITH H1B FILTERING
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -33,7 +33,8 @@ import {
   Refresh as RefreshIcon,
   Lock as LockIcon,
   LockOpen as LockOpenIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  Flag as FlagIcon // NEW: Icon for H1B filter
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { useSubscription } from '../../context/SubscriptionContext';
@@ -45,11 +46,13 @@ const RecruiterSearch = ({
   onError, 
   onSearchStateChange,
   showUnlockedOnly = false,
-  onShowUnlockedOnlyChange
+  onShowUnlockedOnlyChange,
+  h1bOnly = false, // NEW: H1B filter prop
+  onH1BOnlyChange  // NEW: H1B filter change handler
 }) => {
   const theme = useTheme();
   const { isCasualPlan, isHunterPlan, canPerformAction } = useSubscription();
-  
+  //test
   // Search state - NO LOCATION FILTER
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({
@@ -69,7 +72,8 @@ const RecruiterSearch = ({
   // Filter options - NO LOCATIONS
   const [filterOptions, setFilterOptions] = useState({
     companies: [],
-    industries: []
+    industries: [],
+    h1bData: null // NEW: H1B filter data
   });
   const [filterOptionsLoading, setFilterOptionsLoading] = useState(true);
 
@@ -83,6 +87,12 @@ const RecruiterSearch = ({
       setFilterOptionsLoading(true);
       const response = await recruiterService.getFilterOptions();
       setFilterOptions(response.filterOptions);
+      console.log('📊 Filter options loaded:', response.filterOptions);
+      
+      // NEW: Log H1B data
+      if (response.filterOptions.h1bData) {
+        console.log('🏢 H1B filter data:', response.filterOptions.h1bData);
+      }
     } catch (error) {
       console.error('Failed to load filter options:', error);
       onError?.('Failed to load search filters');
@@ -91,7 +101,7 @@ const RecruiterSearch = ({
     }
   };
 
-  // Debounced search function with pagination support - UPDATED WITH UNLOCK FILTER
+  // Debounced search function with pagination support - UPDATED WITH H1B FILTER
   const performSearch = useCallback(async (searchParams = {}, page = 1, offset = 0) => {
     try {
       setIsSearching(true);
@@ -103,13 +113,14 @@ const RecruiterSearch = ({
         company: filters.company?.name || '',
         industry: filters.industry?.name || '',
         title: filters.title || '',
-        showUnlockedOnly: showUnlockedOnly, // NEW: Include unlock filter
+        show_unlocked_only: showUnlockedOnly,
+        h1b_only: h1bOnly, // NEW: Include H1B filter
         ...searchParams, // This should override the above if provided
         limit: 20,
         offset: offset
       };
 
-      console.log('🔍 Performing search with filters (including unlock filter):', searchFilters);
+      console.log('🔍 Performing search with filters (including H1B filter):', searchFilters);
       console.log(`📄 Page: ${page}, Offset: ${offset}`);
       
       // Store current search params for pagination (UPDATED)
@@ -118,7 +129,8 @@ const RecruiterSearch = ({
         company: searchFilters.company,
         industry: searchFilters.industry,
         title: searchFilters.title,
-        showUnlockedOnly: searchFilters.showUnlockedOnly // NEW: Store unlock filter
+        show_unlocked_only: searchFilters.show_unlocked_only,
+        h1b_only: searchFilters.h1b_only // NEW: Store H1B filter
       };
       setCurrentSearchParams(paramsToStore);
       
@@ -139,7 +151,7 @@ const RecruiterSearch = ({
       setIsSearching(false);
       onLoading?.(false);
     }
-  }, [searchQuery, filters, showUnlockedOnly, onSearchResults, onLoading, onError, onSearchStateChange]);
+  }, [searchQuery, filters, showUnlockedOnly, h1bOnly, onSearchResults, onLoading, onError, onSearchStateChange]);
 
   // Handle search button click
   const handleSearch = () => {
@@ -167,7 +179,7 @@ const RecruiterSearch = ({
     }));
   };
 
-  // NEW: Handle show unlocked only change
+  // Handle show unlocked only change
   const handleShowUnlockedOnlyChange = (event) => {
     const enabled = event.target.checked;
     console.log('🔍 RecruiterSearch: Show unlocked only changed:', enabled);
@@ -175,6 +187,22 @@ const RecruiterSearch = ({
     // Update parent component
     if (onShowUnlockedOnlyChange) {
       onShowUnlockedOnlyChange(enabled);
+    }
+    
+    // If we have active search results, automatically re-search
+    if (hasActiveFilters() || searchQuery) {
+      // The parent will handle the re-search through the callback
+    }
+  };
+
+  // NEW: Handle H1B only filter change
+  const handleH1BOnlyChange = (event) => {
+    const enabled = event.target.checked;
+    console.log('🏢 RecruiterSearch: H1B only filter changed:', enabled);
+    
+    // Update parent component
+    if (onH1BOnlyChange) {
+      onH1BOnlyChange(enabled);
     }
     
     // If we have active search results, automatically re-search
@@ -200,6 +228,11 @@ const RecruiterSearch = ({
       onShowUnlockedOnlyChange(false);
     }
     
+    // NEW: Reset H1B filter
+    if (onH1BOnlyChange) {
+      onH1BOnlyChange(false);
+    }
+    
     onSearchStateChange?.(false);
     onSearchResults?.(null);
   };
@@ -223,7 +256,8 @@ const RecruiterSearch = ({
     return filters.company || 
            filters.industry || 
            filters.title ||
-           (isCasualPlan && showUnlockedOnly); // NEW: Include unlock filter
+           (isCasualPlan && showUnlockedOnly) ||
+           h1bOnly; // NEW: Include H1B filter
   };
 
   // Check if any filters are applied (including search query) - UPDATED
@@ -262,7 +296,7 @@ const RecruiterSearch = ({
                 sx={{ borderRadius: 1 }}
               />
             )}
-            {/* NEW: Show unlock filter status for Casual users */}
+            {/* Show unlock filter status for Casual users */}
             {isCasualPlan && showUnlockedOnly && (
               <Chip 
                 label="Unlocked Only" 
@@ -270,6 +304,17 @@ const RecruiterSearch = ({
                 color="warning" 
                 variant="filled"
                 icon={<LockOpenIcon sx={{ fontSize: '0.875rem' }} />}
+                sx={{ borderRadius: 1 }}
+              />
+            )}
+            {/* NEW: Show H1B filter status */}
+            {h1bOnly && (
+              <Chip 
+                label="H1B Sponsors Only" 
+                size="small" 
+                color="success" 
+                variant="filled"
+                icon={<FlagIcon sx={{ fontSize: '0.875rem' }} />}
                 sx={{ borderRadius: 1 }}
               />
             )}
@@ -332,7 +377,7 @@ const RecruiterSearch = ({
           </Grid>
         </Box>
 
-        {/* NEW: Show Unlocked Only Filter for Casual Users */}
+        {/* Show Unlocked Only Filter for Casual Users */}
         {isCasualPlan && (
           <Box sx={{ mb: 3 }}>
             <Paper 
@@ -395,6 +440,100 @@ const RecruiterSearch = ({
             </Paper>
           </Box>
         )}
+
+        {/* NEW: H1B Companies Filter */}
+        <Box sx={{ mb: 3 }}>
+          <Paper 
+            elevation={0} 
+            sx={{ 
+              p: 2, 
+              borderRadius: 2, 
+              bgcolor: h1bOnly ? theme.palette.success.main + '08' : theme.palette.grey[50],
+              border: `1px solid ${h1bOnly ? theme.palette.success.light : theme.palette.divider}`
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={h1bOnly}
+                      onChange={handleH1BOnlyChange}
+                      color="success"
+                      size="medium"
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <FlagIcon sx={{ color: theme.palette.success.main, fontSize: '1.2rem' }} />
+                      <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                        H1B Sponsors Only
+                      </Typography>
+                      <Tooltip title="Filter to show only recruiters from companies that sponsor H1B visas. This helps international candidates find employers who can provide visa sponsorship.">
+                        <InfoIcon sx={{ color: 'text.secondary', fontSize: '1rem' }} />
+                      </Tooltip>
+                    </Box>
+                  }
+                  sx={{ m: 0 }}
+                />
+              </Box>
+              
+              {/* H1B companies count */}
+              {filterOptions.h1bData && filterOptions.h1bData.isAvailable && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {filterOptions.h1bData.totalH1BCompanies?.toLocaleString()} H1B sponsor companies
+                  </Typography>
+                  <Chip
+                    label="H1B Data Available"
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                    sx={{ fontSize: '0.75rem', height: 24 }}
+                  />
+                </Box>
+              )}
+            </Box>
+            
+            {h1bOnly && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  🎯 Showing only recruiters from companies that sponsor H1B visas. 
+                  {filterOptions.h1bData?.totalH1BCompanies && (
+                    <span> Database includes {filterOptions.h1bData.totalH1BCompanies.toLocaleString()} verified H1B sponsor companies.</span>
+                  )}
+                </Typography>
+                
+                {/* NEW: Show top H1B industries if available */}
+                {filterOptions.h1bData?.topIndustries?.length > 0 && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
+                      Top H1B Industries:
+                    </Typography>
+                    {filterOptions.h1bData.topIndustries.slice(0, 5).map((industry, index) => (
+                      <Chip
+                        key={industry.industry}
+                        label={`${industry.industry} (${industry.count})`}
+                        size="small"
+                        variant="outlined"
+                        sx={{ mr: 0.5, mb: 0.5, fontSize: '0.7rem', height: 20 }}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            )}
+
+            {/* Show warning if H1B data is not available */}
+            {filterOptions.h1bData && !filterOptions.h1bData.isAvailable && (
+              <Alert severity="warning" sx={{ mt: 2, borderRadius: 1 }}>
+                <Typography variant="caption">
+                  H1B sponsor data is currently unavailable. Please try again later or contact support.
+                </Typography>
+              </Alert>
+            )}
+          </Paper>
+        </Box>
 
         {/* Advanced Filters */}
         <Collapse in={showAdvancedFilters}>
@@ -569,7 +708,7 @@ const RecruiterSearch = ({
                       sx={{ borderRadius: 1 }}
                     />
                   )}
-                  {/* NEW: Show unlocked only filter chip */}
+                  {/* Show unlocked only filter chip */}
                   {isCasualPlan && showUnlockedOnly && (
                     <Chip
                       label="Unlocked Only"
@@ -577,6 +716,17 @@ const RecruiterSearch = ({
                       onDelete={() => onShowUnlockedOnlyChange?.(false)}
                       color="warning"
                       icon={<LockOpenIcon sx={{ fontSize: '0.75rem' }} />}
+                      sx={{ borderRadius: 1 }}
+                    />
+                  )}
+                  {/* NEW: H1B filter chip */}
+                  {h1bOnly && (
+                    <Chip
+                      label="H1B Sponsors Only"
+                      size="small"
+                      onDelete={() => onH1BOnlyChange?.(false)}
+                      color="success"
+                      icon={<FlagIcon sx={{ fontSize: '0.75rem' }} />}
                       sx={{ borderRadius: 1 }}
                     />
                   )}
@@ -603,6 +753,7 @@ const RecruiterSearch = ({
               {isCasualPlan && (
                 <span> You can also filter to show only your unlocked recruiters using the toggle above.</span>
               )}
+              <span> Use the "H1B Sponsors Only" filter to find recruiters from companies that sponsor work visas.</span>
               {!isCasualPlan && !isHunterPlan && (
                 <span> Upgrade to Casual plan to unlock recruiter contact details.</span>
               )}

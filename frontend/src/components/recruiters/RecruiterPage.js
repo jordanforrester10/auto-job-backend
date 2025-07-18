@@ -1,4 +1,4 @@
-// src/components/recruiters/RecruiterPage.js - UPDATED TO ALLOW FREE USER ACCESS BUT WITH LIMITATIONS
+// src/components/recruiters/RecruiterPage.js - COMPLETE FILE WITH H1B FILTERING ADDED
 import React, { useState, useEffect, useRef } from 'react';
 import {
  Box,
@@ -46,14 +46,15 @@ const RecruiterPage = () => {
  // Tab state
  const [activeTab, setActiveTab] = useState(0);
  
- // Search state - UPDATED WITH NEW FILTER
+ // Search state - UPDATED WITH H1B FILTER
  const [searchResults, setSearchResults] = useState(null);
  const [searchLoading, setSearchLoading] = useState(false);
  const [searchError, setSearchError] = useState('');
  const [hasSearched, setHasSearched] = useState(false);
  
- // NEW: Show Unlocked Only filter state
+ // Filter state
  const [showUnlockedOnly, setShowUnlockedOnly] = useState(false);
+ const [h1bOnly, setH1BOnly] = useState(false); // NEW: H1B filter state
  
  // Pagination state
  const [currentPage, setCurrentPage] = useState(1);
@@ -86,7 +87,7 @@ const RecruiterPage = () => {
    }
  }, [isFreePlan]);
 
- // Search handlers - UPDATED TO INCLUDE NEW FILTER
+ // Search handlers - UPDATED TO INCLUDE H1B FILTER
  const handleSearchResults = (results, searchParams = null) => {
    console.log('🔍 RecruiterPage: Search results received:', results);
    console.log('🔍 RecruiterPage: Search params received:', searchParams);
@@ -96,14 +97,15 @@ const RecruiterPage = () => {
    setHasSearched(true);
    setCurrentPage(1); // Reset to page 1 for new search
    
-   // Store search params for pagination - UPDATED TO INCLUDE NEW FILTER
+   // Store search params for pagination - UPDATED TO INCLUDE H1B FILTER
    if (searchParams) {
      const enhancedParams = {
        ...searchParams,
-       showUnlockedOnly // Include the new filter in stored params
+       show_unlocked_only: showUnlockedOnly,
+       h1b_only: h1bOnly // NEW: Include H1B filter in stored params
      };
      setCurrentSearchParams(enhancedParams);
-     console.log('✅ RecruiterPage: Stored search params with unlock filter:', enhancedParams);
+     console.log('✅ RecruiterPage: Stored search params with H1B filter:', enhancedParams);
    }
  };
 
@@ -117,7 +119,7 @@ const RecruiterPage = () => {
    showNotification(error, 'error');
  };
 
- // NEW: Handle show unlocked only filter change
+ // Handle show unlocked only filter change
  const handleShowUnlockedOnlyChange = (enabled) => {
    console.log('🔍 RecruiterPage: Show unlocked only filter changed:', enabled);
    setShowUnlockedOnly(enabled);
@@ -126,7 +128,7 @@ const RecruiterPage = () => {
    if (currentSearchParams) {
      const updatedParams = {
        ...currentSearchParams,
-       showUnlockedOnly: enabled
+       show_unlocked_only: enabled
      };
      
      // Trigger search with updated parameters
@@ -134,7 +136,24 @@ const RecruiterPage = () => {
    }
  };
 
- // NEW: Perform search with specific parameters
+ // NEW: Handle H1B only filter change
+ const handleH1BOnlyChange = (enabled) => {
+   console.log('🏢 RecruiterPage: H1B only filter changed:', enabled);
+   setH1BOnly(enabled);
+   
+   // If we have current search params, trigger a new search with the updated filter
+   if (currentSearchParams) {
+     const updatedParams = {
+       ...currentSearchParams,
+       h1b_only: enabled
+     };
+     
+     // Trigger search with updated parameters
+     performSearchWithParams(updatedParams, 1, 0);
+   }
+ };
+
+ // Perform search with specific parameters - UPDATED TO INCLUDE H1B FILTER
  const performSearchWithParams = async (searchParams, page = 1, offset = 0) => {
    try {
      setSearchLoading(true);
@@ -162,7 +181,7 @@ const RecruiterPage = () => {
    }
  };
 
- // Pagination handler - UPDATED TO INCLUDE NEW FILTER
+ // Pagination handler - UPDATED TO INCLUDE H1B FILTER
  const handlePageChange = async (page, offset) => {
    console.log(`📄 RecruiterPage: Page change - Page: ${page}, Offset: ${offset}`);
    console.log(`🔍 RecruiterPage: Using stored search params:`, currentSearchParams);
@@ -171,9 +190,9 @@ const RecruiterPage = () => {
      setSearchLoading(true);
      setCurrentPage(page);
      
-     // Use the stored search parameters with pagination - NOW INCLUDES showUnlockedOnly
+     // Use the stored search parameters with pagination - NOW INCLUDES h1b_only
      const searchFilters = {
-       ...currentSearchParams, // This now includes showUnlockedOnly
+       ...currentSearchParams, // This now includes h1b_only
        limit: 20,
        offset: offset
      };
@@ -202,11 +221,12 @@ const RecruiterPage = () => {
    setHasSearched(true);
    setCurrentPage(1);
    
-   // Store search parameters for pagination - INCLUDE NEW FILTER
+   // Store search parameters for pagination - INCLUDE H1B FILTER
    if (searchParams) {
      const enhancedParams = {
        ...searchParams,
-       showUnlockedOnly // Always include current filter state
+       show_unlocked_only: showUnlockedOnly,
+       h1b_only: h1bOnly // Always include current H1B filter state
      };
      setCurrentSearchParams(enhancedParams);
    }
@@ -225,7 +245,7 @@ const RecruiterPage = () => {
  };
 
  const handleStartOutreach = (recruiter) => {
-   // NEW: For free users, show upgrade prompt instead of opening composer
+   // For free users, show upgrade prompt instead of opening composer
    if (isFreePlan) {
      showNotification('Upgrade to Casual plan to contact recruiters', 'warning');
      return;
@@ -237,7 +257,7 @@ const RecruiterPage = () => {
 
  // Outreach handlers - UPDATED FOR FREE USER RESTRICTIONS
  const handleSendOutreach = async (outreachData) => {
-   // NEW: Block free users from sending outreach
+   // Block free users from sending outreach
    if (isFreePlan) {
      showNotification('Upgrade to Casual plan to send messages', 'error');
      return;
@@ -268,7 +288,7 @@ const RecruiterPage = () => {
  };
 
  const handleSaveOutreach = async (outreachData) => {
-   // NEW: Block free users from saving outreach
+   // Block free users from saving outreach
    if (isFreePlan) {
      showNotification('Upgrade to Casual plan to save drafts', 'error');
      return;
@@ -290,7 +310,7 @@ const RecruiterPage = () => {
 
  // Load outreach campaigns - UPDATED FOR FREE USER RESTRICTIONS
  const loadOutreachCampaigns = async () => {
-   // NEW: Don't load outreach for free users
+   // Don't load outreach for free users
    if (isFreePlan) {
      setOutreachCampaigns([]);
      return;
@@ -357,7 +377,7 @@ const RecruiterPage = () => {
          icon={<PeopleIcon />}
        />
 
-       {/* NEW: Free User Notice */}
+       {/* Free User Notice */}
        {isFreePlan && (
          <Alert 
            severity="info" 
@@ -371,6 +391,27 @@ const RecruiterPage = () => {
          >
            <Typography variant="body2">
              <strong>Free Plan Access:</strong> You can browse and search recruiters, but need to upgrade to Casual plan to view full details and send messages.
+           </Typography>
+         </Alert>
+       )}
+
+       {/* NEW: H1B Filter Information Alert */}
+       {h1bOnly && (
+         <Alert 
+           severity="success" 
+           sx={{ 
+             mb: 3, 
+             borderRadius: 2,
+             '& .MuiAlert-icon': {
+               color: theme.palette.success.main
+             }
+           }}
+         >
+           <Typography variant="body2">
+             <strong>H1B Filter Active:</strong> Showing only recruiters from companies that sponsor H1B visas. 
+             {searchResults?.h1bData?.h1bCompaniesCount && (
+               <span> Found {searchResults.h1bData.h1bCompaniesCount.toLocaleString()} H1B sponsor companies in our database.</span>
+             )}
            </Typography>
          </Alert>
        )}
@@ -442,7 +483,7 @@ const RecruiterPage = () => {
 
        {/* Tab Content */}
        <TabPanel value={activeTab} index={0}>
-         {/* Search Tab - UPDATED WITH NEW FILTER PROPS */}
+         {/* Search Tab - UPDATED WITH H1B FILTER PROPS */}
          <Box>
            <RecruiterSearch
              ref={searchRef}
@@ -452,6 +493,8 @@ const RecruiterPage = () => {
              onSearchStateChange={setHasSearched}
              showUnlockedOnly={showUnlockedOnly}
              onShowUnlockedOnlyChange={handleShowUnlockedOnlyChange}
+             h1bOnly={h1bOnly} // NEW: Pass H1B filter state
+             onH1BOnlyChange={handleH1BOnlyChange} // NEW: Pass H1B filter handler
            />
            
            <RecruiterList

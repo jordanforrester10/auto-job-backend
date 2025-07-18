@@ -6,8 +6,8 @@ class RecruiterService {
   // RECRUITER SEARCH & DISCOVERY
   // ===================================================================
 
-  /**
-   * Search recruiters with advanced filtering - UPDATED WITH SHOW UNLOCKED ONLY
+/**
+   * Search recruiters with advanced filtering - UPDATED WITH H1B FILTER
    */
   async searchRecruiters(filters = {}) {
     try {
@@ -21,7 +21,9 @@ class RecruiterService {
         experienceMax = '',
         experience_min = '', // Support both formats
         experience_max = '', // Support both formats
-        showUnlockedOnly = false, // NEW: Show unlocked only filter
+        showUnlockedOnly = false, // Show unlocked only filter
+        h1bOnly = false, // NEW: H1B filter
+        h1b_only = false, // Support both formats
         limit = 20,
         offset = 0,
         page = 1,
@@ -31,7 +33,7 @@ class RecruiterService {
         sort_order = '' // Support both formats
       } = filters;
 
-      console.log('🔍 Searching recruiters with filters (including unlock filter):', filters);
+      console.log('🔍 Searching recruiters with filters (including H1B filter):', filters);
 
       const params = new URLSearchParams();
       if (query) params.append('query', query);
@@ -42,10 +44,16 @@ class RecruiterService {
       if (experienceMin || experience_min) params.append('experience_min', experienceMin || experience_min);
       if (experienceMax || experience_max) params.append('experience_max', experienceMax || experience_max);
       
-      // NEW: Add show unlocked only parameter
+      // Add show unlocked only parameter
       if (showUnlockedOnly) {
         params.append('show_unlocked_only', 'true');
         console.log('🔓 Including unlocked only filter in search');
+      }
+      
+      // NEW: Add H1B filter parameter
+      if (h1bOnly || h1b_only) {
+        params.append('h1b_only', 'true');
+        console.log('🏢 Including H1B sponsors only filter in search');
       }
       
       params.append('limit', limit);
@@ -64,11 +72,15 @@ class RecruiterService {
       const response = await api.get(`/recruiters/search?${params}`);
       
       const resultCount = response.data.recruiters?.length || 0;
-      console.log(`✅ Found ${resultCount} recruiters ${showUnlockedOnly ? '(unlocked only)' : ''}`);
+      const h1bFilterApplied = h1bOnly || h1b_only;
+      console.log(`✅ Found ${resultCount} recruiters ${showUnlockedOnly ? '(unlocked only)' : ''}${h1bFilterApplied ? '(H1B sponsors only)' : ''}`);
       
-      // Log additional info for unlocked filter
+      // Log additional info for filters
       if (showUnlockedOnly) {
         console.log('🔓 Filtered results to show only unlocked recruiters');
+      }
+      if (h1bFilterApplied) {
+        console.log('🏢 Filtered results to show only H1B sponsor recruiters');
       }
       
       return response.data;
@@ -76,9 +88,12 @@ class RecruiterService {
     } catch (error) {
       console.error('Search recruiters error:', error);
       
-      // Enhanced error logging for unlock filter
+      // Enhanced error logging for filters
       if (filters.showUnlockedOnly) {
         console.error('❌ Search with unlock filter failed - check backend support');
+      }
+      if (filters.h1bOnly || filters.h1b_only) {
+        console.error('❌ Search with H1B filter failed - check backend support');
       }
       
       throw error;
