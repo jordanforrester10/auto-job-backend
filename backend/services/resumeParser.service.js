@@ -1,9 +1,182 @@
-// services/resumeParser.service.js - ENHANCED BULLET POINT PARSING
+// services/resumeParser.service.js - ENHANCED WITH SMART DATE PARSING
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
 const { s3Client, S3_BUCKET } = require('../config/s3');
 const { openai } = require('../config/openai');
 const pdf = require('pdf-parse');
 const mammoth = require('mammoth');
+
+/**
+ * Smart date parser that handles various date formats and special cases
+ * @param {string|Date} dateValue - Date value to parse
+ * @returns {Date|string} Parsed date or original string for special cases
+ */
+function smartDateParser(dateValue) {
+  if (!dateValue) return null;
+  
+  // If already a Date object, return as-is
+  if (dateValue instanceof Date) return dateValue;
+  
+  // If not a string, try to convert
+  if (typeof dateValue !== 'string') {
+    return dateValue;
+  }
+  
+  const dateStr = dateValue.trim().toLowerCase();
+  
+  // Handle special current job/education indicators
+  const currentIndicators = ['present', 'current', 'ongoing', 'now', 'today'];
+  if (currentIndicators.includes(dateStr)) {
+    return dateStr.charAt(0).toUpperCase() + dateStr.slice(1); // Capitalize first letter
+  }
+  
+  // Handle "never expires" indicators for certifications
+  const neverExpires = ['never', 'permanent', 'lifetime', 'no expiration'];
+  if (neverExpires.includes(dateStr)) {
+    return dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
+  }
+  
+  // Try to parse as a regular date
+  const parsedDate = new Date(dateValue);
+  
+  // Check if the parsed date is valid
+  if (!isNaN(parsedDate.getTime())) {
+    return parsedDate;
+  }
+  
+  // Handle common date formats manually
+  const datePatterns = [
+    // MM/YYYY, MM-YYYY, MM.YYYY
+    /^(\d{1,2})[\/\-\.](\d{4})$/,
+    // YYYY-MM, YYYY/MM, YYYY.MM
+    /^(\d{4})[\/\-\.](\d{1,2})$/,
+    // Just year: 2024, 2023, etc.
+    /^(\d{4})$/,
+    // Month Year: "January 2024", "Jan 2024"
+    /^(\w+)\s+(\d{4})$/
+  ];
+  
+  for (const pattern of datePatterns) {
+    const match = dateValue.match(pattern);
+    if (match) {
+      try {
+        let year, month;
+        
+        if (pattern.source.includes('(\\d{4})$')) { // Just year
+          year = parseInt(match[1]);
+          return new Date(year, 0, 1); // January 1st of that year
+        } else if (pattern.source.startsWith('^(\\d{1,2})')) { // MM/YYYY format
+          month = parseInt(match[1]) - 1; // Month is 0-indexed
+          year = parseInt(match[2]);
+          return new Date(year, month, 1);
+        } else if (pattern.source.startsWith('^(\\d{4})')) { // YYYY-MM format
+          year = parseInt(match[1]);
+          month = parseInt(match[2]) - 1;
+          return new Date(year, month, 1);
+        } else if (pattern.source.includes('(\\w+)\\s+(\\d{4})')) { // Month Year format
+          const monthName = match[1].toLowerCase();
+          year = parseInt(match[2]);
+          
+          const months = {
+            'january': 0, 'jan': 0,
+            'february': 1, 'feb': 1,
+            'march': 2, 'mar': 2,
+            'april': 3, 'apr': 3,
+            'may': 4,
+            'june': 5, 'jun': 5,
+            'july': 6, 'jul': 6,
+            'august': 7, 'aug': 7,
+            'september': 8, 'sep': 8, 'sept': 8,
+            'october': 9, 'oct': 9,
+            'november': 10, 'nov': 10,
+            'december': 11, 'dec': 11
+          };
+          
+          month = months[monthName];
+          if (month !== undefined) {
+            return new Date(year, month, 1);
+          }
+        }
+      } catch (error) {
+        console.log(`Date parsing error for "${dateValue}":`, error.message);
+      }
+    }
+  }
+  
+  // If all parsing attempts fail, return the original string
+  console.log(`Unable to parse date: "${dateValue}", keeping as string`);
+  return dateValue;
+}
+
+/**
+ * Process parsed data to ensure date fields are properly formatted
+ * @param {Object} parsedData - Raw parsed data from OpenAI
+ * @returns {Object} Processed data with smart date handling
+ */
+function processDateFields(parsedData) {
+  if (!parsedData || typeof parsedData !== 'object') {
+    return parsedData;
+  }
+  
+  console.log('🔧 Processing date fields with smart date parser...');
+  
+  // Process experience dates
+  if (Array.isArray(parsedData.experience)) {
+    parsedData.experience = parsedData.experience.map(exp => {
+      if (exp.startDate) {
+        exp.startDate = smartDateParser(exp.startDate);
+      }
+      if (exp.endDate) {
+        exp.endDate = smartDateParser(exp.endDate);
+      }
+      return exp;
+    });
+    console.log(`✅ Processed ${parsedData.experience.length} experience entries`);
+  }
+  
+  // Process education dates
+  if (Array.isArray(parsedData.education)) {
+    parsedData.education = parsedData.education.map(edu => {
+      if (edu.startDate) {
+        edu.startDate = smartDateParser(edu.startDate);
+      }
+      if (edu.endDate) {
+        edu.endDate = smartDateParser(edu.endDate);
+      }
+      return edu;
+    });
+    console.log(`✅ Processed ${parsedData.education.length} education entries`);
+  }
+  
+  // Process certification dates
+  if (Array.isArray(parsedData.certifications)) {
+    parsedData.certifications = parsedData.certifications.map(cert => {
+      if (cert.dateObtained) {
+        cert.dateObtained = smartDateParser(cert.dateObtained);
+      }
+      if (cert.validUntil) {
+        cert.validUntil = smartDateParser(cert.validUntil);
+      }
+      return cert;
+    });
+    console.log(`✅ Processed ${parsedData.certifications.length} certification entries`);
+  }
+  
+  // Process project dates
+  if (Array.isArray(parsedData.projects)) {
+    parsedData.projects = parsedData.projects.map(project => {
+      if (project.startDate) {
+        project.startDate = smartDateParser(project.startDate);
+      }
+      if (project.endDate) {
+        project.endDate = smartDateParser(project.endDate);
+      }
+      return project;
+    });
+    console.log(`✅ Processed ${parsedData.projects.length} project entries`);
+  }
+  
+  return parsedData;
+}
 
 /**
  * Enhanced post-processing function to extract bullet points from text
@@ -169,13 +342,13 @@ exports.parseResume = async (fileUrl, fileType) => {
 };
 
 /**
- * Process resume text with OpenAI to extract structured data with enhanced bullet point parsing
+ * Process resume text with OpenAI to extract structured data with enhanced bullet point parsing and smart date handling
  * @param {string} text - Extracted text from resume
  * @returns {Object} Structured resume data
  */
 async function processWithOpenAI(text) {
   try {
-    console.log('Processing resume text with OpenAI with enhanced bullet point parsing...');
+    console.log('Processing resume text with OpenAI with enhanced bullet point parsing and smart date handling...');
     
     // Check if text is too long for the API
     const maxTokens = 8000; // GPT-4 can handle ~8000 tokens
@@ -185,9 +358,18 @@ async function processWithOpenAI(text) {
       text = text.substring(0, maxTokens * 4);
     }
     
-    // Enhanced prompt for better bullet point extraction
+    // Enhanced prompt for better bullet point extraction and date handling
     const prompt = `
-    Extract structured information from the following resume text with SPECIAL ATTENTION to bullet points and achievements.
+    Extract structured information from the following resume text with SPECIAL ATTENTION to bullet points, achievements, and date handling.
+    
+    **CRITICAL DATE HANDLING INSTRUCTIONS:**
+    - For current positions/education, if you see "Present", "Current", "Ongoing", or "Now", keep these as strings
+    - For historical dates, convert to YYYY-MM-DD format when possible
+    - For partial dates like "2024" or "Jan 2024", use appropriate date format
+    - Examples:
+      * "2024 to Present" → startDate: "2024-01-01", endDate: "Present"
+      * "January 2023 - March 2024" → startDate: "2023-01-01", endDate: "2024-03-01"
+      * "2020 - 2022" → startDate: "2020-01-01", endDate: "2022-12-31"
     
     **CRITICAL BULLET POINT PARSING INSTRUCTIONS:**
     - Look for lines that start with: -, •, *, >, →, or numbers (1., 2., etc.)
@@ -291,12 +473,19 @@ async function processWithOpenAI(text) {
     5. Look for quantified achievements and metrics in bullet points
     6. Preserve the complete meaning of each bullet point
     
+    **DATE HANDLING RULES:**
+    1. Keep "Present", "Current", "Ongoing", "Now" as strings for current positions
+    2. Convert historical dates to YYYY-MM-DD format when possible
+    3. For year-only dates, use January 1st (e.g., "2024" → "2024-01-01")
+    4. For month-year dates, use first day of month (e.g., "Jan 2024" → "2024-01-01")
+    5. Handle date ranges properly with correct start and end dates
+    
     **EXPERIENCE SECTION FOCUS:**
     - Extract job responsibilities and achievements as separate highlights
     - Look for metrics, numbers, percentages, and business impact
     - Each achievement or responsibility should be a separate highlight item
     
-    Extract all the information accurately from the resume. For dates, use the format YYYY-MM-DD when possible. 
+    Extract all the information accurately from the resume. For dates, use the format YYYY-MM-DD when possible, but keep "Present" as a string for current positions. 
     If information is not available or empty, leave it as an empty string or null. 
     For arrays, if no elements are present, return an empty array [].
     Make sure to include all skills mentioned in each work experience and project.
@@ -314,7 +503,7 @@ async function processWithOpenAI(text) {
       messages: [
         {
           role: "system", 
-          content: "You are an expert resume parser that excels at extracting bullet points and structured information from resume text. You pay special attention to extracting achievements, responsibilities, and bullet points into proper arrays. You understand that lines starting with -, •, *, >, or numbers are bullet points that should be extracted separately. Return ONLY valid JSON without any markdown formatting or code blocks."
+          content: "You are an expert resume parser that excels at extracting bullet points and structured information from resume text. You pay special attention to extracting achievements, responsibilities, and bullet points into proper arrays. You understand that lines starting with -, •, *, >, or numbers are bullet points that should be extracted separately. You also handle dates intelligently, keeping 'Present' as a string for current positions and converting historical dates to proper formats. Return ONLY valid JSON without any markdown formatting or code blocks."
         },
         {
           role: "user",
@@ -346,20 +535,23 @@ async function processWithOpenAI(text) {
     // Parse the response
     const parsedData = JSON.parse(cleanedResponse);
     
+    // 🔧 NEW: Apply smart date processing to handle "Present" and other date formats
+    const processedData = processDateFields(parsedData);
+    
     // ENHANCED: Apply post-processing to ensure bullet points are properly extracted
-    if (parsedData.experience) {
-      parsedData.experience = enhanceExperienceData(parsedData.experience);
+    if (processedData.experience) {
+      processedData.experience = enhanceExperienceData(processedData.experience);
       console.log('✅ Applied enhanced bullet point extraction to experience data');
     }
     
-    if (parsedData.education) {
-      parsedData.education = enhanceEducationData(parsedData.education);
+    if (processedData.education) {
+      processedData.education = enhanceEducationData(processedData.education);
       console.log('✅ Applied enhanced bullet point extraction to education data');
     }
     
-    console.log('Resume parsing with enhanced bullet point extraction completed successfully');
+    console.log('Resume parsing with enhanced bullet point extraction and smart date handling completed successfully');
     
-    return parsedData;
+    return processedData;
   } catch (error) {
     console.error('Error processing with OpenAI:', error);
     

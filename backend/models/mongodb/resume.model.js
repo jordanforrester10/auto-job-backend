@@ -1,4 +1,4 @@
-// backend/models/mongodb/resume.model.js - UPDATED WITH JOB CACHING
+// backend/models/mongodb/resume.model.js - UPDATED WITH FLEXIBLE DATE HANDLING
 const mongoose = require('mongoose');
 
 const resumeSchema = new mongoose.Schema({
@@ -66,8 +66,44 @@ const resumeSchema = new mongoose.Schema({
       company: String,
       title: String,
       location: String,
-      startDate: Date,
-      endDate: Date,
+      startDate: {
+        type: mongoose.Schema.Types.Mixed, // 🔧 FIXED: Allow Date or String
+        validate: {
+          validator: function(value) {
+            // Allow null, undefined, valid dates, or special strings
+            if (!value) return true;
+            if (value instanceof Date) return true;
+            if (typeof value === 'string') {
+              // Allow special current job indicators
+              const currentJobIndicators = ['present', 'current', 'ongoing', 'now'];
+              if (currentJobIndicators.includes(value.toLowerCase())) return true;
+              // Allow valid date strings
+              return !isNaN(Date.parse(value));
+            }
+            return false;
+          },
+          message: 'Start date must be a valid date or date string'
+        }
+      },
+      endDate: {
+        type: mongoose.Schema.Types.Mixed, // 🔧 FIXED: Allow Date or String
+        validate: {
+          validator: function(value) {
+            // Allow null, undefined, valid dates, or special strings
+            if (!value) return true;
+            if (value instanceof Date) return true;
+            if (typeof value === 'string') {
+              // Allow special current job indicators
+              const currentJobIndicators = ['present', 'current', 'ongoing', 'now'];
+              if (currentJobIndicators.includes(value.toLowerCase())) return true;
+              // Allow valid date strings
+              return !isNaN(Date.parse(value));
+            }
+            return false;
+          },
+          message: 'End date must be a valid date, date string, or "Present"'
+        }
+      },
       description: String,
       highlights: [String],
       skills: [String]
@@ -76,8 +112,38 @@ const resumeSchema = new mongoose.Schema({
       institution: String,
       degree: String,
       field: String,
-      startDate: Date,
-      endDate: Date,
+      startDate: {
+        type: mongoose.Schema.Types.Mixed, // 🔧 FIXED: Allow Date or String
+        validate: {
+          validator: function(value) {
+            if (!value) return true;
+            if (value instanceof Date) return true;
+            if (typeof value === 'string') {
+              const currentIndicators = ['present', 'current', 'ongoing', 'now'];
+              if (currentIndicators.includes(value.toLowerCase())) return true;
+              return !isNaN(Date.parse(value));
+            }
+            return false;
+          },
+          message: 'Start date must be a valid date or date string'
+        }
+      },
+      endDate: {
+        type: mongoose.Schema.Types.Mixed, // 🔧 FIXED: Allow Date or String
+        validate: {
+          validator: function(value) {
+            if (!value) return true;
+            if (value instanceof Date) return true;
+            if (typeof value === 'string') {
+              const currentIndicators = ['present', 'current', 'ongoing', 'now'];
+              if (currentIndicators.includes(value.toLowerCase())) return true;
+              return !isNaN(Date.parse(value));
+            }
+            return false;
+          },
+          message: 'End date must be a valid date, date string, or "Present"'
+        }
+      },
       gpa: Number,
       highlights: [String]
     }],
@@ -89,8 +155,34 @@ const resumeSchema = new mongoose.Schema({
     certifications: [{
       name: String,
       issuer: String,
-      dateObtained: Date,
-      validUntil: Date
+      dateObtained: {
+        type: mongoose.Schema.Types.Mixed, // 🔧 FIXED: Allow Date or String
+        validate: {
+          validator: function(value) {
+            if (!value) return true;
+            if (value instanceof Date) return true;
+            if (typeof value === 'string') return !isNaN(Date.parse(value));
+            return false;
+          },
+          message: 'Date obtained must be a valid date or date string'
+        }
+      },
+      validUntil: {
+        type: mongoose.Schema.Types.Mixed, // 🔧 FIXED: Allow Date or String
+        validate: {
+          validator: function(value) {
+            if (!value) return true;
+            if (value instanceof Date) return true;
+            if (typeof value === 'string') {
+              const neverExpires = ['never', 'permanent', 'lifetime'];
+              if (neverExpires.includes(value.toLowerCase())) return true;
+              return !isNaN(Date.parse(value));
+            }
+            return false;
+          },
+          message: 'Valid until must be a valid date, date string, or "Never"'
+        }
+      }
     }],
     languages: [{
       language: String,
@@ -100,8 +192,34 @@ const resumeSchema = new mongoose.Schema({
       name: String,
       description: String,
       url: String,
-      startDate: Date,
-      endDate: Date,
+      startDate: {
+        type: mongoose.Schema.Types.Mixed, // 🔧 FIXED: Allow Date or String
+        validate: {
+          validator: function(value) {
+            if (!value) return true;
+            if (value instanceof Date) return true;
+            if (typeof value === 'string') return !isNaN(Date.parse(value));
+            return false;
+          },
+          message: 'Start date must be a valid date or date string'
+        }
+      },
+      endDate: {
+        type: mongoose.Schema.Types.Mixed, // 🔧 FIXED: Allow Date or String
+        validate: {
+          validator: function(value) {
+            if (!value) return true;
+            if (value instanceof Date) return true;
+            if (typeof value === 'string') {
+              const currentIndicators = ['present', 'current', 'ongoing', 'now'];
+              if (currentIndicators.includes(value.toLowerCase())) return true;
+              return !isNaN(Date.parse(value));
+            }
+            return false;
+          },
+          message: 'End date must be a valid date, date string, or "Present"'
+        }
+      },
       skills: [String]
     }]
   },

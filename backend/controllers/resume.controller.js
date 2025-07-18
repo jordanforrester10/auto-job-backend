@@ -233,17 +233,61 @@ async function processResumeInBackground(resumeId, fileUrl, fileType, userId) {
     // Update status to parsing (25-50%)
     await updateResumeProcessingStatus(resumeId, 'parsing', 30, 'Extracting content from resume...');
     
-    const parsedData = await resumeParserService.parseResume(fileUrl, fileType);
+    const rawParsedData = await resumeParserService.parseResume(fileUrl, fileType);
     
-    // CRITICAL FIX: Ensure parsedData is valid before saving
-    if (!parsedData || typeof parsedData !== 'object') {
-      throw new Error('Invalid parsed data received from parser service');
-    }
+    // 🔧 NEW: Validate and sanitize parsed data before saving
+    console.log('🔧 Validating parsed data before saving...');
+    const parsedData = validateAndSanitizeParsedData(rawParsedData);
     
     // Update the resume with parsed data
     resume.parsedData = parsedData;
-    await resume.save();
-    console.log('Resume parsing completed, data saved to database');
+    
+    // 🔧 CRITICAL: Use save with validation disabled temporarily for date fields
+    try {
+      await resume.save({ validateBeforeSave: true });
+      console.log('Resume parsing completed, data saved to database');
+    } catch (saveError) {
+      console.error('Error saving parsed data:', saveError);
+      
+      // If there's still a validation error, try to fix it more aggressively
+      if (saveError.name === 'ValidationError') {
+        console.log('🔧 Attempting aggressive date field sanitization...');
+        
+        // More aggressive sanitization - convert problematic dates to strings
+        const aggressivelySanitized = JSON.parse(JSON.stringify(parsedData));
+        
+        // Convert all date fields to strings to avoid validation issues
+        const convertDatesToStrings = (obj, path = '') => {
+          if (Array.isArray(obj)) {
+            obj.forEach((item, index) => convertDatesToStrings(item, `${path}[${index}]`));
+          } else if (obj && typeof obj === 'object') {
+            Object.keys(obj).forEach(key => {
+              if (key.includes('Date') || key.includes('date')) {
+                if (obj[key] !== null && obj[key] !== undefined) {
+                  // Convert all dates to strings
+                  if (obj[key] instanceof Date) {
+                    obj[key] = obj[key].toISOString().split('T')[0]; // YYYY-MM-DD format
+                  } else if (typeof obj[key] !== 'string') {
+                    obj[key] = String(obj[key]);
+                  }
+                  console.log(`🔧 Converted ${path}.${key} to string: ${obj[key]}`);
+                }
+              } else {
+                convertDatesToStrings(obj[key], `${path}.${key}`);
+              }
+            });
+          }
+        };
+        
+        convertDatesToStrings(aggressivelySanitized);
+        
+        resume.parsedData = aggressivelySanitized;
+        await resume.save();
+        console.log('✅ Resume saved successfully after aggressive sanitization');
+      } else {
+        throw saveError;
+      }
+    }
     
     // Update status to analyzing (50-90%)
     await updateResumeProcessingStatus(resumeId, 'analyzing', 50, 'Parsing complete. Starting AI analysis...');
@@ -2293,6 +2337,110 @@ async function saveOnboardingJobsToCollection(userId, resumeId, jobs, preference
     console.error('❌ Error in saveOnboardingJobsToCollection:', error);
     throw new Error(`Failed to save onboarding jobs to collection: ${error.message}`);
   }
+}
+
+// 🔧 NEW: Helper function to validate and sanitize parsed data before saving
+function validateAndSanitizeParsedData(parsedData) {
+  if (!parsedData || typeof parsedData !== 'object') {
+    throw new Error('Invalid parsed data received from parser service');
+  }
+  
+  console.log('🔧 Validating and sanitizing parsed data...');
+  
+  // Deep clone to avoid modifying original
+  const sanitizedData = JSON.parse(JSON.stringify(parsedData));
+  
+  // Helper function to sanitize date fields
+  const sanitizeDateField = (dateValue, fieldName) => {
+    if (!dateValue) return null;
+    
+    // If it's already a Date object, keep it
+    if (dateValue instanceof Date) return dateValue;
+    
+    // If it's a string, check for special cases
+    if (typeof dateValue === 'string') {
+      const lowerDate = dateValue.toLowerCase().trim();
+      
+      // Handle current position indicators
+      const currentIndicators = ['present', 'current', 'ongoing', 'now'];
+      if (currentIndicators.includes(lowerDate)) {
+        return dateValue; // Keep as string
+      }
+      
+      // Handle never expires indicators
+      const neverExpires = ['never', 'permanent', 'lifetime'];
+      if (neverExpires.includes(lowerDate)) {
+        return dateValue; // Keep as string
+      }
+      
+      // Try to parse as date
+      const parsedDate = new Date(dateValue);
+      if (!isNaN(parsedDate.getTime())) {
+        return parsedDate;
+      }
+      
+      // If parsing fails, keep as string (validation will be handled by schema)
+      console.log(`⚠️ Date field "${fieldName}" could not be parsed: "${dateValue}", keeping as string`);
+      return dateValue;
+    }
+    
+    return dateValue;
+  };
+  
+  // Sanitize experience dates
+  if (Array.isArray(sanitizedData.experience)) {
+    sanitizedData.experience = sanitizedData.experience.map((exp, index) => {
+      if (exp.startDate) {
+        exp.startDate = sanitizeDateField(exp.startDate, `experience[${index}].startDate`);
+      }
+      if (exp.endDate) {
+        exp.endDate = sanitizeDateField(exp.endDate, `experience[${index}].endDate`);
+      }
+      return exp;
+    });
+  }
+  
+  // Sanitize education dates
+  if (Array.isArray(sanitizedData.education)) {
+    sanitizedData.education = sanitizedData.education.map((edu, index) => {
+      if (edu.startDate) {
+        edu.startDate = sanitizeDateField(edu.startDate, `education[${index}].startDate`);
+      }
+      if (edu.endDate) {
+        edu.endDate = sanitizeDateField(edu.endDate, `education[${index}].endDate`);
+      }
+      return edu;
+    });
+  }
+  
+  // Sanitize certification dates
+  if (Array.isArray(sanitizedData.certifications)) {
+    sanitizedData.certifications = sanitizedData.certifications.map((cert, index) => {
+      if (cert.dateObtained) {
+        cert.dateObtained = sanitizeDateField(cert.dateObtained, `certifications[${index}].dateObtained`);
+      }
+      if (cert.validUntil) {
+        cert.validUntil = sanitizeDateField(cert.validUntil, `certifications[${index}].validUntil`);
+      }
+      return cert;
+    });
+  }
+  
+  // Sanitize project dates
+  if (Array.isArray(sanitizedData.projects)) {
+    sanitizedData.projects = sanitizedData.projects.map((project, index) => {
+      if (project.startDate) {
+        project.startDate = sanitizeDateField(project.startDate, `projects[${index}].startDate`);
+      }
+      if (project.endDate) {
+        project.endDate = sanitizeDateField(project.endDate, `projects[${index}].endDate`);
+      }
+      return project;
+    });
+  }
+  
+  console.log('✅ Parsed data validation and sanitization completed');
+  return sanitizedData;
 }
 
 // 🔧 NEW: Helper function to create enhanced parsed data for onboarding jobs
