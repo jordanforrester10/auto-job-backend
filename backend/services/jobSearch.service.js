@@ -1191,10 +1191,27 @@ exports.getUserWeeklyJobStatsForSubscription = async (userId, weeklyLimit) => {
   return await getUserWeeklyJobStatsWithPersistentTracking(userId, weeklyLimit);
 };
 
-// 🆕 NEW: Onboarding-specific job search - finds 3 jobs from anywhere in US for first-time users
-exports.searchJobsForOnboarding = async (resumeId, limit = 3) => {
+// 🆕 NEW: Onboarding-specific job search - finds jobs based on user preferences or resume analysis
+exports.searchJobsForOnboarding = async (resumeId, limitOrCriteria = 3, legacyLimit = null) => {
   try {
-    console.log(`🎯 Starting onboarding job search for resume ${resumeId}, limit: ${limit}`);
+    // Handle both old and new calling patterns for backward compatibility
+    let limit = 3;
+    let providedCriteria = null;
+    
+    if (typeof limitOrCriteria === 'number') {
+      // Old calling pattern: searchJobsForOnboarding(resumeId, limit)
+      limit = limitOrCriteria;
+      console.log(`🎯 Starting onboarding job search for resume ${resumeId}, limit: ${limit} (legacy mode)`);
+    } else if (typeof limitOrCriteria === 'object' && limitOrCriteria !== null) {
+      // New calling pattern: searchJobsForOnboarding(resumeId, searchCriteria)
+      providedCriteria = limitOrCriteria;
+      limit = providedCriteria.limit || 3;
+      console.log(`🎯 Starting personalized onboarding job search for resume ${resumeId}, limit: ${limit}`);
+      console.log(`🎯 User preferences:`, {
+        jobTitles: providedCriteria.jobTitles,
+        locations: providedCriteria.locations?.map(loc => loc.name || loc)
+      });
+    }
     
     const Resume = require('../models/mongodb/resume.model');
     const resume = await Resume.findById(resumeId);
@@ -1205,14 +1222,16 @@ exports.searchJobsForOnboarding = async (resumeId, limit = 3) => {
     
     console.log(`📊 Resume found: ${resume.name}`);
     
-    // Extract search criteria from resume
+    // 🔧 NEW: Use provided criteria if available, otherwise fall back to resume analysis
     const searchCriteria = {
-      jobTitle: resume.parsedData.experience?.[0]?.title || 'Professional',
+      // Use provided job titles or fall back to resume analysis
+      jobTitle: providedCriteria?.jobTitles?.[0] || resume.parsedData.experience?.[0]?.title || 'Professional',
+      jobTitles: providedCriteria?.jobTitles || [resume.parsedData.experience?.[0]?.title || 'Professional'],
       skills: resume.parsedData.skills?.slice(0, 10).map(s => typeof s === 'string' ? s : s.name) || [],
       experienceLevel: resume.analysis?.experienceLevel || 'Mid',
-      // For onboarding, search anywhere in US
-      searchLocations: [{ name: 'United States', type: 'country' }],
-      remoteWork: true // Include remote jobs for broader reach
+      // Use provided locations or fall back to US-wide search
+      searchLocations: providedCriteria?.locations || [{ name: 'United States', type: 'country' }],
+      remoteWork: providedCriteria?.includeRemote !== false // Include remote jobs unless explicitly disabled
     };
     
     console.log(`🔍 Search criteria:`, {

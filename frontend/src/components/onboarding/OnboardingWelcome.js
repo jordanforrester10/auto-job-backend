@@ -30,6 +30,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTheme } from '@mui/material/styles';
 import resumeService from '../../utils/resumeService';
 import ResumeAnalysisSummary from './ResumeAnalysisSummary';
+import JobPreferencesStep from './JobPreferencesStep';
 import JobRecommendations from './JobRecommendations';
 import RecruiterShowcase from './RecruiterShowcase';
 import NextStepsGuide from './NextStepsGuide';
@@ -49,9 +50,13 @@ const OnboardingWelcome = () => {
   const [error, setError] = useState('');
   const [onboardingData, setOnboardingData] = useState(null);
   const [activeStep, setActiveStep] = useState(0);
+  const [jobPreferences, setJobPreferences] = useState(null);
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [onboardingStatus, setOnboardingStatus] = useState(null);
 
   const steps = [
     { label: 'Resume Analysis', icon: <PsychologyIcon /> },
+    { label: 'Job Preferences', icon: <LocationOnIcon /> },
     { label: 'Job Matches', icon: <WorkIcon /> },
     { label: 'Recruiters', icon: <PeopleIcon /> },
     { label: 'Next Steps', icon: <TrendingUpIcon /> }
@@ -60,11 +65,32 @@ const OnboardingWelcome = () => {
   useEffect(() => {
     if (showOnboarding && resumeId) {
       loadOnboardingData();
+      checkOnboardingStatus();
     } else {
       // If not a first-time user, redirect to normal resume detail
       navigate(`/resumes/${resumeId}`);
     }
   }, [resumeId, showOnboarding, navigate]);
+
+  const checkOnboardingStatus = async () => {
+    try {
+      console.log('🔍 Checking onboarding status for flow control...');
+      const status = await resumeService.checkOnboardingStatus(resumeId);
+      setOnboardingStatus(status);
+      
+      console.log('📊 Onboarding status:', status);
+      
+      // If flow is locked (preferences already set), skip to job recommendations
+      if (status.lockedFlow && status.preferencesSet) {
+        console.log('🔒 Flow is locked - skipping to job recommendations');
+        setJobPreferences(status.currentPreferences);
+        setActiveStep(2); // Skip to job recommendations
+      }
+    } catch (error) {
+      console.error('❌ Error checking onboarding status:', error);
+      // Continue with normal flow if check fails
+    }
+  };
 
   const loadOnboardingData = async () => {
     try {
@@ -106,6 +132,48 @@ const OnboardingWelcome = () => {
 
   const handleUpgrade = () => {
     navigate('/settings?tab=subscription');
+  };
+
+  // Handle job preferences collection
+  const handleJobPreferences = async (locations, jobTitles) => {
+    try {
+      setLoadingJobs(true);
+      setJobPreferences({ locations, jobTitles });
+      
+      console.log('🎯 Job preferences collected:', { locations, jobTitles });
+      
+      // Call backend to get personalized jobs based on preferences using onboarding-specific endpoint
+      const response = await resumeService.getPersonalizedJobsForOnboarding(resumeId, {
+        locations: locations,
+        jobTitles: jobTitles
+      });
+      
+      if (response.success && response.jobs && response.jobs.length > 0) {
+        // Update onboarding data with personalized jobs AND recruiters
+        setOnboardingData(prev => ({
+          ...prev,
+          jobs: response.jobs,
+          recruiters: response.recruiters || prev.recruiters || [], // Include recruiters from API response
+          personalizedJobs: true
+        }));
+        
+        console.log('✅ Personalized jobs found:', response.jobs.length);
+        console.log('✅ Recruiters found:', (response.recruiters || []).length);
+      } else {
+        console.warn('⚠️ Job search failed, using fallback jobs');
+        // Keep existing jobs as fallback
+      }
+      
+      // Move to job recommendations step
+      setActiveStep(2);
+      
+    } catch (error) {
+      console.error('❌ Error getting personalized jobs:', error);
+      // Continue with existing jobs as fallback
+      setActiveStep(2);
+    } finally {
+      setLoadingJobs(false);
+    }
   };
 
   if (!showOnboarding) {
@@ -212,29 +280,57 @@ const OnboardingWelcome = () => {
         )}
         
         {activeStep === 1 && (
-          <JobRecommendations 
-            jobs={onboardingData.jobs}
-            onNext={() => setActiveStep(2)}
+          <JobPreferencesStep
+            onContinue={handleJobPreferences}
             onPrevious={() => setActiveStep(0)}
+            resumeAnalysis={onboardingData.resumeAnalysis}
+            loading={loadingJobs}
           />
         )}
         
         {activeStep === 2 && (
-          <RecruiterShowcase 
-            recruiters={onboardingData.recruiters}
-            onNext={() => setActiveStep(3)}
-            onPrevious={() => setActiveStep(1)}
-          />
+          <>
+            {loadingJobs ? (
+              <Paper elevation={0} sx={{ p: 4, border: `1px solid ${theme.palette.divider}`, borderRadius: 3, textAlign: 'center' }}>
+                <CircularProgress size={60} sx={{ mb: 3 }} />
+                <Typography variant="h5" gutterBottom>
+                  Finding Your Perfect Jobs! 🔍
+                </Typography>
+                <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 500, mx: 'auto' }}>
+                  We're searching for {jobPreferences?.jobTitles?.join(', ')} positions in {jobPreferences?.locations?.map(loc => loc.name).join(', ')}...
+                </Typography>
+                <LinearProgress sx={{ width: '100%', maxWidth: 400, mt: 3, mx: 'auto' }} />
+              </Paper>
+            ) : (
+              <JobRecommendations 
+                jobs={onboardingData.jobs}
+                locations={jobPreferences?.locations}
+                jobTitles={jobPreferences?.jobTitles}
+                personalizedJobs={onboardingData.personalizedJobs}
+                onNext={() => setActiveStep(3)}
+                onPrevious={() => setActiveStep(1)}
+                allowBackToPreferences={!onboardingStatus?.lockedFlow}
+              />
+            )}
+          </>
         )}
         
         {activeStep === 3 && (
+          <RecruiterShowcase 
+            recruiters={onboardingData.recruiters}
+            onNext={() => setActiveStep(4)}
+            onPrevious={() => setActiveStep(2)}
+          />
+        )}
+        
+        {activeStep === 4 && (
           <NextStepsGuide 
             resumeId={resumeId}
             jobsCount={onboardingData.jobs.length}
             recruitersCount={onboardingData.recruiters.length}
             onGetStarted={handleGetStarted}
             onUpgrade={handleUpgrade}
-            onPrevious={() => setActiveStep(2)}
+            onPrevious={() => setActiveStep(3)}
           />
         )}
       </Box>

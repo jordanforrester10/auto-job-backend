@@ -178,6 +178,56 @@ const resumeService = {
       console.error('Error fetching onboarding analysis:', error);
       throw error.response?.data || error;
     }
+  },
+
+  // NEW: Get personalized jobs for onboarding based on user preferences
+  getPersonalizedJobsForOnboarding: async (resumeId, preferences) => {
+    try {
+      console.log('🎯 Fetching personalized jobs for onboarding:', { resumeId, preferences });
+      
+      if (!resumeId) {
+        throw new Error('Resume ID is required for personalized job search');
+      }
+      
+      if (!preferences || !preferences.locations || !preferences.jobTitles) {
+        throw new Error('Job preferences (locations and jobTitles) are required');
+      }
+      
+      console.log('🔧 Using AI API for personalized job search with 3-minute timeout');
+      // Use aiApi for AI-powered job search
+      const response = await aiApi.post(`/resumes/${resumeId}/onboarding-jobs`, {
+        locations: preferences.locations,
+        jobTitles: preferences.jobTitles
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching personalized onboarding jobs:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  // NEW: Check onboarding status for flow control
+  checkOnboardingStatus: async (resumeId) => {
+    try {
+      console.log('🔍 Checking onboarding status for resume:', resumeId);
+      
+      if (!resumeId) {
+        throw new Error('Resume ID is required to check onboarding status');
+      }
+      
+      const response = await api.get(`/resumes/${resumeId}/onboarding-status`);
+      return response.data.status;
+    } catch (error) {
+      console.error('Error checking onboarding status:', error);
+      // Return safe defaults if check fails
+      return {
+        lockedFlow: false,
+        preferencesSet: false,
+        preferencesSetAt: null,
+        currentPreferences: null
+      };
+    }
   }
 };
 

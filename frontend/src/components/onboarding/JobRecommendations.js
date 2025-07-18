@@ -25,7 +25,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import AutoJobLogo from '../common/AutoJobLogo';
 
-const JobRecommendations = ({ jobs, onNext, onPrevious }) => {
+const JobRecommendations = ({ jobs, onNext, onPrevious, locations, jobTitles, personalizedJobs, allowBackToPreferences = true }) => {
   const theme = useTheme();
 
   const formatLocation = (location) => {
@@ -144,15 +144,19 @@ const JobRecommendations = ({ jobs, onNext, onPrevious }) => {
           position: 'relative',
           mb: 2 
         }}>
-          {/* Back Button */}
-          <Button
-            variant="outlined"
-            onClick={onPrevious}
-            startIcon={<ArrowBackIcon />}
-            sx={{ borderRadius: 2, px: 3 }}
-          >
-            Back to Analysis
-          </Button>
+          {/* Back Button - Only show if allowed */}
+          {allowBackToPreferences ? (
+            <Button
+              variant="outlined"
+              onClick={onPrevious}
+              startIcon={<ArrowBackIcon />}
+              sx={{ borderRadius: 2, px: 3 }}
+            >
+              Back to Preferences
+            </Button>
+          ) : (
+            <Box sx={{ width: 140 }} /> // Placeholder to maintain layout
+          )}
 
           {/* Centered Icon */}
           <WorkIcon sx={{ fontSize: 48, color: 'primary.main' }} />
@@ -177,11 +181,21 @@ const JobRecommendations = ({ jobs, onNext, onPrevious }) => {
         
         {/* Title */}
         <Typography variant="h4" sx={{ fontWeight: 600, mb: 2 }}>
-          Preview Some Jobs We've Found For You
+          {personalizedJobs ? 'Your Personalized Job Matches! 🎯' : 'Preview Some Jobs We\'ve Found For You'}
         </Typography>
         
         <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 600, mx: 'auto' }}>
-          Based on your resume analysis, we've found {jobsArray.length} relevant job opportunities across the US that match your background and skills. With our paid plan, you can automate this weekly and customize it to find 100's of jobs in your desired location(s) and specific to you.
+          {personalizedJobs && jobTitles && locations ? (
+            <>
+              Based on your preferences, we've found {jobsArray.length} {jobTitles.join(', ')} positions in {locations.map(loc => loc.name).join(', ')}. 
+              With our paid plan, you can automate this weekly and get 100's more targeted opportunities!
+            </>
+          ) : (
+            <>
+              Based on your resume analysis, we've found {jobsArray.length} relevant job opportunities across the US that match your background and skills. 
+              With our paid plan, you can automate this weekly and customize it to find 100's of jobs in your desired location(s) and specific to you.
+            </>
+          )}
         </Typography>
       </Box>
 

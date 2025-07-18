@@ -171,6 +171,54 @@ const resumeSchema = new mongoose.Schema({
     }
   },
   
+  // 🆕 NEW: Personalized job preferences cache
+  personalizedJobCache: {
+    jobs: [{
+      id: String,
+      title: String,
+      company: String,
+      location: mongoose.Schema.Types.Mixed,
+      description: String,
+      salary: mongoose.Schema.Types.Mixed,
+      jobType: String,
+      sourceUrl: String,
+      parsedData: mongoose.Schema.Types.Mixed,
+      analysis: mongoose.Schema.Types.Mixed,
+      isPersonalizedJob: { type: Boolean, default: true }
+    }],
+    preferences: {
+      locations: [mongoose.Schema.Types.Mixed],
+      jobTitles: [String],
+      includeRemote: Boolean
+    },
+    metadata: {
+      generatedAt: { type: Date, default: Date.now },
+      jobsCount: { type: Number, default: 0 },
+      searchCriteria: mongoose.Schema.Types.Mixed,
+      cacheVersion: { type: String, default: '1.0' }
+    },
+    cacheExpiry: {
+      expiresAt: Date,
+      isExpired: { type: Boolean, default: false }
+    }
+  },
+  
+  // 🆕 NEW: Onboarding status tracking
+  onboardingStatus: {
+    completed: { type: Boolean, default: false },
+    completedAt: Date,
+    preferencesSet: { type: Boolean, default: false },
+    preferencesSetAt: Date,
+    jobsGenerated: { type: Boolean, default: false },
+    recruitersFound: { type: Boolean, default: false },
+    lockedFlow: { type: Boolean, default: false }, // Prevents going back to preferences
+    currentPreferences: {
+      locations: [mongoose.Schema.Types.Mixed],
+      jobTitles: [String],
+      includeRemote: Boolean
+    }
+  },
+  
   // New fields for tailored resumes
   isTailored: {
     type: Boolean,
@@ -255,6 +303,85 @@ resumeSchema.methods.cacheOnboardingData = function(jobs, recruiters, searchMeta
     },
     cacheExpiry: {
       expiresAt: null, // Set to null for no expiry, or new Date(Date.now() + 7*24*60*60*1000) for 7 days
+      isExpired: false
+    }
+  };
+  
+  return this.save();
+};
+
+// 🆕 NEW: Method to check if personalized job cache matches current preferences
+resumeSchema.methods.hasValidPersonalizedJobCache = function(currentPreferences) {
+  if (!this.personalizedJobCache || !this.personalizedJobCache.jobs || this.personalizedJobCache.jobs.length === 0) {
+    return false;
+  }
+  
+  // Check if cache is expired (1 hour for personalized jobs)
+  const cacheAge = Date.now() - new Date(this.personalizedJobCache.metadata.generatedAt).getTime();
+  const maxAge = 60 * 60 * 1000; // 1 hour in milliseconds
+  
+  if (cacheAge > maxAge) {
+    return false;
+  }
+  
+  // Check if preferences match
+  const cachedPrefs = this.personalizedJobCache.preferences;
+  if (!cachedPrefs) {
+    return false;
+  }
+  
+  // Compare job titles (case-insensitive, sorted)
+  const cachedTitles = (cachedPrefs.jobTitles || []).map(t => t.toLowerCase()).sort();
+  const currentTitles = (currentPreferences.jobTitles || []).map(t => t.toLowerCase()).sort();
+  
+  if (JSON.stringify(cachedTitles) !== JSON.stringify(currentTitles)) {
+    return false;
+  }
+  
+  // Compare locations (case-insensitive, sorted by name)
+  const cachedLocations = (cachedPrefs.locations || []).map(l => (l.name || l).toLowerCase()).sort();
+  const currentLocations = (currentPreferences.locations || []).map(l => (l.name || l).toLowerCase()).sort();
+  
+  if (JSON.stringify(cachedLocations) !== JSON.stringify(currentLocations)) {
+    return false;
+  }
+  
+  return true;
+};
+
+// 🆕 NEW: Method to get cached personalized jobs
+resumeSchema.methods.getCachedPersonalizedJobs = function(currentPreferences) {
+  if (!this.hasValidPersonalizedJobCache(currentPreferences)) {
+    return null;
+  }
+  
+  return {
+    jobs: this.personalizedJobCache.jobs,
+    metadata: {
+      ...this.personalizedJobCache.metadata,
+      fromCache: true,
+      cacheAge: Math.floor((Date.now() - new Date(this.personalizedJobCache.metadata.generatedAt).getTime()) / (1000 * 60)) // minutes
+    }
+  };
+};
+
+// 🆕 NEW: Method to cache personalized jobs with preferences
+resumeSchema.methods.cachePersonalizedJobs = function(jobs, preferences, searchMetadata = {}) {
+  this.personalizedJobCache = {
+    jobs: jobs || [],
+    preferences: {
+      locations: preferences.locations || [],
+      jobTitles: preferences.jobTitles || [],
+      includeRemote: preferences.includeRemote || false
+    },
+    metadata: {
+      generatedAt: new Date(),
+      jobsCount: jobs ? jobs.length : 0,
+      searchCriteria: searchMetadata.searchCriteria || {},
+      cacheVersion: '1.0'
+    },
+    cacheExpiry: {
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour expiry for personalized jobs
       isExpired: false
     }
   };

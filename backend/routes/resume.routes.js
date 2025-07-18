@@ -35,6 +35,12 @@ router.get('/:id/job-suggestions', resumeController.getJobSuggestions);
 // NEW: First-time user onboarding analysis endpoint
 router.post('/:id/onboarding-analysis', resumeController.firstResumeAnalysis);
 
+// NEW: Get personalized jobs for onboarding based on user preferences
+router.post('/:id/onboarding-jobs', resumeController.getPersonalizedOnboardingJobs);
+
+// NEW: Check onboarding status for flow control
+router.get('/:id/onboarding-status', resumeController.checkOnboardingStatus);
+
 // Generic /:id route LAST
 router.get('/:id', resumeController.getResumeById);
 

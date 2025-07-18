@@ -72,7 +72,7 @@ const ResumeAnalysisSummary = ({ analysis, onNext }) => {
               whiteSpace: 'nowrap'
             }}
           >
-            See Your Job Matches
+            Set Your Job Preferences
           </Button>
         </Box>
         

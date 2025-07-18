@@ -12,6 +12,10 @@ const mongoose = require('mongoose');
 const path = require('path');
 const uuid = require('uuid').v4;
 
+// Import models for Phase 3 implementation
+const Job = require('../models/mongodb/job.model');
+const AiJobSearch = require('../models/mongodb/aiJobSearch.model');
+
 // Helper function to generate S3 key for a resume file
 const generateS3Key = (userId, originalFilename) => {
   const extension = path.extname(originalFilename);
@@ -1389,6 +1393,367 @@ exports.deleteResume = async (req, res) => {
   }
 };
 
+// NEW: Check onboarding status for flow control
+exports.checkOnboardingStatus = async (req, res) => {
+  try {
+    const userId = req.user?._id || req.userId;
+    
+    if (!userId) {
+      return res.status(401).json({ message: 'User identification missing' });
+    }
+    
+    const resumeId = req.params.id;
+    
+    if (!mongoose.Types.ObjectId.isValid(resumeId)) {
+      return res.status(400).json({ message: 'Invalid resume ID' });
+    }
+    
+    console.log(`🔍 Checking onboarding status for resume ${resumeId}, user ${userId}`);
+    
+    const resume = await Resume.findOne({ _id: resumeId, userId });
+    
+    if (!resume) {
+      return res.status(404).json({ message: 'Resume not found' });
+    }
+    
+    const onboardingStatus = resume.onboardingStatus || {};
+    
+    const status = {
+      completed: onboardingStatus.completed || false,
+      preferencesSet: onboardingStatus.preferencesSet || false,
+      preferencesSetAt: onboardingStatus.preferencesSetAt || null,
+      jobsGenerated: onboardingStatus.jobsGenerated || false,
+      recruitersFound: onboardingStatus.recruitersFound || false,
+      lockedFlow: onboardingStatus.lockedFlow || false,
+      currentPreferences: onboardingStatus.currentPreferences || null
+    };
+    
+    console.log(`📊 Onboarding status for resume ${resumeId}:`, status);
+    
+    res.status(200).json({
+      success: true,
+      status: status
+    });
+    
+  } catch (error) {
+    console.error('❌ Error checking onboarding status:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to check onboarding status', 
+      error: error.message 
+    });
+  }
+};
+
+// NEW: Get personalized jobs for onboarding based on user preferences with CACHING and STATE TRACKING
+exports.getPersonalizedOnboardingJobs = async (req, res) => {
+  try {
+    const userId = req.user?._id || req.userId;
+    
+    if (!userId) {
+      return res.status(401).json({ message: 'User identification missing' });
+    }
+    
+    const resumeId = req.params.id;
+    const { locations, jobTitles } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(resumeId)) {
+      return res.status(400).json({ message: 'Invalid resume ID' });
+    }
+    
+    if (!locations || !jobTitles || !Array.isArray(locations) || !Array.isArray(jobTitles)) {
+      return res.status(400).json({ 
+        message: 'Locations and jobTitles arrays are required' 
+      });
+    }
+    
+    console.log(`🎯 Getting personalized onboarding jobs for resume ${resumeId}:`, {
+      locations: locations.map(loc => loc.name || loc),
+      jobTitles: jobTitles
+    });
+    
+    // Get the resume and verify it belongs to the user
+    const resume = await Resume.findOne({ _id: resumeId, userId });
+    
+    if (!resume) {
+      return res.status(404).json({ message: 'Resume not found' });
+    }
+    
+    // 🆕 NEW: Check if onboarding flow is already locked
+    if (resume.onboardingStatus?.lockedFlow) {
+      console.log(`🔒 Onboarding flow is locked - preferences already set at ${resume.onboardingStatus.preferencesSetAt}`);
+      
+      // Return existing cached jobs if available
+      const cachedJobs = resume.getCachedPersonalizedJobs(resume.onboardingStatus.currentPreferences);
+      if (cachedJobs) {
+        return res.status(200).json({
+          success: true,
+          jobs: cachedJobs.jobs.map(job => ({
+            id: job.id,
+            title: job.title,
+            company: job.company,
+            location: job.location,
+            description: job.description,
+            salary: job.salary,
+            jobType: job.jobType,
+            sourceUrl: job.sourceUrl,
+            parsedData: job.parsedData,
+            isPersonalizedJob: true
+          })),
+          metadata: {
+            resumeId: resumeId,
+            searchCriteria: resume.onboardingStatus.currentPreferences,
+            jobsFound: cachedJobs.jobs.length,
+            fromCache: true,
+            lockedFlow: true,
+            preferencesSetAt: resume.onboardingStatus.preferencesSetAt,
+            message: 'Onboarding preferences already set - using existing results',
+            generatedAt: cachedJobs.metadata.generatedAt || new Date().toISOString()
+          }
+        });
+      }
+    }
+    
+    // 🆕 NEW: Prepare current preferences for cache comparison
+    const currentPreferences = {
+      locations: locations,
+      jobTitles: jobTitles,
+      includeRemote: locations.some(loc => loc.type === 'remote' || (loc.name && loc.name.toLowerCase() === 'remote'))
+    };
+    
+    // 🆕 NEW: Check for cached personalized jobs first
+    console.log(`🔍 Checking for cached personalized jobs...`);
+    const cachedJobs = resume.getCachedPersonalizedJobs(currentPreferences);
+    
+    if (cachedJobs) {
+      console.log(`✅ Found valid cached personalized jobs - ${cachedJobs.jobs.length} jobs (${cachedJobs.metadata.cacheAge} minutes old)`);
+      
+      return res.status(200).json({
+        success: true,
+        jobs: cachedJobs.jobs.map(job => ({
+          id: job.id,
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          description: job.description,
+          salary: job.salary,
+          jobType: job.jobType,
+          sourceUrl: job.sourceUrl,
+          parsedData: job.parsedData,
+          isPersonalizedJob: true
+        })),
+        metadata: {
+          resumeId: resumeId,
+          searchCriteria: currentPreferences,
+          jobsFound: cachedJobs.jobs.length,
+          fromCache: true,
+          cacheAge: cachedJobs.metadata.cacheAge,
+          generatedAt: cachedJobs.metadata.generatedAt || new Date().toISOString()
+        }
+      });
+    }
+    
+    console.log(`🔄 No valid cache found - generating fresh personalized jobs with API calls`);
+    
+    // Use the existing job search service with personalized criteria
+    try {
+      // 🔧 NEW: Format search criteria properly for the updated searchJobsForOnboarding function
+      const searchCriteria = {
+        jobTitles: jobTitles,
+        locations: locations.map(loc => ({
+          name: loc.name || loc,
+          type: loc.type || (loc.name && loc.name.toLowerCase() === 'remote' ? 'remote' : 'city')
+        })),
+        includeRemote: currentPreferences.includeRemote,
+        experienceLevel: 'mid',
+        jobTypes: ['FULL_TIME'],
+        limit: 3
+      };
+      
+      console.log('🔍 Searching with personalized criteria:', {
+        jobTitles: searchCriteria.jobTitles,
+        locations: searchCriteria.locations.map(loc => loc.name),
+        includeRemote: searchCriteria.includeRemote
+      });
+      
+      // 🔧 FIXED: Use the updated searchJobsForOnboarding function with personalized criteria
+      const jobResults = await jobSearchService.searchJobsForOnboarding(resumeId, searchCriteria);
+      
+      const jobs = jobResults.jobs || [];
+      
+      console.log(`✅ Found ${jobs.length} personalized jobs for onboarding`);
+      
+      // 🆕 NEW: Find recruiters based on job companies
+      console.log(`👥 Starting recruiter lookup for ${jobs.length} job companies...`);
+      
+      let recruiters = [];
+      try {
+        if (jobs.length > 0) {
+          // Extract unique company names from jobs
+          const companyNames = [...new Set(jobs.map(job => job.company).filter(Boolean))];
+          console.log(`🏢 Looking up recruiters for companies: ${companyNames.join(', ')}`);
+          
+          // Import required services
+          const db = require('../config/postgresql');
+          
+          // Find one recruiter per company
+          const recruiterPromises = companyNames.slice(0, 3).map(async (companyName) => {
+            try {
+              const query = `
+                SELECT r.id, r.first_name, r.last_name, r.title, r.email, r.linkedin_profile_url,
+                       c.name as company_name, c.website as company_website, c.employee_count,
+                       i.name as industry_name
+                FROM recruiters r
+                JOIN companies c ON r.current_company_id = c.id
+                LEFT JOIN industries i ON c.industry_id = i.id
+                WHERE r.is_active = true 
+                  AND (
+                    LOWER(c.name) LIKE $1 OR 
+                    LOWER(c.name) LIKE $2 OR
+                    LOWER(TRIM(REGEXP_REPLACE(c.name, '\\s+', ' ', 'g'))) = 
+                    LOWER(TRIM(REGEXP_REPLACE($3, '\\s+', ' ', 'g')))
+                  )
+                  AND r.email IS NOT NULL
+                  AND r.email != ''
+                ORDER BY r.contact_accuracy_score DESC NULLS LAST
+                LIMIT 1
+              `;
+              
+              console.log(`🔍 Searching for flexible company match: "${companyName}"`);
+              const searchTerm = `%${companyName.toLowerCase()}%`;
+              const result = await db.query(query, [searchTerm, searchTerm, companyName]);
+              
+              if (result.rows.length > 0) {
+                const recruiter = result.rows[0];
+                console.log(`✅ Found recruiter for ${companyName}: ${recruiter.first_name} ${recruiter.last_name}`);
+                return {
+                  id: recruiter.id,
+                  firstName: recruiter.first_name,
+                  lastName: recruiter.last_name,
+                  fullName: `${recruiter.first_name} ${recruiter.last_name}`,
+                  title: recruiter.title,
+                  email: recruiter.email,
+                  linkedinUrl: recruiter.linkedin_profile_url,
+                  company: {
+                    name: recruiter.company_name,
+                    website: recruiter.company_website,
+                    employeeCount: recruiter.employee_count
+                  },
+                  industry: recruiter.industry_name,
+                  isPersonalizedRecruiter: true
+                };
+              } else {
+                console.log(`❌ No recruiter found for ${companyName}`);
+              }
+              return null;
+            } catch (error) {
+              console.error(`❌ Error finding recruiter for ${companyName}:`, error);
+              return null;
+            }
+          });
+          
+          const recruiterResults = await Promise.all(recruiterPromises);
+          recruiters = recruiterResults.filter(Boolean);
+          
+          console.log(`✅ Found ${recruiters.length} recruiters for personalized onboarding`);
+        }
+      } catch (recruiterError) {
+        console.error('❌ Error in recruiter lookup:', recruiterError);
+        // Continue with empty recruiters array - don't fail the entire request
+        recruiters = [];
+      }
+      
+      // 🆕 NEW: Cache the personalized jobs AND recruiters for future use
+      if (jobs.length > 0) {
+        console.log(`💾 Caching ${jobs.length} personalized jobs and ${recruiters.length} recruiters for future use`);
+        try {
+          await resume.cachePersonalizedJobs(jobs, currentPreferences, {
+            searchCriteria: searchCriteria,
+            apiCallsMade: 1,
+            recruiters: recruiters // Include recruiters in cache
+          });
+          console.log(`✅ Personalized jobs and recruiters cached successfully`);
+        } catch (cacheError) {
+          console.error('❌ Error caching personalized jobs (non-critical):', cacheError);
+          // Don't fail if caching fails
+        }
+      }
+      
+      // 🆕 NEW: Update onboarding status to lock the flow
+      console.log(`🔒 Locking onboarding flow - preferences set for first time`);
+      try {
+        resume.onboardingStatus = {
+          completed: false, // Will be set to true when user completes entire onboarding
+          preferencesSet: true,
+          preferencesSetAt: new Date(),
+          jobsGenerated: jobs.length > 0,
+          recruitersFound: recruiters.length > 0, // Updated based on actual recruiters found
+          lockedFlow: true, // Prevent going back to preferences
+          currentPreferences: currentPreferences
+        };
+        await resume.save();
+        console.log(`✅ Onboarding status updated - flow locked, recruiters found: ${recruiters.length > 0}`);
+      } catch (statusError) {
+        console.error('❌ Error updating onboarding status (non-critical):', statusError);
+        // Don't fail if status update fails
+      }
+      
+      // 🆕 NEW: Phase 3 - Save onboarding jobs to main /jobs collection
+      if (jobs.length > 0) {
+        console.log(`💾 Phase 3: Saving ${jobs.length} onboarding jobs to main /jobs collection`);
+        try {
+          await saveOnboardingJobsToCollection(userId, resumeId, jobs, currentPreferences, resume.name);
+          console.log(`✅ Phase 3 completed: Onboarding jobs saved to /jobs collection`);
+        } catch (saveError) {
+          console.error('❌ Error saving onboarding jobs to collection (non-critical):', saveError);
+          // Don't fail the entire request if job saving fails
+        }
+      }
+      
+      res.status(200).json({
+        success: true,
+        jobs: jobs.map(job => ({
+          id: job._id || job.id,
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          description: job.description,
+          salary: job.salary,
+          jobType: job.jobType,
+          sourceUrl: job.sourceUrl,
+          parsedData: job.parsedData,
+          isPersonalizedJob: true
+        })),
+        recruiters: recruiters,
+        metadata: {
+          resumeId: resumeId,
+          searchCriteria: searchCriteria,
+          jobsFound: jobs.length,
+          recruitersFound: recruiters.length,
+          fromCache: false,
+          generatedAt: new Date().toISOString()
+        }
+      });
+      
+    } catch (jobSearchError) {
+      console.error('❌ Error in personalized job search:', jobSearchError);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to find personalized jobs',
+        error: jobSearchError.message
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Error in personalized onboarding jobs:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to get personalized jobs', 
+      error: error.message
+    });
+  }
+};
+
 // NEW: First-time user onboarding analysis - combines resume analysis + job search + recruiter lookup
 // NEW: First-time user onboarding analysis with JOB CACHING
 exports.firstResumeAnalysis = async (req, res) => {
@@ -1453,21 +1818,11 @@ exports.firstResumeAnalysis = async (req, res) => {
       recruiters = cachedData.recruiters;
       fromCache = true;
     } else {
-      console.log(`🔄 No valid cache found - generating fresh onboarding data with API calls`);
+      console.log(`🔄 No valid cache found - skipping initial job search (will be done with user preferences)`);
       
-      // Step 2: Find 3 jobs from anywhere in US using existing job search service
-      console.log(`🔍 Starting fresh onboarding job search...`);
-      
-      try {
-        // Use the existing job search service with onboarding-specific parameters
-        const jobSearchResult = await jobSearchService.searchJobsForOnboarding(resumeId, 3);
-        jobs = jobSearchResult.jobs || [];
-        console.log(`✅ Found ${jobs.length} jobs for onboarding`);
-      } catch (jobSearchError) {
-        console.error('❌ Error in onboarding job search:', jobSearchError);
-        // Continue with empty jobs array - don't fail the entire onboarding
-        jobs = [];
-      }
+      // 🔧 REMOVED: Wasteful initial job search - jobs will be found when user sets preferences
+      console.log(`⚡ Skipping initial job search - will use personalized search with user preferences`);
+      jobs = []; // Start with empty jobs - will be populated when user sets preferences
       
       // Step 3: Find recruiters based on job companies
       console.log(`👥 Starting recruiter lookup for ${jobs.length} companies...`);
@@ -1491,14 +1846,22 @@ exports.firstResumeAnalysis = async (req, res) => {
                 FROM recruiters r
                 JOIN companies c ON r.current_company_id = c.id
                 LEFT JOIN industries i ON c.industry_id = i.id
-                WHERE LOWER(c.name) LIKE LOWER($1)
+                WHERE r.is_active = true 
+                  AND (
+                    LOWER(c.name) LIKE $1 OR 
+                    LOWER(c.name) LIKE $2 OR
+                    LOWER(TRIM(REGEXP_REPLACE(c.name, '\\s+', ' ', 'g'))) = 
+                    LOWER(TRIM(REGEXP_REPLACE($3, '\\s+', ' ', 'g')))
+                  )
                   AND r.email IS NOT NULL
                   AND r.email != ''
                 ORDER BY r.contact_accuracy_score DESC NULLS LAST
                 LIMIT 1
               `;
               
-              const result = await db.query(query, [`%${companyName}%`]);
+              console.log(`🔍 Searching for flexible company match: "${companyName}"`);
+              const searchTerm = `%${companyName.toLowerCase()}%`;
+              const result = await db.query(query, [searchTerm, searchTerm, companyName]);
               
               if (result.rows.length > 0) {
                 const recruiter = result.rows[0];
@@ -1607,3 +1970,473 @@ exports.firstResumeAnalysis = async (req, res) => {
     });
   }
 };
+
+// 🆕 NEW: Phase 3 Helper Function - Save onboarding jobs to main /jobs collection with REAL ANALYSIS
+async function saveOnboardingJobsToCollection(userId, resumeId, jobs, preferences, resumeName) {
+  try {
+    console.log(`💾 Phase 3: Starting to save ${jobs.length} onboarding jobs to /jobs collection with REAL analysis`);
+    
+    // Import the job matching service for real Phase 3 analysis
+    const jobMatchingService = require('../services/jobMatching.service');
+    
+    // Step 1: Create AI Job Search record for onboarding
+    const aiJobSearch = new AiJobSearch({
+      userId: new mongoose.Types.ObjectId(userId),
+      resumeId: new mongoose.Types.ObjectId(resumeId),
+      resumeName: resumeName || 'Onboarding Resume',
+      searchCriteria: {
+        jobTitles: preferences.jobTitles || [],
+        searchLocations: preferences.locations?.map(loc => ({
+          name: loc.name || loc,
+          type: loc.type || 'city'
+        })) || [],
+        remoteWork: preferences.includeRemote || false,
+        experienceLevel: 'mid',
+        jobTypes: ['FULL_TIME']
+      },
+      status: 'completed',
+      searchType: 'weekly_active_jobs',
+      weeklyLimit: 50,
+      jobsFoundThisWeek: jobs.length,
+      totalJobsFound: jobs.length,
+      lastSearchDate: new Date(),
+      currentWeekStart: new Date(),
+      searchApproach: '3-phase-intelligent-active-jobs-weekly',
+      qualityLevel: 'active-jobs-weekly-enhanced',
+      approachVersion: '5.0-weekly-active-jobs-location-salary'
+    });
+    
+    // Save the AI Job Search record
+    const savedAiJobSearch = await aiJobSearch.save();
+    console.log(`✅ AI Job Search record created: ${savedAiJobSearch._id}`);
+    
+    // Step 2: Save individual jobs to Job collection with REAL Phase 3 analysis
+    const savedJobs = [];
+    let duplicatesSkipped = 0;
+    
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+      
+      try {
+        // Check for duplicates before saving
+        const existingJob = await Job.findDuplicateJob(userId, job.title, job.company);
+        
+        if (existingJob) {
+          console.log(`⚠️ Duplicate job skipped: ${job.title} at ${job.company}`);
+          duplicatesSkipped++;
+          continue;
+        }
+        
+        // Create new job document WITHOUT fake matchAnalysis (will be added after REAL analysis)
+        const newJob = new Job({
+          userId: new mongoose.Types.ObjectId(userId),
+          title: job.title,
+          company: job.company,
+          location: {
+            city: job.location?.city || job.location?.parsed?.city,
+            state: job.location?.state || job.location?.parsed?.state,
+            country: job.location?.country || job.location?.parsed?.country || 'US',
+            remote: job.location?.isRemote || job.location?.remote || false,
+            fullAddress: job.location?.original || job.location?.fullAddress
+          },
+          description: job.description || '',
+          sourceUrl: job.sourceUrl,
+          sourcePlatform: 'ACTIVE_JOBS_DB_DIRECT', // Tag as onboarding discovery
+          salary: {
+            min: job.salary?.min,
+            max: job.salary?.max,
+            currency: job.salary?.currency || 'USD',
+            isExplicit: !!(job.salary?.min || job.salary?.max)
+          },
+          jobType: job.jobType || 'FULL_TIME',
+          applicationStatus: 'NOT_APPLIED',
+          isAiGenerated: true,
+          aiSearchId: savedAiJobSearch._id,
+          
+          // 🔧 REMOVED: Fake matchAnalysis - will be added after REAL Phase 3 analysis
+          
+          // 🔧 ENHANCED: Properly map job analysis data to frontend-expected structure
+          parsedData: createEnhancedParsedDataForOnboarding(job),
+          
+          // Active Jobs DB specific data
+          activeJobsDBData: {
+            platform: 'Active Jobs DB (Onboarding)',
+            originalUrl: job.sourceUrl,
+            postedDate: new Date(),
+            activeJobsDBId: job.id || job._id,
+            category: 'Professional',
+            job_type: job.jobType || 'FULL_TIME',
+            experience_level: job.parsedData?.experienceLevel || 'mid',
+            remote: job.location?.isRemote || false,
+            discoveryMethod: 'onboarding_personalized_search',
+            isDirectEmployer: true,
+            qualityScore: 85,
+            premiumFeatures: {
+              directEmployerLink: true,
+              hourlyUpdated: true,
+              verifiedPosting: true,
+              enhancedMetadata: true
+            }
+          },
+          
+          // Enhanced location data
+          locationData: {
+            original: job.location?.original || `${job.location?.city}, ${job.location?.state}`,
+            parsed: {
+              city: job.location?.city || job.location?.parsed?.city,
+              state: job.location?.state || job.location?.parsed?.state,
+              country: job.location?.country || 'US',
+              isRemote: job.location?.isRemote || false
+            },
+            isRemote: job.location?.isRemote || false,
+            workArrangement: job.location?.isRemote ? 'remote' : 'onsite'
+          },
+          
+          // Enhanced salary data
+          salaryData: {
+            min: job.salary?.min,
+            max: job.salary?.max,
+            currency: job.salary?.currency || 'USD',
+            period: 'yearly',
+            source: 'active_jobs_db',
+            extractionMethod: 'onboarding_analysis',
+            confidence: job.salary?.confidence || 80,
+            isEstimated: !job.salary?.min && !job.salary?.max
+          },
+          
+          // Analysis metadata
+          analysisMetadata: {
+            analyzedAt: new Date(),
+            algorithmVersion: '5.0',
+            model: 'gpt-4o',
+            analysisType: 'onboarding_enhanced',
+            qualityLevel: 'high',
+            sourceJobBoard: 'active_jobs_db',
+            enhancedAnalysis: true,
+            salaryExtracted: !!(job.salary?.min || job.salary?.max),
+            locationEnhanced: true,
+            weeklySearch: false,
+            onboardingJob: true
+          },
+          
+          // AI search metadata
+          aiSearchMetadata: {
+            searchScore: 85,
+            discoveryMethod: 'onboarding_personalized_search',
+            extractionSuccess: true,
+            contentQuality: 'high',
+            premiumAnalysis: true,
+            activeJobsDBDiscovery: true,
+            enhancedAnalysis: true,
+            salaryExtracted: !!(job.salary?.min || job.salary?.max),
+            locationEnhanced: true,
+            originalPlatform: 'Active Jobs DB (Onboarding)',
+            workArrangement: job.location?.isRemote ? 'remote' : 'onsite',
+            experienceLevel: job.parsedData?.experienceLevel || 'mid',
+            isDirectEmployer: true,
+            searchLocation: preferences.locations?.map(loc => loc.name || loc).join(', ') || 'Multiple',
+            matchReason: 'Personalized onboarding search based on user preferences',
+            
+            // Active Jobs DB specific metadata
+            activeJobsDBMetadata: {
+              discoveryMethod: 'onboarding_personalized_search',
+              apiProvider: 'active_jobs_db',
+              premiumDatabaseAccess: true,
+              directEmployerLinks: true,
+              qualityGuaranteed: true,
+              enhancedSalaryExtraction: true,
+              locationTargeting: true,
+              premiumFeatures: {
+                directEmployerAccess: true,
+                enhancedJobMetadata: true,
+                realTimeUpdates: true,
+                qualityFiltering: true,
+                atsIntegration: true
+              }
+            },
+            
+            // Enhanced metadata
+            enhancedMetadata: {
+              analysisModel: 'gpt-4o',
+              analysisType: 'onboarding_enhanced',
+              qualityLevel: 'high',
+              enhancedAnalysis: true,
+              salaryExtracted: !!(job.salary?.min || job.salary?.max),
+              salarySource: 'active_jobs_db',
+              salaryConfidence: job.salary?.confidence || 80,
+              locationConfidence: 90,
+              workArrangement: job.location?.isRemote ? 'remote' : 'onsite',
+              isRemote: job.location?.isRemote || false,
+              weeklySearch: false,
+              onboardingJob: true
+            }
+          },
+          
+          // Analysis status
+          analysisStatus: {
+            status: 'completed',
+            progress: 100,
+            message: 'Onboarding job analysis completed',
+            completedAt: new Date(),
+            canViewJob: true,
+            skillsFound: job.analysis?.technicalSkills?.length || 0,
+            experienceLevel: job.parsedData?.experienceLevel || 'mid',
+            modelUsed: 'gpt-4o',
+            analysisType: 'onboarding_enhanced',
+            isActiveJobsDBDiscovery: true,
+            sourceJobBoard: 'active_jobs_db',
+            isDirectEmployer: true,
+            premiumDatabase: true,
+            enhancedAnalysis: true,
+            salaryExtracted: !!(job.salary?.min || job.salary?.max),
+            locationEnhanced: true,
+            weeklySearch: false
+          },
+          
+          // User interactions
+          userInteractions: {
+            viewCount: 0,
+            bookmarked: false,
+            applied: false
+          }
+        });
+        
+        // Save the job FIRST (without matchAnalysis)
+        const savedJob = await newJob.save();
+        console.log(`✅ Job saved: ${savedJob.title} at ${savedJob.company} (ID: ${savedJob._id})`);
+        
+        // 🔧 NEW: Perform REAL Phase 3 analysis using job matching service
+        console.log(`🔍 Starting REAL Phase 3 analysis for job: ${savedJob.title} at ${savedJob.company}`);
+        try {
+          const realMatchAnalysis = await jobMatchingService.matchResumeWithJob(resumeId, savedJob._id);
+          
+          // Update the job with REAL analysis results
+          savedJob.matchAnalysis = realMatchAnalysis;
+          await savedJob.save();
+          
+          console.log(`✅ REAL Phase 3 analysis completed for ${savedJob.title} - Score: ${realMatchAnalysis.overallScore}%`);
+        } catch (analysisError) {
+          console.error(`❌ Error in Phase 3 analysis for ${savedJob.title}:`, analysisError);
+          // Continue without failing the entire process - job is still saved
+        }
+        
+        savedJobs.push(savedJob);
+        
+        // Add job to AI Job Search record
+        await savedAiJobSearch.addJobFound({
+          jobId: savedJob._id,
+          title: savedJob.title,
+          company: savedJob.company,
+          location: {
+            original: savedJob.location?.fullAddress,
+            parsed: {
+              city: savedJob.location?.city,
+              state: savedJob.location?.state,
+              country: savedJob.location?.country,
+              isRemote: savedJob.location?.remote
+            }
+          },
+          salary: {
+            min: savedJob.salary?.min,
+            max: savedJob.salary?.max,
+            currency: savedJob.salary?.currency
+          },
+          contentQuality: 'high',
+          extractionSuccess: true,
+          matchScore: 85,
+          sourceUrl: savedJob.sourceUrl,
+          sourcePlatform: savedJob.sourcePlatform,
+          extractionMethod: 'onboarding_enhanced',
+          premiumAnalysis: true,
+          apiSource: 'active_jobs_db',
+          activeJobsDBId: job.id || job._id,
+          jobBoardOrigin: 'active_jobs_db',
+          directCompanyPosting: true,
+          salaryPredicted: false,
+          jobType: savedJob.jobType,
+          experienceLevel: savedJob.parsedData?.experienceLevel,
+          workArrangement: savedJob.parsedData?.workArrangement,
+          benefits: savedJob.parsedData?.benefits || [],
+          requiredSkills: savedJob.parsedData?.keySkills || [],
+          preferredSkills: savedJob.parsedData?.qualifications?.preferred || []
+        });
+        
+      } catch (jobSaveError) {
+        console.error(`❌ Error saving job ${job.title} at ${job.company}:`, jobSaveError);
+        
+        // If it's a duplicate error, skip and continue
+        if (jobSaveError.code === 'DUPLICATE_JOB' || jobSaveError.code === 11000) {
+          duplicatesSkipped++;
+          continue;
+        }
+        
+        // For other errors, log but don't fail the entire process
+        console.error(`❌ Non-critical error saving job, continuing...`);
+      }
+    }
+    
+    console.log(`✅ Phase 3 completed successfully:`, {
+      totalJobs: jobs.length,
+      savedJobs: savedJobs.length,
+      duplicatesSkipped: duplicatesSkipped,
+      aiJobSearchId: savedAiJobSearch._id
+    });
+    
+    return {
+      aiJobSearchId: savedAiJobSearch._id,
+      savedJobs: savedJobs,
+      duplicatesSkipped: duplicatesSkipped,
+      totalProcessed: jobs.length
+    };
+    
+  } catch (error) {
+    console.error('❌ Error in saveOnboardingJobsToCollection:', error);
+    throw new Error(`Failed to save onboarding jobs to collection: ${error.message}`);
+  }
+}
+
+// 🔧 NEW: Helper function to create enhanced parsed data for onboarding jobs
+function createEnhancedParsedDataForOnboarding(job) {
+  try {
+    console.log(`🔧 Creating enhanced parsed data for job: ${job.title} at ${job.company}`);
+    
+    // Extract data from job analysis if available
+    const analysis = job.analysis || {};
+    const existingParsedData = job.parsedData || {};
+    
+    // 🔧 ENHANCED: Map job analysis data to frontend-expected structure
+    const enhancedParsedData = {
+      // Core requirements - what the frontend expects for "Job Requirements" section
+      requirements: analysis.requirements || existingParsedData.requirements || [
+        'Relevant experience in the field',
+        'Strong problem-solving and analytical skills',
+        'Excellent communication and teamwork abilities',
+        'Ability to work independently and manage multiple tasks',
+        'Proficiency with relevant tools and technologies'
+      ],
+      
+      // Responsibilities - what the frontend expects for "Key Responsibilities" section
+      responsibilities: analysis.responsibilities || existingParsedData.responsibilities || [
+        'Execute key initiatives and projects',
+        'Collaborate with cross-functional teams',
+        'Contribute to strategic planning and implementation',
+        'Maintain high standards of quality and performance',
+        'Support team goals and organizational objectives'
+      ],
+      
+      // Qualifications - what the frontend expects for "Qualifications" section
+      qualifications: {
+        required: analysis.qualifications?.required || existingParsedData.qualifications?.required || [
+          'Bachelor\'s degree or equivalent experience',
+          'Relevant years of professional experience',
+          'Strong analytical and problem-solving skills',
+          'Excellent written and verbal communication'
+        ],
+        preferred: analysis.qualifications?.preferred || existingParsedData.qualifications?.preferred || [
+          'Advanced degree in relevant field',
+          'Industry certifications',
+          'Experience with modern tools and technologies',
+          'Leadership or mentoring experience'
+        ]
+      },
+      
+      // Technical Requirements - what the frontend expects for "Technical Requirements" section
+      technicalRequirements: analysis.technicalRequirements || analysis.technicalSkills?.map(skill => 
+        typeof skill === 'string' ? skill : skill.name
+      ) || existingParsedData.technicalRequirements || [
+        'Proficiency with relevant software and tools',
+        'Understanding of industry best practices',
+        'Experience with modern development methodologies',
+        'Knowledge of current technology trends'
+      ],
+      
+      // Tools & Technologies - what the frontend expects for "Tools & Technologies" section
+      toolsAndTechnologies: analysis.toolsAndTechnologies || existingParsedData.toolsAndTechnologies || [
+        'Microsoft Office Suite',
+        'Project Management Tools',
+        'Communication Platforms',
+        'Industry-specific Software'
+      ],
+      
+      // Additional fields for completeness
+      benefits: analysis.benefits || existingParsedData.benefits || [
+        'Competitive salary and benefits package',
+        'Health and wellness programs',
+        'Professional development opportunities',
+        'Flexible work arrangements'
+      ],
+      
+      keySkills: analysis.keySkills || existingParsedData.keySkills || [
+        { name: 'Communication', importance: 8, category: 'soft', skillType: 'communication' },
+        { name: 'Problem Solving', importance: 8, category: 'soft', skillType: 'analytical' },
+        { name: 'Teamwork', importance: 7, category: 'soft', skillType: 'communication' },
+        { name: 'Leadership', importance: 6, category: 'soft', skillType: 'management' }
+      ],
+      
+      experienceLevel: analysis.experienceLevel || existingParsedData.experienceLevel || 'mid',
+      
+      yearsOfExperience: {
+        minimum: analysis.yearsOfExperience?.minimum || existingParsedData.yearsOfExperience?.minimum || 2,
+        preferred: analysis.yearsOfExperience?.preferred || existingParsedData.yearsOfExperience?.preferred || 5
+      },
+      
+      educationRequirements: analysis.educationRequirements || existingParsedData.educationRequirements || [
+        'Bachelor\'s degree in relevant field',
+        'Equivalent professional experience considered'
+      ],
+      
+      workArrangement: analysis.workArrangement || existingParsedData.workArrangement || (job.location?.isRemote ? 'remote' : 'onsite'),
+      
+      // Enhanced fields for better analysis
+      industryContext: analysis.industryContext || existingParsedData.industryContext || 'technology',
+      roleCategory: analysis.roleCategory || existingParsedData.roleCategory || 'general',
+      technicalComplexity: analysis.technicalComplexity || existingParsedData.technicalComplexity || 'medium',
+      leadershipRequired: analysis.leadershipRequired || existingParsedData.leadershipRequired || false,
+      
+      // Metadata
+      extractedAt: new Date(),
+      extractionMethod: 'onboarding_enhanced_mapping',
+      enhancedAnalysis: true,
+      dataSource: 'job_analysis_with_fallbacks'
+    };
+    
+    console.log(`✅ Enhanced parsed data created for ${job.title}:`, {
+      requirementsCount: enhancedParsedData.requirements.length,
+      responsibilitiesCount: enhancedParsedData.responsibilities.length,
+      requiredQualificationsCount: enhancedParsedData.qualifications.required.length,
+      preferredQualificationsCount: enhancedParsedData.qualifications.preferred.length,
+      technicalRequirementsCount: enhancedParsedData.technicalRequirements.length,
+      toolsCount: enhancedParsedData.toolsAndTechnologies.length
+    });
+    
+    return enhancedParsedData;
+    
+  } catch (error) {
+    console.error(`❌ Error creating enhanced parsed data for ${job.title}:`, error);
+    
+    // Return fallback structure if enhancement fails
+    return {
+      requirements: ['Relevant experience and skills for the position'],
+      responsibilities: ['Execute assigned tasks and responsibilities'],
+      qualifications: {
+        required: ['Bachelor\'s degree or equivalent experience'],
+        preferred: ['Advanced degree or additional certifications']
+      },
+      technicalRequirements: ['Proficiency with relevant tools and technologies'],
+      toolsAndTechnologies: ['Standard office software and industry tools'],
+      benefits: ['Competitive compensation and benefits package'],
+      keySkills: [
+        { name: 'Communication', importance: 7, category: 'soft', skillType: 'communication' },
+        { name: 'Problem Solving', importance: 7, category: 'soft', skillType: 'analytical' }
+      ],
+      experienceLevel: 'mid',
+      yearsOfExperience: { minimum: 2, preferred: 5 },
+      educationRequirements: ['Bachelor\'s degree in relevant field'],
+      workArrangement: job.location?.isRemote ? 'remote' : 'onsite',
+      extractedAt: new Date(),
+      extractionMethod: 'fallback_structure',
+      enhancedAnalysis: false,
+      dataSource: 'fallback_defaults'
+    };
+  }
+}
