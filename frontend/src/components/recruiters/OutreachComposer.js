@@ -1,5 +1,5 @@
-// src/components/recruiters/OutreachComposer.js - PHONE FEATURES REMOVED
-import React, { useState, useEffect } from 'react';
+// src/components/recruiters/OutreachComposer.js - OPTIMIZED FOR PERFORMANCE
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -65,6 +65,114 @@ import resumeService from '../../utils/resumeService';
 import jobService from '../../utils/jobService';
 import AutoJobLogo from '../common/AutoJobLogo';
 
+// Memoized components for better performance
+const MemoizedRecruiterDetails = React.memo(({ recruiter, theme }) => (
+  <Card elevation={0} sx={{ mb: 3, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
+    <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
+      <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <PersonIcon sx={{ color: theme.palette.secondary.main, fontSize: '1.125rem' }} />
+        Recruiter Details
+      </Typography>
+    </Box>
+    <CardContent sx={{ p: 2.5 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+            TITLE
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
+            {recruiter.title}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+            COMPANY
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
+            {recruiter.company?.name}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+            EMAIL
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
+                                  {recruiter?.email || 'Not available'}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+            INDUSTRY
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
+            {recruiter.industry}
+          </Typography>
+        </Box>
+        {recruiter.experienceYears && (
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+              EXPERIENCE
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
+              {recruiter.experienceYears} years
+            </Typography>
+          </Box>
+        )}
+        {recruiter.specializations && (
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 0.75, display: 'block' }}>
+              SPECIALIZATIONS
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {recruiter.specializations.slice(0, 3).map((spec, index) => (
+                <Chip 
+                  key={index} 
+                  label={spec} 
+                  size="small" 
+                  variant="outlined"
+                  sx={{ borderRadius: 1, fontSize: '0.7rem' }}
+                />
+              ))}
+            </Box>
+          </Box>
+        )}
+      </Box>
+    </CardContent>
+  </Card>
+));
+
+const MemoizedTemplateGuide = React.memo(({ messageType, messageTemplates, theme }) => {
+  if (!messageTemplates[messageType]) return null;
+
+  return (
+    <Card elevation={0} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
+      <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
+        <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <LightbulbIcon sx={{ color: theme.palette.warning.main, fontSize: '1.125rem' }} />
+          Template Guide
+        </Typography>
+      </Box>
+      <CardContent sx={{ p: 2.5 }}>
+        <Typography variant="body2" color="text.secondary" paragraph sx={{ lineHeight: 1.6 }}>
+          {messageTemplates[messageType].description}
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+            SUGGESTED LENGTH:
+          </Typography>
+          <Chip 
+            label={messageTemplates[messageType].suggestedLength} 
+            size="small" 
+            color="info"
+            variant="outlined"
+            sx={{ borderRadius: 1 }}
+          />
+        </Box>
+      </CardContent>
+    </Card>
+  );
+});
+
 const OutreachComposer = ({ 
   open, 
   onClose, 
@@ -81,7 +189,7 @@ const OutreachComposer = ({
   const [messageContent, setMessageContent] = useState(defaultMessage);
   const [messageType, setMessageType] = useState('introduction');
   const [tone, setTone] = useState('professional');
-  const [sentVia, setSentVia] = useState('email'); // PHONE REMOVED - Only email available
+  const [sentVia, setSentVia] = useState('email');
   const [selectedResume, setSelectedResume] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [customRequirements, setCustomRequirements] = useState('');
@@ -100,13 +208,23 @@ const OutreachComposer = ({
   const [emailSubject, setEmailSubject] = useState('');
   const [formattedEmailBody, setFormattedEmailBody] = useState('');
   const [manualStatus, setManualStatus] = useState('sent');
-  const [showClipboardFallback, setShowClipboardFallback] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   
   // Data state
   const [resumes, setResumes] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
+
+  // Memoized service calls to prevent unnecessary re-renders
+  const messageTemplates = useMemo(() => 
+    recruiterService.getDefaultMessageTemplates(), 
+    []
+  );
+  
+  const toneOptions = useMemo(() => 
+    recruiterService.getDefaultToneOptions(), 
+    []
+  );
 
   // Load user data on mount
   useEffect(() => {
@@ -122,7 +240,8 @@ const OutreachComposer = ({
     setCharacterCount(messageContent.length);
   }, [messageContent]);
 
-  const loadUserData = async () => {
+  // Memoized data loading function
+  const loadUserData = useCallback(async () => {
     try {
       setLoadingData(true);
       const [resumesResponse, jobsResponse] = await Promise.all([
@@ -138,10 +257,10 @@ const OutreachComposer = ({
     } finally {
       setLoadingData(false);
     }
-  };
+  }, []);
 
-  // Email utility functions
-  const generateSubjectLine = (recruiter, messageType, jobTitle = null) => {
+  // Email utility functions - memoized
+  const generateSubjectLine = useCallback((recruiter, messageType, jobTitle = null) => {
     const companyName = recruiter?.company?.name || 'your company';
     
     const templates = {
@@ -152,9 +271,9 @@ const OutreachComposer = ({
     };
     
     return templates[messageType] || `Professional inquiry - ${companyName}`;
-  };
+  }, []);
 
-  const formatEmailMessage = (content, recruiterData, userData) => {
+  const formatEmailMessage = useCallback((content, recruiterData, userData) => {
     const recruiterFirstName = recruiterData?.firstName || 'there';
     
     // Remove any subject lines from the AI content
@@ -190,9 +309,10 @@ ${userFirstName}`;
     }
     
     return formattedContent;
-  };
+  }, []);
 
-  const handleGenerateMessage = async () => {
+  // Optimized message generation
+  const handleGenerateMessage = useCallback(async () => {
     if (!recruiter) return;
     
     try {
@@ -227,9 +347,9 @@ ${userFirstName}`;
     } finally {
       setIsGenerating(false);
     }
-  };
+  }, [recruiter, selectedResume, selectedJob, messageType, tone, customRequirements]);
 
-  const handleSendViaEmail = () => {
+  const handleSendViaEmail = useCallback(() => {
     try {
       // Generate subject line
       const subject = generateSubjectLine(recruiter, messageType, selectedJob?.title);
@@ -245,11 +365,12 @@ ${userFirstName}`;
       console.error('Email preparation failed:', error);
       setError('Failed to prepare email. Please try again.');
     }
-  };
+  }, [recruiter, messageType, selectedJob, messageContent, currentUser, generateSubjectLine, formatEmailMessage]);
 
-  const copyToClipboard = async () => {
+  const copyToClipboard = useCallback(async () => {
     try {
-      const fullEmailContent = `To: ${recruiter.email}
+      const recruiterEmail = recruiter?.email || '';
+      const fullEmailContent = `To: ${recruiterEmail}
 Subject: ${emailSubject}
 
 ${formattedEmailBody}`;
@@ -264,7 +385,8 @@ ${formattedEmailBody}`;
     } catch (error) {
       console.error('Failed to copy to clipboard:', error);
       // Fallback for older browsers
-      const fullEmailContent = `To: ${recruiter.email}
+      const recruiterEmail = recruiter?.email || '';
+      const fullEmailContent = `To: ${recruiterEmail}
 Subject: ${emailSubject}
 
 ${formattedEmailBody}`;
@@ -282,10 +404,10 @@ ${formattedEmailBody}`;
         setShowStatusDialog(true);
       }, 1500);
     }
-  };
+  }, [recruiter?.email, emailSubject, formattedEmailBody]);
 
-  // Proper data structure for status update
-  const handleStatusUpdate = async () => {
+  // Status update with better error handling
+  const handleStatusUpdate = useCallback(async () => {
     try {
       // Validate required fields
       if (!recruiter?.id) {
@@ -298,24 +420,16 @@ ${formattedEmailBody}`;
         return;
       }
 
-      console.log('📋 Status update - Recruiter:', recruiter);
-      console.log('📋 Status update - Message length:', messageContent.length);
-      console.log('📋 Status update - Selected status:', manualStatus);
-
-      // Create proper outreach data structure matching the backend expectations
       const outreachData = {
         recruiterId: recruiter.id,
         messageContent: messageContent.trim(),
         messageTemplate: messageType,
-        sentVia: 'email', // Always email now that phone is removed
+        sentVia: 'email',
         jobId: selectedJob?._id || null,
         customizations: [],
-        // Add additional fields that might be expected
         subject: emailSubject || generateSubjectLine(recruiter, messageType, selectedJob?.title),
         formattedContent: formattedEmailBody || messageContent.trim()
       };
-
-      console.log('📤 Sending outreach data:', outreachData);
 
       // Validate the data before sending
       const validation = recruiterService.validateOutreachData(outreachData);
@@ -327,26 +441,20 @@ ${formattedEmailBody}`;
 
       // Handle different status outcomes
       if (manualStatus === 'sent') {
-        console.log('📧 Marking as sent...');
         await onSend(outreachData);
       } else if (manualStatus === 'drafted') {
-        console.log('📝 Saving as draft...');
         await onSave(outreachData);
       } else {
-        // For 'cancelled' status, we still save it but mark it appropriately
-        console.log('❌ Marking as cancelled...');
         const cancelledData = { ...outreachData, status: 'cancelled' };
         await onSave(cancelledData);
       }
       
-      console.log('✅ Status update successful');
       setShowStatusDialog(false);
       handleClose();
       
     } catch (error) {
       console.error('❌ Status update failed:', error);
       
-      // Better error handling with specific messages
       let errorMessage = 'Failed to update status. Please try again.';
       
       if (error.response?.data?.error) {
@@ -355,7 +463,6 @@ ${formattedEmailBody}`;
         errorMessage = error.message;
       }
       
-      // Show specific error based on status
       if (error.response?.status === 400) {
         errorMessage = 'Invalid data provided. Please check your message content and try again.';
       } else if (error.response?.status === 404) {
@@ -363,24 +470,19 @@ ${formattedEmailBody}`;
       }
       
       setError(errorMessage);
-      
-      // Don't close the dialog on error, let user try again
       setShowStatusDialog(false);
-      setShowEmailPreview(true); // Go back to email preview
+      setShowEmailPreview(true);
     }
-  };
+  }, [recruiter, messageContent, messageType, selectedJob, emailSubject, formattedEmailBody, manualStatus, onSend, onSave, generateSubjectLine]);
 
-  // Improved send handler with better error handling
-  const handleSend = async () => {
-    // Only email is available now - always go to email preview
+  // Send handler
+  const handleSend = useCallback(() => {
     handleSendViaEmail();
-    return;
-  };
+  }, [handleSendViaEmail]);
 
-  // Improved save handler
-  const handleSave = async () => {
+  // Save handler
+  const handleSave = useCallback(async () => {
     try {
-      // Validate required fields
       if (!recruiter?.id) {
         setError('Recruiter information is missing. Please refresh and try again.');
         return;
@@ -395,14 +497,11 @@ ${formattedEmailBody}`;
         recruiterId: recruiter.id,
         messageContent: messageContent.trim(),
         messageTemplate: messageType,
-        sentVia: 'email', // Always email now
+        sentVia: 'email',
         jobId: selectedJob?._id || null,
         customizations: []
       };
 
-      console.log('💾 Save draft - outreach data:', outreachData);
-
-      // Validate the outreach data
       const validation = recruiterService.validateOutreachData(outreachData);
       if (!validation.isValid) {
         setError(validation.errors.join(', '));
@@ -424,9 +523,9 @@ ${formattedEmailBody}`;
       
       setError(errorMessage);
     }
-  };
+  }, [recruiter, messageContent, messageType, selectedJob, onSave]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setMessageContent('');
     setError('');
     setGenerationHistory([]);
@@ -436,27 +535,18 @@ ${formattedEmailBody}`;
     setEmailSubject('');
     setFormattedEmailBody('');
     setManualStatus('sent');
-    setShowClipboardFallback(false);
     setCopySuccess(false);
     onClose();
-  };
+  }, [onClose]);
 
-  // Use synchronous methods for templates and options
-  const messageTemplates = recruiterService.getDefaultMessageTemplates();
-  const toneOptions = recruiterService.getDefaultToneOptions();
-
-  const getCharacterCountColor = () => {
+  // Memoized helper functions
+  const getCharacterCountColor = useCallback(() => {
     if (characterCount > 2000) return 'error';
     if (characterCount > 1500) return 'warning';
     return 'primary';
-  };
+  }, [characterCount]);
 
-  // PHONE REMOVED - Only email icon now
-  const getSentViaIcon = (method) => {
-    return <EmailIcon />;
-  };
-
-  const getTemplateIcon = (template) => {
+  const getTemplateIcon = useCallback((template) => {
     switch (template) {
       case 'introduction': return <PersonIcon sx={{ color: theme.palette.primary.main }} />;
       case 'follow_up': return <TrendingUpIcon sx={{ color: theme.palette.secondary.main }} />;
@@ -464,9 +554,9 @@ ${formattedEmailBody}`;
       case 'thank_you': return <StarIcon sx={{ color: theme.palette.warning.main }} />;
       default: return <DescriptionIcon sx={{ color: theme.palette.info.main }} />;
     }
-  };
+  }, [theme]);
 
-  const getToneIcon = (toneValue) => {
+  const getToneIcon = useCallback((toneValue) => {
     switch (toneValue) {
       case 'professional': return <BusinessIcon sx={{ color: theme.palette.primary.main }} />;
       case 'friendly': return <PersonIcon sx={{ color: theme.palette.success.main }} />;
@@ -474,16 +564,7 @@ ${formattedEmailBody}`;
       case 'formal': return <SchoolIcon sx={{ color: theme.palette.info.main }} />;
       default: return <DescriptionIcon />;
     }
-  };
-
-  // Add debug info for troubleshooting
-  console.log('🔍 OutreachComposer Debug Info:', {
-    recruiterPresent: !!recruiter,
-    recruiterId: recruiter?.id,
-    messageContentLength: messageContent?.length || 0,
-    hasOnSend: typeof onSend === 'function',
-    hasOnSave: typeof onSave === 'function'
-  });
+  }, [theme]);
 
   if (!recruiter) {
     console.warn('⚠️ OutreachComposer: No recruiter provided');
@@ -501,12 +582,20 @@ ${formattedEmailBody}`;
           sx: { 
             borderRadius: 2,
             minHeight: '600px',
-            maxHeight: '85vh',
+            maxHeight: '90vh',
             width: '92vw',
             maxWidth: '1200px',
-            margin: 'auto'
+            margin: 'auto',
+            // Optimize for scroll performance
+            transform: 'translateZ(0)',
+            backfaceVisibility: 'hidden',
+            perspective: 1000,
+            willChange: 'transform',
           }
         }}
+        // Optimize dialog rendering
+        scroll="body"
+        keepMounted={false}
       >
         {/* Enhanced Header */}
         <DialogTitle sx={{ 
@@ -526,14 +615,14 @@ ${formattedEmailBody}`;
                     fontWeight: 'bold'
                   }}
                 >
-                  {recruiter.firstName?.[0]}{recruiter.lastName?.[0]}
+                  {recruiter?.firstName?.[0]}{recruiter?.lastName?.[0]}
                 </Avatar>
                 <Box>
                   <Typography variant="h6" sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
                     Compose Message
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    To {recruiter.firstName} {recruiter.lastName} at {recruiter.company?.name}
+                    To {recruiter?.firstName} {recruiter?.lastName} at {recruiter?.company?.name}
                   </Typography>
                 </Box>
               </Box>
@@ -553,7 +642,7 @@ ${formattedEmailBody}`;
             <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
               <Chip
                 icon={<WorkIcon sx={{ fontSize: '0.875rem' }} />}
-                label={recruiter.title}
+                label={recruiter?.title}
                 size="small"
                 variant="outlined"
                 color="primary"
@@ -567,9 +656,9 @@ ${formattedEmailBody}`;
                 color="secondary"
                 sx={{ borderRadius: 1 }}
               />
-              {recruiter.industry && (
+              {recruiter?.industry && (
                 <Chip
-                  label={recruiter.industry}
+                  label={recruiter?.industry}
                   size="small"
                   variant="filled"
                   color="info"
@@ -580,7 +669,15 @@ ${formattedEmailBody}`;
           </Box>
         </DialogTitle>
 
-        <DialogContent sx={{ p: 0, overflow: 'hidden' }}>
+        <DialogContent 
+          sx={{ 
+            p: 0, 
+            overflow: 'auto',  // Remove 'hidden' that was causing scroll issues
+            // Optimize scroll performance
+            transform: 'translateZ(0)',
+            backfaceVisibility: 'hidden'
+          }}
+        >
           {loadingData && (
             <Box sx={{ p: 2 }}>
               <LinearProgress sx={{ borderRadius: 1 }} />
@@ -598,7 +695,14 @@ ${formattedEmailBody}`;
             </Box>
           )}
 
-          <Box sx={{ p: 3, height: 'calc(85vh - 180px)', overflow: 'auto' }}>
+          <Box sx={{ 
+            p: 3, 
+            height: 'auto',  // Remove fixed height that was causing double scrollbars
+            // Optimize scroll performance
+            transform: 'translateZ(0)',
+            backfaceVisibility: 'hidden',
+            '-webkit-overflow-scrolling': 'touch'
+          }}>
             <Grid container spacing={3}>
               {/* Left Column - AI Generation */}
               <Grid item xs={12} lg={7.5}>
@@ -609,7 +713,9 @@ ${formattedEmailBody}`;
                     mb: 3,
                     border: `1px solid ${theme.palette.primary.light}`,
                     borderRadius: 2,
-                    background: `linear-gradient(135deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}05)`
+                    background: `linear-gradient(135deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}05)`,
+                    // Performance optimization
+                    transform: 'translateZ(0)'
                   }}
                 >
                   <CardContent sx={{ p: 2.5 }}>
@@ -690,11 +796,7 @@ ${formattedEmailBody}`;
                         <Button
                           variant="contained"
                           startIcon={isGenerating ? <LinearProgress sx={{ width: 20 }} /> : 
-                            <AutoJobLogo 
-                              variant="icon-only" 
-                              size="small" 
-                              sx={{ width: 20, height: 20 }} 
-                            />
+                            <AutoJobLogo variant="icon-only" size="button" />
                           }
                           onClick={handleGenerateMessage}
                           disabled={isGenerating}
@@ -787,7 +889,8 @@ ${formattedEmailBody}`;
                                 size="small"
                                 InputProps={{
                                   startAdornment: <LightbulbIcon sx={{ mr: 1, color: theme.palette.info.main, alignSelf: 'flex-start', mt: 1, fontSize: '1rem' }} />
-                                }}/>
+                                }}
+                              />
                             </Grid>
                           </Grid>
                         </Box>
@@ -867,7 +970,7 @@ ${formattedEmailBody}`;
 
               {/* Right Column - Settings and Preview */}
               <Grid item xs={12} lg={4.5}>
-                {/* Communication Method - PHONE REMOVED */}
+                {/* Communication Method */}
                 <Card elevation={0} sx={{ mb: 3, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                   <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
                     <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -876,7 +979,6 @@ ${formattedEmailBody}`;
                     </Typography>
                   </Box>
                   <CardContent sx={{ p: 2.5 }}>
-                    {/* Only Email Option Now */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
                       <EmailIcon sx={{ color: theme.palette.primary.main, fontSize: '1.2rem' }} />
                       <Box>
@@ -888,7 +990,7 @@ ${formattedEmailBody}`;
                         </Typography>
                       </Box>
                     </Box>
-                    {!recruiter.email && (
+                    {!recruiter?.email && (
                       <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
                         Email not available for this recruiter
                       </Typography>
@@ -896,108 +998,15 @@ ${formattedEmailBody}`;
                   </CardContent>
                 </Card>
 
-                {/* Enhanced Recruiter Info */}
-                <Card elevation={0} sx={{ mb: 3, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
-                  <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
-                    <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <PersonIcon sx={{ color: theme.palette.secondary.main, fontSize: '1.125rem' }} />
-                      Recruiter Details
-                    </Typography>
-                  </Box>
-                  <CardContent sx={{ p: 2.5 }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                          TITLE
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
-                          {recruiter.title}
-                        </Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                          COMPANY
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
-                          {recruiter.company?.name}
-                        </Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                          EMAIL
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
-                          {recruiter.email || 'Not available'}
-                        </Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                          INDUSTRY
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
-                          {recruiter.industry}
-                        </Typography>
-                      </Box>
-                      {recruiter.experienceYears && (
-                        <Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                            EXPERIENCE
-                          </Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>
-                            {recruiter.experienceYears} years
-                          </Typography>
-                        </Box>
-                      )}
-                      {recruiter.specializations && (
-                        <Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 0.75, display: 'block' }}>
-                            SPECIALIZATIONS
-                          </Typography>
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {recruiter.specializations.slice(0, 3).map((spec, index) => (
-                              <Chip 
-                                key={index} 
-                                label={spec} 
-                                size="small" 
-                                variant="outlined"
-                                sx={{ borderRadius: 1, fontSize: '0.7rem' }}
-                              />
-                            ))}
-                          </Box>
-                        </Box>
-                      )}
-                    </Box>
-                  </CardContent>
-                </Card>
+                {/* Memoized Recruiter Details */}
+                <MemoizedRecruiterDetails recruiter={recruiter} theme={theme} />
 
-                {/* Enhanced Template Guide */}
-                {messageTemplates[messageType] && (
-                  <Card elevation={0} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
-                    <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, bgcolor: theme.palette.grey[50] }}>
-                      <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <LightbulbIcon sx={{ color: theme.palette.warning.main, fontSize: '1.125rem' }} />
-                        Template Guide
-                      </Typography>
-                    </Box>
-                    <CardContent sx={{ p: 2.5 }}>
-                      <Typography variant="body2" color="text.secondary" paragraph sx={{ lineHeight: 1.6 }}>
-                        {messageTemplates[messageType].description}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                          SUGGESTED LENGTH:
-                        </Typography>
-                        <Chip 
-                          label={messageTemplates[messageType].suggestedLength} 
-                          size="small" 
-                          color="info"
-                          variant="outlined"
-                          sx={{ borderRadius: 1 }}
-                        />
-                      </Box>
-                    </CardContent>
-                  </Card>
-                )}
+                {/* Memoized Template Guide */}
+                <MemoizedTemplateGuide 
+                  messageType={messageType} 
+                  messageTemplates={messageTemplates} 
+                  theme={theme} 
+                />
               </Grid>
             </Grid>
           </Box>
@@ -1037,8 +1046,8 @@ ${formattedEmailBody}`;
           <Button
             onClick={handleSend}
             variant="contained"
-            startIcon={isSending ? <LinearProgress sx={{ width: 16 }} /> : getSentViaIcon(sentVia)}
-            disabled={!messageContent.trim() || isSending || characterCount > 2000 || !recruiter.email}
+            startIcon={isSending ? <LinearProgress sx={{ width: 16 }} /> : <EmailIcon />}
+            disabled={!messageContent.trim() || isSending || characterCount > 2000 || !recruiter?.email}
             sx={{ 
               borderRadius: 2,
               px: 3,
@@ -1060,7 +1069,7 @@ ${formattedEmailBody}`;
         </DialogActions>
       </Dialog>
 
-      {/* Email Preview Dialog - Consistent with Compose Message Style */}
+      {/* Email Preview Dialog - Optimized */}
       <Dialog
         open={showEmailPreview}
         onClose={() => setShowEmailPreview(false)}
@@ -1072,11 +1081,13 @@ ${formattedEmailBody}`;
             overflow: 'hidden',
             boxShadow: theme.shadows[6],
             width: '85vw',
-            maxWidth: '900px'
+            maxWidth: '900px',
+            // Performance optimization
+            transform: 'translateZ(0)',
+            backfaceVisibility: 'hidden'
           }
         }}
       >
-        {/* Header matching compose style */}
         <DialogTitle sx={{ 
           p: 0,
           background: `linear-gradient(135deg, ${theme.palette.primary.main}15, ${theme.palette.secondary.main}15)`,
@@ -1113,7 +1124,6 @@ ${formattedEmailBody}`;
               </Box>
             </Box>
             
-            {/* Email details in consistent card style */}
             <Card elevation={0} sx={{ 
               border: `1px solid ${theme.palette.divider}`,
               borderRadius: 2,
@@ -1136,7 +1146,7 @@ ${formattedEmailBody}`;
                       fontWeight: 500,
                       color: theme.palette.text.primary
                     }}>
-                      {recruiter.email}
+                      {recruiter?.email}
                     </Typography>
                   </Grid>
                   <Grid item xs={12} sm={6}>
@@ -1165,7 +1175,6 @@ ${formattedEmailBody}`;
         </DialogTitle>
 
         <DialogContent sx={{ p: 0 }}>
-          {/* Email content matching message content style */}
           <Box sx={{ p: 3 }}>
             <Paper elevation={0} sx={{ 
               border: `1px solid ${theme.palette.divider}`, 
@@ -1195,7 +1204,6 @@ ${formattedEmailBody}`;
             </Paper>
           </Box>
 
-          {/* Info section matching component style */}
           <Box sx={{ 
             p: 3, 
             pt: 0,
@@ -1225,7 +1233,6 @@ ${formattedEmailBody}`;
           </Box>
         </DialogContent>
 
-        {/* Dialog actions matching main dialog style */}
         <DialogActions sx={{ 
           p: 2.5,
           background: `linear-gradient(135deg, ${theme.palette.grey[50]}, white)`,
@@ -1277,7 +1284,7 @@ ${formattedEmailBody}`;
         </DialogActions>
       </Dialog>
 
-      {/* Status Update Dialog with Better Error Handling */}
+      {/* Status Update Dialog */}
       <Dialog
         open={showStatusDialog}
         onClose={() => setShowStatusDialog(false)}
@@ -1321,7 +1328,6 @@ ${formattedEmailBody}`;
         </DialogTitle>
 
         <DialogContent sx={{ p: 2.5 }}>
-          {/* Show error if there's an issue */}
           {error && (
             <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError('')}>
               {error}
@@ -1329,7 +1335,7 @@ ${formattedEmailBody}`;
           )}
 
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5, lineHeight: 1.6 }}>
-            After copying the email content for <strong>{recruiter.firstName} {recruiter.lastName}</strong>, 
+            After copying the email content for <strong>{recruiter?.firstName} {recruiter?.lastName}</strong>, 
             please update the status below to help us track your outreach effectiveness:
           </Typography>
 

@@ -1,4 +1,4 @@
-// src/components/recruiters/RecruiterList.js - PHONE FEATURES REMOVED - COMPLETE FILE
+// src/components/recruiters/RecruiterList.js - PHONE FEATURES REMOVED - COMPLETE FILE WITH ICON ALIGNMENT FIX
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -530,7 +530,14 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
                     startIcon={<VisibilityIcon />}
                     onClick={() => onViewDetails(recruiter)}
                     size="small"
-                    sx={{ flex: 1, borderRadius: 2 }}
+                    sx={{ 
+                      flex: 1, 
+                      borderRadius: 2,
+                      '& .MuiButton-startIcon': {
+                        margin: 0,
+                        marginRight: '4px'
+                      }
+                    }}
                   >
                     View Details
                   </Button>
@@ -538,13 +545,20 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
                   <Button
                     variant="contained"
                     startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : 
-                      <AutoJobLogo variant="icon-only" size="small" sx={{ width: 24, height: 24 }} />
+                      <AutoJobLogo variant="icon-only" size="button" />
                     }
                     onClick={handleStartOutreach}
                     disabled={isLoading}
                     size="small"
                     color={recruiter.outreach?.hasContacted ? 'secondary' : 'primary'}
-                    sx={{ flex: 1, borderRadius: 2 }}
+                    sx={{ 
+                      flex: 1, 
+                      borderRadius: 2,
+                      '& .MuiButton-startIcon': {
+                        margin: 0,
+                        marginRight: '6px'
+                      }
+                    }}
                   >
                     {isLoading ? 'Loading...' : 'Contact Recruiter'}
                   </Button>
@@ -561,7 +575,14 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
                 startIcon={<VisibilityIcon />}
                 onClick={() => onViewDetails(recruiter)}
                 size="small"
-                sx={{ flex: 1, borderRadius: 2 }}
+                sx={{ 
+                  flex: 1, 
+                  borderRadius: 2,
+                  '& .MuiButton-startIcon': {
+                    marginLeft: 0,
+                    marginRight: '6px'
+                  }
+                }}
               >
                 View Details
               </Button>
@@ -569,13 +590,20 @@ const RecruiterCard = ({ recruiter, onViewDetails, onStartOutreach, onLoadMore, 
               <Button
                 variant="contained"
                 startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : 
-                  <AutoJobLogo variant="icon-only" size="small" sx={{ width: 24, height: 24 }} />
+                  <AutoJobLogo variant="icon-only" size="button" />
                 }
                 onClick={handleStartOutreach}
                 disabled={isLoading}
                 size="small"
                 color={recruiter.outreach?.hasContacted ? 'secondary' : 'primary'}
-                sx={{ flex: 1, borderRadius: 2 }}
+                sx={{ 
+                  flex: 1, 
+                  borderRadius: 2,
+                  '& .MuiButton-startIcon': {
+                    margin: 0,
+                    marginRight: '6px'
+                  }
+                }}
               >
                 {isLoading ? 'Loading...' : 'Contact Recruiter'}
               </Button>

@@ -1,4 +1,4 @@
-// src/components/common/AutoJobLogo.js - FIXED VERSION
+// src/components/common/AutoJobLogo.js - FIXED VERSION WITH BUTTON ALIGNMENT
 import React from 'react';
 import { Box, Typography, useTheme } from '@mui/material';
 
@@ -20,8 +20,14 @@ const AutoJobLogo = ({
 
   // Size configurations
   const sizeConfig = {
+    button: {
+      icon: 16,  // Specific size for buttons
+      logoText: '1rem',
+      taglineText: '0.75rem',
+      gap: 0.5
+    },
     small: {
-      icon: 32,
+      icon: 32,  // Restored original small size
       logoText: '1.25rem',
       taglineText: '0.75rem',
       gap: 1
@@ -100,14 +106,19 @@ const AutoJobLogo = ({
 
   const colors = getColorConfig();
 
-  // Robot SVG Component
+  // Robot SVG Component - FIXED: Better button alignment
   const RobotIcon = () => (
     <svg 
       width={config.icon} 
       height={config.icon} 
       viewBox="0 0 64 64" 
       xmlns="http://www.w3.org/2000/svg"
-      style={{ display: 'block' }}
+      style={{ 
+        display: 'block',
+        // Critical: These properties ensure proper alignment in buttons
+        verticalAlign: 'middle',
+        fill: 'currentColor'  // Inherits button color
+      }}
     >
       {/* Robot Head Background */}
       <rect 
@@ -241,7 +252,12 @@ const AutoJobLogo = ({
           <Box
             sx={{
               display: 'inline-flex',
+              alignItems: 'center',  // FIXED: Ensures vertical alignment
+              justifyContent: 'center',
               cursor: onClick ? 'pointer' : 'default',
+              // CRITICAL: These properties ensure proper button alignment
+              lineHeight: 1,
+              verticalAlign: 'middle',
               ...sx
             }}
             className={className}
