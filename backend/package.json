@@ -8,7 +8,17 @@
     "dev": "nodemon server.js",
     "build": "echo 'No build step needed for Node.js'",
     "test": "echo 'No tests specified'",
-    "setup:db": "node models/postgresql/schema.js"
+    "setup:db": "node models/postgresql/schema.js",
+    "h1b:migrate": "node scripts/run-h1b-migration.js migrate",
+    "h1b:status": "node scripts/run-h1b-migration.js status",
+    "h1b:update": "node scripts/update-h1b-flags.js",
+    "h1b:update-dry": "node scripts/update-h1b-flags.js --dry-run",
+    "h1b:update-reset": "node scripts/update-h1b-flags.js --reset-flags",
+    "h1b:stats": "node scripts/update-h1b-flags.js --stats-only",
+    "h1b:maintenance": "node scripts/h1b-maintenance.js auto",
+    "h1b:maintenance-check": "node scripts/h1b-maintenance.js check",
+    "h1b:maintenance-report": "node scripts/h1b-maintenance.js report",
+    "h1b:cleanup": "node scripts/h1b-maintenance.js cleanup"
   },
   "engines": {
     "node": ">=18.0.0",

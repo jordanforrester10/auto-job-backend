@@ -1,4 +1,4 @@
-// backend/routes/recruiter.routes.js - UPDATED WITH UNLOCK FUNCTIONALITY
+// backend/routes/recruiter.routes.js - UPDATED WITH H1B FUNCTIONALITY
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth.middleware');
@@ -19,7 +19,8 @@ const validateRecruiterParams = [validate];
 const validateOutreachCreation = [validate];
 const validateMessageGeneration = [validate];
 const validateOutreachParams = [validate];
-const validateUnlockParams = [validate]; // NEW: validation for unlock endpoint
+const validateUnlockParams = [validate];
+const validateH1BParams = [validate]; // NEW: validation for H1B endpoints
 
 // ===================================================================
 // SPECIFIC ROUTES (MUST COME BEFORE PARAMETERIZED ROUTES)
@@ -27,14 +28,14 @@ const validateUnlockParams = [validate]; // NEW: validation for unlock endpoint
 
 /**
  * @route   GET /api/recruiters/search
- * @desc    Search recruiters with advanced filtering
+ * @desc    Search recruiters with advanced filtering (including H1B filter)
  * @access  Private
  */
 router.get('/search', protect, validateSearch, recruiterController.searchRecruiters);
 
 /**
  * @route   GET /api/recruiters/filters
- * @desc    Get available filter options for recruiter search
+ * @desc    Get available filter options for recruiter search (including H1B data)
  * @access  Private
  */
 router.get('/filters', protect, recruiterController.getFilterOptions);
@@ -52,6 +53,26 @@ router.get('/analytics', protect, recruiterController.getOutreachAnalytics);
  * @access  Private
  */
 router.post('/generate-message', protect, validateMessageGeneration, recruiterController.generatePersonalizedMessage);
+
+// ===================================================================
+// NEW: H1B COMPANY ROUTES
+// ===================================================================
+
+/**
+ * @route   GET /api/recruiters/h1b-companies
+ * @desc    Search H1B sponsor companies
+ * @access  Private
+ * @query   query, industry, state, employeeRange, limit, offset
+ */
+router.get('/h1b-companies', protect, validateH1BParams, recruiterController.searchH1BCompanies);
+
+/**
+ * @route   GET /api/recruiters/h1b-company/:companyName
+ * @desc    Get detailed H1B company information by name
+ * @access  Private
+ * @param   companyName - URL encoded company name
+ */
+router.get('/h1b-company/:companyName', protect, validateH1BParams, recruiterController.getH1BCompanyInfo);
 
 // ===================================================================
 // OUTREACH MANAGEMENT ROUTES (SPECIFIC PATHS)
@@ -138,19 +159,39 @@ router.get('/recommendations', protect, (req, res) => {
   });
 });
 
+/**
+ * NEW: @route   GET /api/recruiters/h1b-stats
+ * @desc    Get H1B sponsor statistics and insights
+ * @access  Private
+ * @note    Future implementation for H1B analytics
+ */
+router.get('/h1b-stats', protect, (req, res) => {
+  res.json({
+    success: true,
+    message: 'H1B statistics and insights feature coming soon',
+    feature: 'h1b_analytics',
+    plannedFeatures: [
+      'Top H1B sponsoring industries',
+      'H1B approval rates by company',
+      'Geographical distribution of H1B sponsors',
+      'H1B sponsorship trends over time'
+    ]
+  });
+});
+
 // ===================================================================
 // PARAMETERIZED ROUTES (MUST COME AFTER ALL SPECIFIC ROUTES)
 // ===================================================================
 
 /**
  * @route   GET /api/recruiters/:recruiterId
- * @desc    Get detailed recruiter information
+ * @desc    Get detailed recruiter information (with H1B company info if applicable)
  * @access  Private
  */
 router.get('/:recruiterId', protect, validateRecruiterParams, recruiterController.getRecruiterById);
 
 /**
- * NEW ROUTE: POST /api/recruiters/:recruiterId/unlock
+ * @route   POST /api/recruiters/:recruiterId/unlock
  * @desc    Unlock recruiter details for casual plan users
  * @access  Private
  * @note    Costs 1 recruiter unlock credit for casual users
@@ -222,6 +263,50 @@ router.get('/unlocked/list', protect, (req, res) => {
 });
 
 // ===================================================================
+// NEW: H1B-SPECIFIC ADVANCED FEATURES (Future Implementation)
+// ===================================================================
+
+/**
+ * @route   GET /api/recruiters/h1b-trends
+ * @desc    Get H1B sponsorship trends and analysis
+ * @access  Private
+ * @note    Future implementation for H1B trend analysis
+ */
+router.get('/h1b-trends', protect, (req, res) => {
+  res.json({
+    success: true,
+    message: 'H1B trends analysis feature coming soon',
+    feature: 'h1b_trends',
+    plannedFeatures: [
+      'Year-over-year H1B application trends',
+      'Industry-wise H1B sponsorship changes',
+      'Geographic shifts in H1B sponsorship',
+      'Company size vs H1B sponsorship correlation'
+    ]
+  });
+});
+
+/**
+ * @route   POST /api/recruiters/h1b-alerts
+ * @desc    Set up alerts for new H1B sponsor companies
+ * @access  Private
+ * @note    Future implementation for H1B sponsorship alerts
+ */
+router.post('/h1b-alerts', protect, (req, res) => {
+  res.json({
+    success: true,
+    message: 'H1B sponsorship alerts feature coming soon',
+    feature: 'h1b_alerts',
+    plannedFeatures: [
+      'New H1B sponsor company notifications',
+      'Industry-specific H1B alerts',
+      'Location-based H1B sponsorship updates',
+      'Custom H1B criteria matching alerts'
+    ]
+  });
+});
+
+// ===================================================================
 // ERROR HANDLING
 // ===================================================================
 
@@ -234,17 +319,19 @@ router.use((req, res) => {
     requestedPath: req.path,
     method: req.method,
     availableEndpoints: [
-      'GET /api/recruiters/search - Search recruiters',
-      'GET /api/recruiters/filters - Get filter options',
+      'GET /api/recruiters/search - Search recruiters (with H1B filter)',
+      'GET /api/recruiters/filters - Get filter options (includes H1B data)',
       'GET /api/recruiters/analytics - Get analytics',
       'POST /api/recruiters/generate-message - Generate AI message',
+      'GET /api/recruiters/h1b-companies - Search H1B companies (NEW)',
+      'GET /api/recruiters/h1b-company/:name - Get H1B company info (NEW)',
       'GET /api/recruiters/outreach - Get outreach campaigns',
       'POST /api/recruiters/outreach - Create outreach',
       'PUT /api/recruiters/outreach/:id - Update outreach',
       'DELETE /api/recruiters/outreach/:id - Delete outreach',
       'PUT /api/recruiters/outreach/:id/send - Send outreach',
-      'GET /api/recruiters/:id - Get recruiter details',
-      'POST /api/recruiters/:id/unlock - Unlock recruiter (NEW)'
+      'GET /api/recruiters/:id - Get recruiter details (with H1B info)',
+      'POST /api/recruiters/:id/unlock - Unlock recruiter'
     ]
   });
 });

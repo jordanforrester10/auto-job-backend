@@ -1,0 +1,78 @@
+{
+  "timestamp": "2025-07-18T19:48:22.636Z",
+  "options": {
+    "threshold": 0.85,
+    "batchSize": 1000,
+    "dryRun": false,
+    "resetFlags": false,
+    "statsOnly": false
+  },
+  "statistics": {
+    "totalPgCompanies": 47284,
+    "totalH1bCompanies": 2777,
+    "matchesFound": 14611,
+    "flagsUpdated": 14611,
+    "flagsRemoved": 0,
+    "errors": 0,
+    "startTime": "2025-07-18T19:48:10.711Z",
+    "endTime": null
+  },
+  "summary": {
+    "processingTime": "In progress",
+    "matchRate": "30.90%",
+    "errorRate": "0.00%"
+  },
+  "topMatches": [
+    {
+      "pgCompany": "AMN Healthcare",
+      "h1bCompany": "Alignment Healthcare",
+      "similarity": "100.0%"
+    },
+    {
+      "pgCompany": "Ingram Micro",
+      "h1bCompany": "Ingenious Med",
+      "similarity": "100.0%"
+    },
+    {
+      "pgCompany": "On Call Staffing Solutions",
+      "h1bCompany": "Centric Software",
+      "similarity": "100.0%"
+    },
+    {
+      "pgCompany": "Sarian Solutions",
+      "h1bCompany": "Sarian Solutions",
+      "similarity": "100.0%"
+    },
+    {
+      "pgCompany": "Heritage Christian Services",
+      "h1bCompany": "Health Catalyst",
+      "similarity": "100.0%"
+    },
+    {
+      "pgCompany": "AWN Solutions",
+      "h1bCompany": "Arctic Wolf Networks",
+      "similarity": "100.0%"
+    },
+    {
+      "pgCompany": "Willow River",
+      "h1bCompany": "Wind River Systems",
+      "similarity": "100.0%"
+    },
+    {
+      "pgCompany": "Panda Express",
+      "h1bCompany": "P2 Energy Solutions",
+      "similarity": "100.0%"
+    },
+    {
+      "pgCompany": "ACT1 Federal",
+      "h1bCompany": "Aura Financial",
+      "similarity": "100.0%"
+    },
+    {
+      "pgCompany": "SpotOn",
+      "h1bCompany": "SpotOn",
+      "similarity": "100.0%"
+    }
+  ],
+  "errorSample": []
+}

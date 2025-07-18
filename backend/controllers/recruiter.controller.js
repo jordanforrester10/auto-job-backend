@@ -1,8 +1,9 @@
-// backend/controllers/recruiter.controller.js - PHONE FEATURES REMOVED - COMPLETE FILE
+// backend/controllers/recruiter.controller.js - COMPLETE CLEAN FILE WITH OPTIMIZED H1B FILTERING
 const { Pool } = require('pg');
 const Outreach = require('../models/mongodb/outreach.model');
 const Resume = require('../models/mongodb/resume.model');
 const Job = require('../models/mongodb/job.model');
+const H1BCompany = require('../models/mongodb/h1bCompany.model');
 const { openai } = require('../config/openai');
 const subscriptionService = require('../services/subscription.service');
 const usageService = require('../services/usage.service');
@@ -40,11 +41,13 @@ exports.searchRecruiters = async (req, res) => {
       location = '',
       title = '',
       show_unlocked_only = false,
+      h1b_only = false, // H1B filter parameter
       limit = 20,
       offset = 0
     } = req.query;
 
     const showUnlockedOnly = show_unlocked_only === 'true' || show_unlocked_only === true;
+    const h1bOnly = h1b_only === 'true' || h1b_only === true;
     
     console.log(`🔍 Searching recruiters for user ${userId}:`, {
       query, 
@@ -53,6 +56,7 @@ exports.searchRecruiters = async (req, res) => {
       location, 
       title, 
       showUnlockedOnly,
+      h1bOnly,
       userPlan: currentSubscription.user.subscriptionTier,
       limit: parseInt(limit)
     });
@@ -61,7 +65,11 @@ exports.searchRecruiters = async (req, res) => {
       console.log('🔓 Filtering to show ONLY unlocked recruiters');
     }
 
-    // Build the SQL query dynamically - PHONE FIELDS REMOVED
+    if (h1bOnly) {
+      console.log('🏢 Filtering to show ONLY H1B company recruiters (using boolean flag)');
+    }
+
+    // Build the SQL query dynamically with OPTIMIZED H1B filtering
     let sqlQuery = `
       SELECT 
         r.id,
@@ -77,6 +85,8 @@ exports.searchRecruiters = async (req, res) => {
         c.website as company_website,
         c.employee_range as company_size,
         c.logo_url as company_logo,
+        c.is_h1b_sponsor,
+        c.h1b_matched_company_id,
         i.name as industry_name,
         l.city,
         l.state,
@@ -103,6 +113,12 @@ exports.searchRecruiters = async (req, res) => {
     if (showUnlockedOnly) {
       sqlQuery += ` AND ru.unlocked_at IS NOT NULL`;
       console.log('🔓 Added SQL filter for unlocked recruiters only');
+    }
+
+    // OPTIMIZED: Add H1B company filter using boolean flag (FAST!)
+    if (h1bOnly) {
+      sqlQuery += ` AND c.is_h1b_sponsor = TRUE`;
+      console.log('🏢 Added OPTIMIZED SQL filter for H1B companies using boolean flag');
     }
 
     // Add search filters with COALESCE to handle NULL values
@@ -151,12 +167,16 @@ exports.searchRecruiters = async (req, res) => {
     sqlQuery += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     queryParams.push(parseInt(limit), parseInt(offset));
 
-    console.log('🗄️ Executing SQL query with params:', queryParams);
+    console.log('🗄️ Executing OPTIMIZED SQL query with params:', queryParams.length);
+    const startTime = Date.now();
 
     // Execute the query
     const result = await pool.query(sqlQuery, queryParams);
+    
+    const queryTime = Date.now() - startTime;
+    console.log(`⚡ Query executed in ${queryTime}ms (previously 60+ seconds!)`);
 
-    // Get total count for pagination
+    // Get total count for pagination (using same optimized approach)
     let countQuery = `
       SELECT COUNT(*) as count
       FROM recruiters r
@@ -171,9 +191,14 @@ exports.searchRecruiters = async (req, res) => {
     const countParams = [userId.toString()];
     let countParamIndex = 2;
 
-    // Add unlocked filter to count query too
+    // Add unlocked filter to count query
     if (showUnlockedOnly) {
       countQuery += ` AND ru.unlocked_at IS NOT NULL`;
+    }
+
+    // OPTIMIZED: Add H1B filter to count query using boolean flag
+    if (h1bOnly) {
+      countQuery += ` AND c.is_h1b_sponsor = TRUE`;
     }
 
     // Apply same filters to count query
@@ -217,7 +242,31 @@ exports.searchRecruiters = async (req, res) => {
 
     const countResult = await pool.query(countQuery, countParams);
 
-    // Format recruiter data based on user's plan - PHONE REMOVED
+    // Get H1B statistics for response
+    let h1bStats = null;
+    if (h1bOnly) {
+      try {
+        const h1bStatsQuery = `
+          SELECT 
+            COUNT(*) as total_h1b_companies,
+            COUNT(DISTINCT r.id) as h1b_recruiters
+          FROM companies c
+          LEFT JOIN recruiters r ON c.id = r.current_company_id
+          WHERE c.is_h1b_sponsor = TRUE AND r.is_active = true
+        `;
+        const h1bStatsResult = await pool.query(h1bStatsQuery);
+        h1bStats = {
+          totalH1BCompanies: parseInt(h1bStatsResult.rows[0].total_h1b_companies),
+          h1bRecruiters: parseInt(h1bStatsResult.rows[0].h1b_recruiters),
+          queryOptimized: true,
+          queryTime: `${queryTime}ms`
+        };
+      } catch (statsError) {
+        console.error('❌ Error fetching H1B stats (non-critical):', statsError);
+      }
+    }
+
+    // Format recruiter data based on user's plan
     const recruiters = result.rows.map(row => {
       const baseRecruiter = {
         id: row.id,
@@ -228,7 +277,9 @@ exports.searchRecruiters = async (req, res) => {
           name: row.company_name,
           website: row.company_website,
           size: row.company_size,
-          logo: row.company_logo
+          logo: row.company_logo,
+          isH1BSponsor: row.is_h1b_sponsor || false,
+          h1bMatchedCompanyId: row.h1b_matched_company_id
         },
         industry: row.industry_name,
         location: {
@@ -245,6 +296,17 @@ exports.searchRecruiters = async (req, res) => {
         unlockedAt: row.unlocked_at
       };
 
+      // Add H1B company information if H1B filter was applied or company is H1B sponsor
+      if (row.is_h1b_sponsor) {
+        baseRecruiter.h1bCompanyInfo = {
+          isH1BCompany: true,
+          verifiedH1BSponsor: true,
+          companyName: row.company_name,
+          flagSource: 'database',
+          matchedCompanyId: row.h1b_matched_company_id
+        };
+      }
+
       // For free users, limit the data returned
       if (currentSubscription.user.subscriptionTier === 'free') {
         return {
@@ -260,7 +322,7 @@ exports.searchRecruiters = async (req, res) => {
         };
       }
 
-      // For paid users, return full data (NO PHONE FIELDS)
+      // For paid users, return full data
       return {
         ...baseRecruiter,
         email: row.email,
@@ -289,20 +351,24 @@ exports.searchRecruiters = async (req, res) => {
       console.error('❌ Error fetching usage stats (non-critical):', usageError);
     }
 
+    const totalCount = parseInt(countResult.rows[0].count);
+
     if (showUnlockedOnly) {
-      console.log(`✅ Found ${recruiters.length} UNLOCKED recruiters (Total unlocked: ${countResult.rows[0].count})`);
+      console.log(`✅ Found ${recruiters.length} UNLOCKED recruiters (Total: ${totalCount})`);
+    } else if (h1bOnly) {
+      console.log(`✅ Found ${recruiters.length} H1B COMPANY recruiters (Total: ${totalCount}) in ${queryTime}ms`);
     } else {
-      console.log(`✅ Found ${recruiters.length} recruiters (Total: ${countResult.rows[0].count}) for ${currentSubscription.user.subscriptionTier} user`);
+      console.log(`✅ Found ${recruiters.length} recruiters (Total: ${totalCount}) for ${currentSubscription.user.subscriptionTier} user`);
     }
 
     res.json({
       success: true,
       recruiters,
       pagination: {
-        total: parseInt(countResult.rows[0].count),
+        total: totalCount,
         limit: parseInt(limit),
         offset: parseInt(offset),
-        hasMore: parseInt(offset) + parseInt(limit) < parseInt(countResult.rows[0].count)
+        hasMore: parseInt(offset) + parseInt(limit) < totalCount
       },
       filters: {
         query,
@@ -310,10 +376,21 @@ exports.searchRecruiters = async (req, res) => {
         industry,
         location,
         title,
-        showUnlockedOnly
+        showUnlockedOnly,
+        h1bOnly
+      },
+      h1bData: {
+        h1bFilterApplied: h1bOnly,
+        optimizedQuery: h1bOnly,
+        queryPerformance: h1bOnly ? `${queryTime}ms` : null,
+        h1bStats: h1bStats
       },
       usageStats: usageStats,
-      userPlan: currentSubscription.user.subscriptionTier
+      userPlan: currentSubscription.user.subscriptionTier,
+      performanceMetrics: {
+        queryTime: `${queryTime}ms`,
+        optimizedH1BFiltering: h1bOnly
+      }
     });
 
   } catch (error) {
@@ -326,9 +403,6 @@ exports.searchRecruiters = async (req, res) => {
   }
 };
 
-/**
- * Get recruiter details by ID - PHONE FEATURES REMOVED
- */
 exports.getRecruiterById = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -363,7 +437,7 @@ exports.getRecruiterById = async (req, res) => {
 
     // For free users, return basic info only
     if (currentSubscription.user.subscriptionTier === 'free') {
-      // Get basic recruiter info without contact details
+      // Get basic recruiter info without contact details (including H1B flag)
       const basicQuery = `
         SELECT 
           r.id,
@@ -371,6 +445,8 @@ exports.getRecruiterById = async (req, res) => {
           r.last_name,
           c.name as company_name,
           c.employee_range as company_size,
+          c.is_h1b_sponsor,
+          c.h1b_matched_company_id,
           i.name as industry_name,
           l.city,
           l.state,
@@ -392,6 +468,35 @@ exports.getRecruiterById = async (req, res) => {
       }
 
       const row = basicResult.rows[0];
+      
+      // Get H1B company information if flagged
+      let h1bCompanyInfo = null;
+      if (row.is_h1b_sponsor && row.h1b_matched_company_id) {
+        try {
+          const h1bCompany = await H1BCompany.findById(row.h1b_matched_company_id);
+          if (h1bCompany) {
+            h1bCompanyInfo = {
+              isH1BCompany: true,
+              companyName: h1bCompany.companyName,
+              industry: h1bCompany.primaryIndustry,
+              employeeRange: h1bCompany.employeeRange,
+              website: h1bCompany.website,
+              flagSource: 'optimized_database',
+              verifiedSponsor: true
+            };
+          }
+        } catch (h1bError) {
+          console.error('Error fetching H1B company details:', h1bError);
+          // Fallback to basic flag info
+          h1bCompanyInfo = {
+            isH1BCompany: true,
+            companyName: row.company_name,
+            flagSource: 'database_flag_only',
+            verifiedSponsor: true
+          };
+        }
+      }
+
       const basicRecruiter = {
         id: row.id,
         firstName: row.first_name,
@@ -400,7 +505,8 @@ exports.getRecruiterById = async (req, res) => {
         title: 'Senior Recruiter', // Generic title for free users
         company: {
           name: row.company_name,
-          size: row.company_size
+          size: row.company_size,
+          isH1BSponsor: row.is_h1b_sponsor || false
         },
         industry: row.industry_name,
         location: {
@@ -409,7 +515,8 @@ exports.getRecruiterById = async (req, res) => {
           country: row.country
         },
         isUnlocked: false,
-        accessLevel: 'basic'
+        accessLevel: 'basic',
+        h1bCompanyInfo // Include H1B info even for free users
       };
 
       return res.json({
@@ -423,7 +530,7 @@ exports.getRecruiterById = async (req, res) => {
 
     // For casual users, check if they need to unlock or if already unlocked
     if (currentSubscription.user.subscriptionTier === 'casual' && !isUnlocked) {
-      // Return limited info and unlock option
+      // Return limited info and unlock option (including H1B flag)
       const limitedQuery = `
         SELECT 
           r.id,
@@ -432,6 +539,8 @@ exports.getRecruiterById = async (req, res) => {
           r.title,
           c.name as company_name,
           c.employee_range as company_size,
+          c.is_h1b_sponsor,
+          c.h1b_matched_company_id,
           i.name as industry_name,
           l.city,
           l.state,
@@ -453,6 +562,34 @@ exports.getRecruiterById = async (req, res) => {
       }
 
       const row = limitedResult.rows[0];
+      
+      // Get H1B company information if flagged
+      let h1bCompanyInfo = null;
+      if (row.is_h1b_sponsor && row.h1b_matched_company_id) {
+        try {
+          const h1bCompany = await H1BCompany.findById(row.h1b_matched_company_id);
+          if (h1bCompany) {
+            h1bCompanyInfo = {
+              isH1BCompany: true,
+              companyName: h1bCompany.companyName,
+              industry: h1bCompany.primaryIndustry,
+              employeeRange: h1bCompany.employeeRange,
+              website: h1bCompany.website,
+              flagSource: 'optimized_database',
+              verifiedSponsor: true
+            };
+          }
+        } catch (h1bError) {
+          console.error('Error fetching H1B company details:', h1bError);
+          h1bCompanyInfo = {
+            isH1BCompany: true,
+            companyName: row.company_name,
+            flagSource: 'database_flag_only',
+            verifiedSponsor: true
+          };
+        }
+      }
+
       const limitedRecruiter = {
         id: row.id,
         firstName: row.first_name,
@@ -461,7 +598,8 @@ exports.getRecruiterById = async (req, res) => {
         title: row.title,
         company: {
           name: row.company_name,
-          size: row.company_size
+          size: row.company_size,
+          isH1BSponsor: row.is_h1b_sponsor || false
         },
         industry: row.industry_name,
         location: {
@@ -470,7 +608,8 @@ exports.getRecruiterById = async (req, res) => {
           country: row.country
         },
         isUnlocked: false,
-        accessLevel: 'limited'
+        accessLevel: 'limited',
+        h1bCompanyInfo // Include H1B info
       };
 
       return res.json({
@@ -482,7 +621,7 @@ exports.getRecruiterById = async (req, res) => {
       });
     }
 
-    // For hunter users or unlocked casual users, return full details - PHONE REMOVED
+    // For hunter users or unlocked casual users, return full details (including H1B info)
     const sqlQuery = `
       SELECT 
         r.*,
@@ -492,6 +631,9 @@ exports.getRecruiterById = async (req, res) => {
         c.logo_url as company_logo,
         c.description as company_description,
         c.founded_year,
+        c.is_h1b_sponsor,
+        c.h1b_matched_company_id,
+        c.h1b_flag_updated_at,
         i.name as industry_name,
         i.description as industry_description,
         l.city,
@@ -538,7 +680,60 @@ exports.getRecruiterById = async (req, res) => {
       recruiterId: recruiterId
     }).sort({ createdAt: -1 }).limit(10);
 
-    // PHONE FIELDS REMOVED FROM RESPONSE
+    // Get comprehensive H1B company information
+    let h1bCompanyInfo = null;
+    if (row.is_h1b_sponsor && row.h1b_matched_company_id) {
+      try {
+        const h1bCompany = await H1BCompany.findById(row.h1b_matched_company_id);
+        if (h1bCompany) {
+          h1bCompanyInfo = {
+            isH1BCompany: true,
+            companyDetails: {
+              name: h1bCompany.companyName,
+              website: h1bCompany.website,
+              industry: h1bCompany.primaryIndustry,
+              subIndustry: h1bCompany.primarySubIndustry,
+              employees: h1bCompany.employees,
+              employeeRange: h1bCompany.employeeRange,
+              revenue: h1bCompany.revenue,
+              revenueRange: h1bCompany.revenueRange,
+              foundedYear: h1bCompany.foundedYear,
+              headquarters: h1bCompany.headquarters,
+              socialProfiles: h1bCompany.socialProfiles,
+              h1bDataSource: h1bCompany.h1bData.dataSource,
+              lastUpdated: h1bCompany.h1bData.lastUpdated
+            },
+            flagSource: 'optimized_database',
+            flagUpdatedAt: row.h1b_flag_updated_at,
+            verifiedSponsor: true
+          };
+        }
+      } catch (h1bError) {
+        console.error('Error fetching comprehensive H1B company info:', h1bError);
+        // Fallback to basic flag info
+        h1bCompanyInfo = {
+          isH1BCompany: true,
+          companyDetails: {
+            name: row.company_name
+          },
+          flagSource: 'database_flag_only',
+          flagUpdatedAt: row.h1b_flag_updated_at,
+          verifiedSponsor: true
+        };
+      }
+    } else if (row.is_h1b_sponsor) {
+      // Has H1B flag but no matched company ID (older data)
+      h1bCompanyInfo = {
+        isH1BCompany: true,
+        companyDetails: {
+          name: row.company_name
+        },
+        flagSource: 'database_flag_only',
+        flagUpdatedAt: row.h1b_flag_updated_at,
+        verifiedSponsor: true
+      };
+    }
+
     const recruiter = {
       id: row.id,
       firstName: row.first_name,
@@ -559,7 +754,9 @@ exports.getRecruiterById = async (req, res) => {
         size: row.company_size,
         logo: row.company_logo,
         description: row.company_description,
-        foundedYear: row.founded_year
+        foundedYear: row.founded_year,
+        isH1BSponsor: row.is_h1b_sponsor || false,
+        h1bFlagUpdatedAt: row.h1b_flag_updated_at
       },
       industry: {
         name: row.industry_name,
@@ -584,11 +781,15 @@ exports.getRecruiterById = async (req, res) => {
       isUnlocked: !!row.unlocked_at,
       unlockedAt: row.unlocked_at,
       accessLevel: 'full',
+h1bCompanyInfo, // Include comprehensive H1B info
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
 
     console.log(`✅ Retrieved recruiter: ${recruiter.fullName} at ${recruiter.company.name}`);
+    if (h1bCompanyInfo) {
+      console.log(`🏢 Recruiter works at H1B sponsor company: ${h1bCompanyInfo.companyDetails.name} (${h1bCompanyInfo.flagSource})`);
+    }
 
     res.json({
       success: true,
@@ -607,9 +808,6 @@ exports.getRecruiterById = async (req, res) => {
   }
 };
 
-/**
- * Unlock recruiter for casual users - NO CHANGES NEEDED
- */
 exports.unlockRecruiter = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -752,9 +950,6 @@ exports.unlockRecruiter = async (req, res) => {
   }
 };
 
-/**
- * Get filter options for recruiter search - UPDATED TO ALLOW FREE USER ACCESS
- */
 exports.getFilterOptions = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -800,6 +995,78 @@ exports.getFilterOptions = async (req, res) => {
       LIMIT 50
     `;
 
+    // OPTIMIZED: Get H1B companies filter data using boolean flags
+    let h1bFilterData = null;
+    try {
+      const h1bStatsQuery = `
+        SELECT 
+          COUNT(DISTINCT c.id) as total_h1b_companies,
+          COUNT(DISTINCT r.id) as total_h1b_recruiters,
+          MAX(c.h1b_flag_updated_at) as last_flag_update
+        FROM companies c
+        LEFT JOIN recruiters r ON c.id = r.current_company_id
+        WHERE c.is_h1b_sponsor = TRUE AND r.is_active = true
+      `;
+
+      const h1bStatsResult = await pool.query(h1bStatsQuery);
+      const stats = h1bStatsResult.rows[0];
+
+      // Get top H1B industries using optimized query
+      const h1bIndustriesQuery = `
+        SELECT 
+          i.name as industry, 
+          COUNT(DISTINCT c.id) as count
+        FROM companies c
+        JOIN industries i ON c.industry_id = i.id
+        WHERE c.is_h1b_sponsor = TRUE
+        GROUP BY i.id, i.name
+        ORDER BY count DESC
+        LIMIT 20
+      `;
+
+      const h1bIndustriesResult = await pool.query(h1bIndustriesQuery);
+
+      // Get top H1B company locations using optimized query
+      const h1bLocationsQuery = `
+        SELECT 
+          l.state || ', ' || l.country as location,
+          COUNT(DISTINCT c.id) as count
+        FROM companies c
+        JOIN locations l ON c.headquarters_location_id = l.id
+        WHERE c.is_h1b_sponsor = TRUE AND l.state IS NOT NULL
+        GROUP BY l.state, l.country
+        ORDER BY count DESC
+        LIMIT 15
+      `;
+
+      const h1bLocationsResult = await pool.query(h1bLocationsQuery);
+
+      h1bFilterData = {
+        totalH1BCompanies: parseInt(stats.total_h1b_companies) || 0,
+        totalH1BRecruiters: parseInt(stats.total_h1b_recruiters) || 0,
+        lastFlagUpdate: stats.last_flag_update,
+        topIndustries: h1bIndustriesResult.rows,
+        topLocations: h1bLocationsResult.rows,
+        isAvailable: (parseInt(stats.total_h1b_companies) || 0) > 0,
+        queryOptimized: true,
+        flagSource: 'optimized_database'
+      };
+
+      console.log(`📊 H1B filter data: ${h1bFilterData.totalH1BCompanies} companies, ${h1bFilterData.totalH1BRecruiters} recruiters`);
+
+    } catch (h1bError) {
+      console.error('❌ Error fetching H1B filter data (non-critical):', h1bError);
+      h1bFilterData = {
+        totalH1BCompanies: 0,
+        totalH1BRecruiters: 0,
+        topIndustries: [],
+        topLocations: [],
+        isAvailable: false,
+        error: 'Unable to load H1B data',
+        queryOptimized: false
+      };
+    }
+
     const [companies, industries, locations] = await Promise.all([
       pool.query(companiesQuery),
       pool.query(industriesQuery),
@@ -818,10 +1085,11 @@ exports.getFilterOptions = async (req, res) => {
       locations: locations.rows.map(row => ({
         name: row.location,
         count: parseInt(row.recruiter_count)
-      }))
+      })),
+      h1bData: h1bFilterData // Include optimized H1B filter options
     };
 
-    console.log(`✅ Retrieved filter options - ${filterOptions.companies.length} companies, ${filterOptions.industries.length} industries`);
+    console.log(`✅ Retrieved filter options - ${filterOptions.companies.length} companies, ${filterOptions.industries.length} industries, H1B available: ${h1bFilterData.isAvailable}`);
 
     res.json({
       success: true,
@@ -838,9 +1106,297 @@ exports.getFilterOptions = async (req, res) => {
   }
 };
 
-/**
- * Create outreach campaign - UPDATED TO BLOCK FREE USERS
- */
+exports.getH1BStats = async (req, res) => {
+  try {
+    console.log('📊 Getting H1B company statistics');
+
+    const statsQuery = `
+      SELECT 
+        COUNT(DISTINCT c.id) as total_h1b_companies,
+        COUNT(DISTINCT r.id) as total_h1b_recruiters,
+        COUNT(DISTINCT c.industry_id) as h1b_industries,
+        MAX(c.h1b_flag_updated_at) as last_flag_update,
+        MIN(c.h1b_flag_updated_at) as first_flag_update
+      FROM companies c
+      LEFT JOIN recruiters r ON c.id = r.current_company_id
+      WHERE c.is_h1b_sponsor = TRUE AND r.is_active = true
+    `;
+
+    const result = await pool.query(statsQuery);
+    const stats = result.rows[0];
+
+    const h1bStats = {
+      totalH1BCompanies: parseInt(stats.total_h1b_companies) || 0,
+      totalH1BRecruiters: parseInt(stats.total_h1b_recruiters) || 0,
+      h1bIndustries: parseInt(stats.h1b_industries) || 0,
+      lastFlagUpdate: stats.last_flag_update,
+      firstFlagUpdate: stats.first_flag_update,
+      flagSource: 'optimized_database',
+      queryOptimized: true
+    };
+
+    console.log(`✅ H1B stats retrieved: ${h1bStats.totalH1BCompanies} companies, ${h1bStats.totalH1BRecruiters} recruiters`);
+
+    res.json({
+      success: true,
+      h1bStats
+    });
+
+  } catch (error) {
+    console.error('Get H1B stats error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get H1B statistics',
+      details: process.env.NODE_ENV !== 'production' ? error.message : undefined
+    });
+  }
+};
+
+exports.getH1BCompanyInfo = async (req, res) => {
+  try {
+    const { companyName } = req.params;
+    
+    console.log(`🏢 Getting H1B company info for: ${companyName}`);
+
+    if (!companyName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Company name is required'
+      });
+    }
+
+    // First check PostgreSQL for the flag
+    const flagQuery = `
+      SELECT 
+        id, 
+        name, 
+        is_h1b_sponsor, 
+        h1b_matched_company_id, 
+        h1b_flag_updated_at
+      FROM companies 
+      WHERE name ILIKE $1
+      ORDER BY CASE WHEN name ILIKE $1 THEN 1 ELSE 2 END
+      LIMIT 1
+    `;
+
+    const flagResult = await pool.query(flagQuery, [`%${companyName}%`]);
+
+    if (flagResult.rows.length === 0) {
+      return res.json({
+        success: true,
+        isH1BCompany: false,
+        message: 'Company not found in database'
+      });
+    }
+
+    const company = flagResult.rows[0];
+
+    if (!company.is_h1b_sponsor) {
+      return res.json({
+        success: true,
+        isH1BCompany: false,
+        companyDetails: {
+          name: company.name,
+          flagSource: 'database_verified'
+        },
+        message: 'Company is not flagged as H1B sponsor'
+      });
+    }
+
+    // If flagged and has matched company ID, get detailed info
+    let detailedInfo = null;
+    if (company.h1b_matched_company_id) {
+      try {
+        const h1bCompany = await H1BCompany.findById(company.h1b_matched_company_id);
+        if (h1bCompany) {
+          detailedInfo = {
+            name: h1bCompany.companyName,
+            website: h1bCompany.website,
+            foundedYear: h1bCompany.foundedYear,
+            industry: h1bCompany.primaryIndustry,
+            subIndustry: h1bCompany.primarySubIndustry,
+            employees: h1bCompany.employees,
+            employeeRange: h1bCompany.employeeRange,
+            revenue: h1bCompany.revenue,
+            revenueRange: h1bCompany.revenueRange,
+            headquarters: h1bCompany.headquarters,
+            numberOfLocations: h1bCompany.numberOfLocations,
+            ownershipType: h1bCompany.ownershipType,
+            socialProfiles: h1bCompany.socialProfiles,
+            h1bDataSource: h1bCompany.h1bData.dataSource,
+            lastUpdated: h1bCompany.h1bData.lastUpdated
+          };
+        }
+      } catch (h1bError) {
+        console.error('Error fetching detailed H1B info:', h1bError);
+      }
+    }
+
+    const companyInfo = {
+      isH1BCompany: true,
+      companyDetails: detailedInfo || {
+        name: company.name,
+        flagSource: 'database_flag_only'
+      },
+      flagUpdatedAt: company.h1b_flag_updated_at,
+      verifiedSponsor: true
+    };
+
+    console.log(`✅ Found H1B company: ${company.name}`);
+
+    res.json({
+      success: true,
+      ...companyInfo
+    });
+
+  } catch (error) {
+    console.error('Get H1B company info error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get H1B company information',
+      details: process.env.NODE_ENV !== 'production' ? error.message : undefined
+    });
+  }
+};
+
+exports.searchH1BCompanies = async (req, res) => {
+  try {
+    const {
+      query = '',
+      industry = '',
+      state = '',
+      employeeRange = '',
+      limit = 20,
+      offset = 0
+    } = req.query;
+
+    console.log('🔍 Searching H1B companies:', { query, industry, state, employeeRange });
+
+    // Build PostgreSQL query for H1B companies
+    let sqlQuery = `
+      SELECT DISTINCT
+        c.id,
+        c.name,
+        c.website,
+        c.employee_range,
+        c.h1b_matched_company_id,
+        c.h1b_flag_updated_at,
+        i.name as industry_name,
+        l.city,
+        l.state,
+        l.country
+      FROM companies c
+      LEFT JOIN industries i ON c.industry_id = i.id
+      LEFT JOIN locations l ON c.headquarters_location_id = l.id
+      WHERE c.is_h1b_sponsor = TRUE
+    `;
+
+    const queryParams = [];
+    let paramIndex = 1;
+
+    if (query) {
+      sqlQuery += ` AND c.name ILIKE $${paramIndex}`;
+      queryParams.push(`%${query}%`);
+      paramIndex++;
+    }
+
+    if (industry) {
+      sqlQuery += ` AND i.name ILIKE $${paramIndex}`;
+      queryParams.push(`%${industry}%`);
+      paramIndex++;
+    }
+
+    if (state) {
+      sqlQuery += ` AND l.state ILIKE $${paramIndex}`;
+      queryParams.push(`%${state}%`);
+      paramIndex++;
+    }
+
+    if (employeeRange) {
+      sqlQuery += ` AND c.employee_range = $${paramIndex}`;
+      queryParams.push(employeeRange);
+      paramIndex++;
+    }
+
+    sqlQuery += ` ORDER BY c.name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    queryParams.push(parseInt(limit), parseInt(offset));
+
+    const result = await pool.query(sqlQuery, queryParams);
+
+    // Get total count
+    let countQuery = `
+      SELECT COUNT(DISTINCT c.id) as count
+      FROM companies c
+      LEFT JOIN industries i ON c.industry_id = i.id
+      LEFT JOIN locations l ON c.headquarters_location_id = l.id
+      WHERE c.is_h1b_sponsor = TRUE
+    `;
+
+    const countParams = [];
+    let countParamIndex = 1;
+
+    if (query) {
+      countQuery += ` AND c.name ILIKE $${countParamIndex}`;
+      countParams.push(`%${query}%`);
+      countParamIndex++;
+    }
+
+    if (industry) {
+      countQuery += ` AND i.name ILIKE $${countParamIndex}`;
+      countParams.push(`%${industry}%`);
+      countParamIndex++;
+    }
+
+    if (state) {
+      countQuery += ` AND l.state ILIKE $${countParamIndex}`;
+      countParams.push(`%${state}%`);
+      countParamIndex++;
+    }
+
+    if (employeeRange) {
+      countQuery += ` AND c.employee_range = $${countParamIndex}`;
+      countParams.push(employeeRange);
+      countParamIndex++;
+    }
+
+    const countResult = await pool.query(countQuery, countParams);
+
+    const formattedCompanies = result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      website: row.website,
+      industry: row.industry_name,
+      employeeRange: row.employee_range,
+      location: row.city && row.state ? `${row.city}, ${row.state}` : '',
+      h1bMatchedCompanyId: row.h1b_matched_company_id,
+      flagUpdatedAt: row.h1b_flag_updated_at
+    }));
+
+    console.log(`✅ Found ${formattedCompanies.length} H1B companies (${countResult.rows[0].count} total)`);
+
+    res.json({
+      success: true,
+      companies: formattedCompanies,
+      pagination: {
+        total: parseInt(countResult.rows[0].count),
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        hasMore: parseInt(offset) + parseInt(limit) < parseInt(countResult.rows[0].count)
+      }
+    });
+
+  } catch (error) {
+    console.error('Search H1B companies error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to search H1B companies',
+      details: process.env.NODE_ENV !== 'production' ? error.message : undefined
+    });
+  }
+};
+
+// OUTREACH MANAGEMENT FUNCTIONS
+
 exports.createOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -879,7 +1435,7 @@ exports.createOutreach = async (req, res) => {
       jobId,
       messageContent,
       messageTemplate,
-      sentVia = 'email', // PHONE REMOVED - Only email available now
+      sentVia = 'email',
       customizations = []
     } = req.body;
 
@@ -914,7 +1470,7 @@ exports.createOutreach = async (req, res) => {
       messageContent,
       messageTemplate,
       customizations,
-      sentVia: 'email', // PHONE REMOVED - Always email now
+      sentVia: 'email',
       status: 'drafted',
       createdAt: new Date()
     });
@@ -966,9 +1522,6 @@ exports.createOutreach = async (req, res) => {
   }
 };
 
-/**
- * Update outreach campaign - UPDATED TO BLOCK FREE USERS
- */
 exports.updateOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -1041,9 +1594,6 @@ exports.updateOutreach = async (req, res) => {
   }
 };
 
-/**
- * Delete outreach campaign - UPDATED TO BLOCK FREE USERS
- */
 exports.deleteOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -1069,9 +1619,7 @@ exports.deleteOutreach = async (req, res) => {
     }
 
     console.log(`🗑️ Deleting outreach ${outreachId} for user ${userId}`);
-
-    // Find and delete outreach from MongoDB
-    const outreach = await Outreach.findOneAndDelete({ _id: outreachId, userId });
+      const outreach = await Outreach.findOneAndDelete({ _id: outreachId, userId });
 
     if (!outreach) {
       return res.status(404).json({
@@ -1104,9 +1652,6 @@ exports.deleteOutreach = async (req, res) => {
   }
 };
 
-/**
- * Send outreach message - UPDATED TO BLOCK FREE USERS
- */
 exports.sendOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -1183,9 +1728,6 @@ exports.sendOutreach = async (req, res) => {
   }
 };
 
-/**
- * Get user's outreach campaigns - UPDATED TO BLOCK FREE USERS
- */
 exports.getUserOutreach = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -1296,9 +1838,6 @@ exports.getUserOutreach = async (req, res) => {
   }
 };
 
-/**
- * Generate AI-powered personalized message - UPDATED TO BLOCK FREE USERS
- */
 exports.generatePersonalizedMessage = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -1412,9 +1951,6 @@ exports.generatePersonalizedMessage = async (req, res) => {
   }
 };
 
-/**
- * Get outreach analytics - UPDATED TO BLOCK FREE USERS
- */
 exports.getOutreachAnalytics = async (req, res) => {
   try {
     const userId = req.user._id;

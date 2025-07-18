@@ -1,18 +1,16 @@
-// backend/models/postgresql/schema.js - COMPLETE MONTHLY ONLY VERSION
+// backend/models/postgresql/schema.js - CLEANED VERSION WITHOUT UNWANTED COLUMNS
 const db = require('../../config/postgresql');
 
 const createTables = async () => {
   try {
     console.log('Creating PostgreSQL tables...');
     
-    // Industries Table with additional classification codes
+    // Industries Table - REMOVED sic_codes, naics_codes
     await db.query(`
       CREATE TABLE IF NOT EXISTS industries (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL UNIQUE,
         description TEXT,
-        sic_codes TEXT[],
-        naics_codes TEXT[],
         primary_category VARCHAR(255),
         sub_category VARCHAR(255),
         hierarchical_category VARCHAR(255),
@@ -39,7 +37,7 @@ const createTables = async () => {
       );
     `);
     
-    // Companies Table with expanded fields
+    // Companies Table - REMOVED unwanted columns
     await db.query(`
       CREATE TABLE IF NOT EXISTS companies (
         id SERIAL PRIMARY KEY,
@@ -61,10 +59,6 @@ const createTables = async () => {
         revenue_usd_thousands INTEGER,
         ownership_type VARCHAR(50),
         business_model VARCHAR(50),
-        stock_ticker VARCHAR(20),
-        alexa_rank INTEGER,
-        zoominfo_id VARCHAR(50),
-        zoominfo_url TEXT,
         linkedin_url TEXT,
         facebook_url TEXT,
         twitter_url TEXT,
@@ -72,15 +66,6 @@ const createTables = async () => {
         funding_total_usd_thousands INTEGER,
         recent_funding DECIMAL(15,2),
         recent_funding_usd_thousands INTEGER,
-        recent_funding_round VARCHAR(50),
-        recent_funding_date DATE,
-        recent_investors TEXT[],
-        all_investors TEXT[],
-        location_count INTEGER,
-        sic_codes TEXT[],
-        naics_codes TEXT[],
-        is_certified_active BOOLEAN DEFAULT FALSE,
-        certification_date DATE,
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
@@ -92,20 +77,7 @@ const createTables = async () => {
     const companyColumnsToAdd = [
       { name: 'revenue_usd_thousands', type: 'INTEGER' },
       { name: 'funding_total_usd_thousands', type: 'INTEGER' },
-      { name: 'recent_funding_usd_thousands', type: 'INTEGER' },
-      { name: 'sic_codes', type: 'TEXT[]' },
-      { name: 'naics_codes', type: 'TEXT[]' },
-      { name: 'recent_investors', type: 'TEXT[]' },
-      { name: 'all_investors', type: 'TEXT[]' },
-      { name: 'is_certified_active', type: 'BOOLEAN DEFAULT FALSE' },
-      { name: 'certification_date', type: 'DATE' },
-      { name: 'zoominfo_id', type: 'VARCHAR(50)' },
-      { name: 'zoominfo_url', type: 'TEXT' },
-      { name: 'stock_ticker', type: 'VARCHAR(20)' },
-      { name: 'alexa_rank', type: 'INTEGER' },
-      { name: 'location_count', type: 'INTEGER' },
-      { name: 'recent_funding_round', type: 'VARCHAR(50)' },
-      { name: 'recent_funding_date', type: 'DATE' }
+      { name: 'recent_funding_usd_thousands', type: 'INTEGER' }
     ];
 
     for (const column of companyColumnsToAdd) {
@@ -129,7 +101,7 @@ const createTables = async () => {
       console.log('Companies unique constraint already exists or cannot be added');
     }
     
-    // Recruiters Table with expanded fields for CSV data
+    // Recruiters Table - REMOVED zoominfo_url, zoominfo_profile_url
     await db.query(`
       CREATE TABLE IF NOT EXISTS recruiters (
         id SERIAL PRIMARY KEY,
@@ -157,9 +129,7 @@ const createTables = async () => {
         accuracy_grade VARCHAR(10),
         contact_accuracy_score INTEGER,
         contact_accuracy_grade VARCHAR(10),
-        zoominfo_url TEXT,
         linkedin_url TEXT,
-        zoominfo_profile_url TEXT,
         linkedin_profile_url TEXT,
         notice_provided_date DATE,
         location_id INTEGER REFERENCES locations(id),
