@@ -148,12 +148,14 @@ const FindJobsDialog = ({ open, onClose }) => {
   const [searchStarted, setSearchStarted] = useState(false);
   const [resumesLoading, setResumesLoading] = useState(true);
 
-  // 🆕 NEW: Location state management
+  // 🆕 NEW: Job titles and location state management
+  const [jobTitles, setJobTitles] = useState(['']);
+  const [jobTitleInput, setJobTitleInput] = useState('');
   const [searchLocations, setSearchLocations] = useState(['Remote']);
   const [includeRemote, setIncludeRemote] = useState(true);
   const [locationInput, setLocationInput] = useState('');
 
-  const steps = ['Select Resume', 'Choose Locations', 'Confirm Search', 'Search Started'];
+  const steps = ['Select Resume', 'Job Titles', 'Choose Locations', 'Confirm Search', 'Search Started'];
 
   // Get current subscription info
   const currentPlan = subscription?.subscriptionTier || 'free';
@@ -198,12 +200,17 @@ const FindJobsDialog = ({ open, onClose }) => {
       return;
     }
     
-    if (activeStep === 1 && searchLocations.length === 0) {
+    if (activeStep === 1 && jobTitles.filter(title => title.trim() !== '').length === 0) {
+      setError('Please enter at least one job title');
+      return;
+    }
+    
+    if (activeStep === 2 && searchLocations.length === 0) {
       setError('Please select at least one location');
       return;
     }
     
-    if (activeStep === 2) {
+    if (activeStep === 3) {
       handleStartSearch();
     } else {
       setActiveStep((prevStep) => prevStep + 1);
@@ -241,29 +248,35 @@ const FindJobsDialog = ({ open, onClose }) => {
         throw new Error(permission.reason);
       }
 
-      // Prepare search criteria with locations
+      // Prepare search criteria with job titles and locations
       const searchCriteria = {
-        resumeId: selectedResumeId,
+        jobTitles: jobTitles.filter(title => title.trim() !== ''), // 🆕 NEW: Include job titles
         searchLocations: searchLocations.map(location => ({
           name: location,
           type: location === 'Remote' ? 'remote' : 'city',
           radius: location === 'Remote' ? 0 : 25
         })),
-        includeRemote: includeRemote
+        includeRemote: includeRemote,
+        experienceLevel: 'mid',
+        jobTypes: ['FULL_TIME'],
+        salaryRange: null,
+        workEnvironment: 'any'
       };
+
+      console.log('🎯 Frontend Dialog: Sending search criteria with job titles:', searchCriteria);
 
       const response = await jobService.findJobsWithAi(selectedResumeId, searchCriteria);
       
       console.log('Weekly AI Search Response:', response);
       
-      // Move to success step
-      setActiveStep(3);
+      // Move to success step (step 4)
+      setActiveStep(4);
     } catch (err) {
       console.error('Error starting weekly AI job search:', err);
       
       // Check if this is actually a success response (202 status)
       if (err.response && err.response.status === 202) {
-        setActiveStep(3);
+        setActiveStep(4);
       } else {
         setError(err.response?.data?.message || err.message || 'Failed to start weekly job search. Please try again.');
         setSearchStarted(false);
@@ -456,6 +469,130 @@ const FindJobsDialog = ({ open, onClose }) => {
         return (
           <Box sx={{ mt: 2 }}>
             <Typography variant="h6" gutterBottom fontWeight={600} color="text.primary">
+              What Job Titles Are You Looking For?
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Enter the specific job titles you want to search for. This replaces resume analysis - you directly specify what roles you're targeting.
+            </Typography>
+
+            {/* Job Titles Input */}
+            <Box sx={{ mb: 3 }}>
+              <Autocomplete
+                multiple
+                freeSolo
+                options={[]}
+                value={jobTitles.filter(title => title.trim() !== '')}
+                onChange={(event, newValue) => {
+                  setJobTitles(newValue.length > 0 ? newValue : ['']);
+                }}
+                onInputChange={(event, newInputValue) => {
+                  setJobTitleInput(newInputValue);
+                }}
+                onKeyPress={(event) => {
+                  if (event.key === 'Enter' && jobTitleInput.trim()) {
+                    event.preventDefault();
+                    const newTitles = [...jobTitles.filter(title => title.trim() !== ''), jobTitleInput.trim()];
+                    if (newTitles.length <= 10) {
+                      setJobTitles(newTitles);
+                      setJobTitleInput('');
+                    }
+                  }
+                }}
+                renderTags={(value, getTagProps) =>
+                  value.map((option, index) => {
+                    const { key, ...chipProps } = getTagProps({ index });
+                    return (
+                      <Chip
+                        key={key}
+                        variant="outlined"
+                        label={option}
+                        {...chipProps}
+                        sx={{ borderRadius: 2 }}
+                      />
+                    );
+                  })
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Job Titles"
+                    placeholder="e.g., Software Engineer, Frontend Developer, React Developer"
+                    variant="outlined"
+                    fullWidth
+                    helperText={`Enter job titles separated by commas or press Enter. ${jobTitles.filter(t => t.trim()).length}/10 titles`}
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: (
+                        <>
+                          <WorkIcon sx={{ color: 'text.secondary', mr: 1 }} />
+                          {params.InputProps.startAdornment}
+                        </>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                      }
+                    }}
+                  />
+                )}
+              />
+            </Box>
+
+            {/* Job Titles Validation */}
+            {jobTitles.filter(title => title.trim() !== '').length === 0 && (
+              <Alert severity="warning" sx={{ mb: 3, borderRadius: 2 }}>
+                <Typography variant="body2">
+                  Please enter at least one job title to search for.
+                </Typography>
+              </Alert>
+            )}
+
+            {/* Job Titles Tips */}
+            <FeatureBox>
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom color="primary">
+                Job Title Tips
+              </Typography>
+              <List dense>
+                <ListItem sx={{ px: 0 }}>
+                  <ListItemIcon>
+                    <TrendingUpIcon fontSize="small" color="success" />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Be Specific"
+                    secondary="Use exact job titles like 'Senior React Developer' instead of just 'Developer'"
+                    primaryTypographyProps={{ fontWeight: 500 }}
+                  />
+                </ListItem>
+                <ListItem sx={{ px: 0 }}>
+                  <ListItemIcon>
+                    <WorkIcon fontSize="small" color="info" />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Multiple Variations"
+                    secondary="Include different variations: 'Software Engineer', 'Software Developer', 'SWE'"
+                    primaryTypographyProps={{ fontWeight: 500 }}
+                  />
+                </ListItem>
+                <ListItem sx={{ px: 0 }}>
+                  <ListItemIcon>
+                    <SpeedIcon fontSize="small" color="warning" />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Level Targeting"
+                    secondary="Include seniority levels: 'Junior', 'Senior', 'Lead', 'Principal' if relevant"
+                    primaryTypographyProps={{ fontWeight: 500 }}
+                  />
+                </ListItem>
+              </List>
+            </FeatureBox>
+          </Box>
+        );
+
+      case 2:
+        return (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="h6" gutterBottom fontWeight={600} color="text.primary">
               Choose Search Locations
             </Typography>
             <Typography variant="body2" color="text.secondary" paragraph>
@@ -613,7 +750,7 @@ const FindJobsDialog = ({ open, onClose }) => {
           </Box>
         );
 
-      case 2:
+      case 3:
         const selectedResume = getSelectedResume();
         return (
           <Box sx={{ mt: 2 }}>
@@ -799,7 +936,7 @@ const FindJobsDialog = ({ open, onClose }) => {
           </Box>
         );
 
-      case 3:
+      case 4:
         return (
           <Box sx={{ mt: 2, textAlign: 'center' }}>
             <CheckCircleIcon sx={{ fontSize: 80, color: 'success.main', mb: 2 }} />
@@ -931,9 +1068,12 @@ const FindJobsDialog = ({ open, onClose }) => {
       return selectedResumeId && !resumesLoading && resumes.length > 0;
     }
     if (activeStep === 1) {
-      return searchLocations.length > 0;
+      return jobTitles.filter(title => title.trim() !== '').length > 0;
     }
     if (activeStep === 2) {
+      return searchLocations.length > 0;
+    }
+    if (activeStep === 3) {
       // Check subscription limits before allowing search
       if (currentPlan === 'free') return false;
       return aiDiscoverySlots > 0;
@@ -1095,6 +1235,35 @@ const FindJobsDialog = ({ open, onClose }) => {
               variant="contained" 
               onClick={handleNext}
               disabled={loading || !canProceed()}
+              sx={{ 
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                px: 3
+              }}
+            >
+              Next
+            </Button>
+          </>
+        )}
+        
+        {activeStep === 3 && (
+          <>
+            <Button 
+              onClick={handleBack} 
+              disabled={loading}
+              sx={{ 
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 500
+              }}
+            >
+              Back
+            </Button>
+            <Button 
+              variant="contained" 
+              onClick={handleNext}
+              disabled={loading || !canProceed()}
               startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
               sx={{ 
                 borderRadius: 2,
@@ -1108,7 +1277,7 @@ const FindJobsDialog = ({ open, onClose }) => {
           </>
         )}
         
-        {activeStep === 3 && (
+        {activeStep === 4 && (
           <Button 
             variant="contained" 
             onClick={handleClose}

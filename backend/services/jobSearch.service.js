@@ -140,10 +140,17 @@ class ValidationUtils {
   }
 }
 
-// 🆕 NEW: Main weekly search function with persistent tracking
+// 🆕 NEW: Main weekly search function with persistent tracking and job titles input
 exports.findJobsWithAi = async (userId, resumeId, searchCriteria = {}) => {
   try {
-    console.log(`🚀 Starting WEEKLY AI job search with persistent tracking for user ${userId}`);
+    console.log(`🚀 Starting WEEKLY AI job search with job titles input for user ${userId}`);
+    
+    // 🆕 NEW: Validate job titles input
+    if (!searchCriteria.jobTitles || !Array.isArray(searchCriteria.jobTitles) || searchCriteria.jobTitles.length === 0) {
+      throw new Error('Job titles are required for AI job search');
+    }
+    
+    console.log(`🎯 Job titles provided: ${searchCriteria.jobTitles.join(', ')}`);
     
     // Get user's subscription to determine weekly limit
     const subscription = await subscriptionService.getCurrentSubscription(userId);
@@ -183,15 +190,20 @@ exports.findJobsWithAi = async (userId, resumeId, searchCriteria = {}) => {
       throw new Error(`Maximum ${maxLocations} locations allowed for ${userPlan} plan`);
     }
     
-    // Create search record with enhanced configuration
+    // 🆕 NEW: Create search record with job titles instead of resume-derived criteria
     const aiJobSearch = new AiJobSearch({
       userId,
       resumeId,
       resumeName: resume.name,
       searchCriteria: {
-        ...extractSearchCriteria(resume.parsedData),
+        jobTitles: searchCriteria.jobTitles, // 🆕 NEW: Use provided job titles
+        // Legacy fields for backward compatibility
+        jobTitle: searchCriteria.jobTitles[0], // Use first job title as primary
+        skills: resume.parsedData.skills?.slice(0, 10).map(s => typeof s === 'string' ? s : s.name) || [],
+        location: searchLocations[0]?.name || 'Remote',
         searchLocations: searchLocations,
-        remoteWork: searchCriteria.includeRemote !== false
+        remoteWork: searchCriteria.includeRemote !== false,
+        experienceLevel: searchCriteria.experienceLevel || 'mid'
       },
       status: 'running',
       searchType: 'weekly_active_jobs',
@@ -199,7 +211,7 @@ exports.findJobsWithAi = async (userId, resumeId, searchCriteria = {}) => {
       jobsFoundThisWeek: 0,
       totalJobsFound: 0,
       searchApproach: '3-phase-intelligent-active-jobs-weekly',
-      approachVersion: '5.0-weekly-location-salary-persistent',
+      approachVersion: '6.0-job-titles-input-persistent',
       qualityLevel: 'active-jobs-weekly-enhanced'
     });
     
@@ -275,9 +287,9 @@ async function performWeeklySearchWithTracking(searchId, userId, resume, searchL
     
     console.log(`📊 Persistent weekly status: ${weeklyStats.jobsFoundThisWeek}/${weeklyStats.weeklyLimit} used, ${weeklyStats.remainingThisWeek} remaining`);
     
-    // PHASE 1: Enhanced Career Analysis for Location-Based Search
-    console.log(`📊 Phase 1: Enhanced Career Analysis for Multi-Location Search...`);
-    const careerProfile = await analyzeCareerForLocationTargeting(resume.parsedData, searchLocations);
+    // PHASE 1: Enhanced Career Analysis for Location-Based Search using provided job titles
+    console.log(`📊 Phase 1: Enhanced Career Analysis for Multi-Location Search using provided job titles...`);
+    const careerProfile = await analyzeCareerForLocationTargeting(resume.parsedData, searchLocations, search.searchCriteria.jobTitles);
     
     await search.addReasoningLog(
       'career_analysis',
@@ -415,15 +427,19 @@ async function removeDuplicateJobs(jobs, userId) {
   return uniqueJobs;
 }
 
-// 🆕 NEW: Enhanced career analysis for location targeting
-async function analyzeCareerForLocationTargeting(resumeData, searchLocations) {
+// 🆕 NEW: Enhanced career analysis using provided job titles (no more resume analysis dependency)
+async function analyzeCareerForLocationTargeting(resumeData, searchLocations, providedJobTitles = []) {
   try {
-    const currentRole = resumeData.experience?.[0]?.title || '';
-    const allRoles = resumeData.experience?.map(exp => exp.title).join(', ') || '';
-    const skills = resumeData.skills?.map(skill => typeof skill === 'string' ? skill : skill.name).join(', ') || '';
+    // 🆕 NEW: Use provided job titles instead of deriving from resume
+    const jobTitles = providedJobTitles && providedJobTitles.length > 0 
+      ? providedJobTitles 
+      : [resumeData.experience?.[0]?.title || 'Professional'];
     
+    const skills = resumeData.skills?.map(skill => typeof skill === 'string' ? skill : skill.name).join(', ') || '';
     const locationNames = searchLocations.map(loc => loc.name).join(', ');
     const hasRemote = searchLocations.some(loc => loc.type === 'remote' || loc.name === 'Remote');
+    
+    console.log(`🎯 Using provided job titles for career analysis: ${jobTitles.join(', ')}`);
     
     const response = await openai.chat.completions.create({
       model: "gpt-4-turbo-preview",
@@ -431,33 +447,33 @@ async function analyzeCareerForLocationTargeting(resumeData, searchLocations) {
       messages: [
         {
           role: "system",
-          content: `Analyze this career profile for WEEKLY MULTI-LOCATION job targeting with salary focus:
+          content: `Analyze these PROVIDED JOB TITLES for WEEKLY MULTI-LOCATION job targeting with salary focus:
 
-Current Role: "${currentRole}"
-Career History: ${allRoles}
-Skills: ${skills}
+PROVIDED JOB TITLES: ${jobTitles.join(', ')}
+Relevant Skills: ${skills}
 Target Locations: ${locationNames}
 Remote Work: ${hasRemote ? 'Yes' : 'No'}
 
-Return JSON optimized for weekly job discovery across multiple locations:
+Return JSON optimized for weekly job discovery across multiple locations using the PROVIDED job titles:
 {
   "targetJobTitles": [
-    "// ONLY 2-3 clean job titles optimized for location search",
-    "// Focus on titles that work well across different markets"
+    "// Use the PROVIDED job titles exactly as given",
+    "// These are what the user wants to search for"
   ],
   "targetKeywords": [
-    "// TOP 3-5 most important skills for salary optimization"
+    "// TOP 3-5 most important skills for these specific job titles",
+    "// Focus on skills that match the provided job titles"
   ],
   "experienceLevel": "// entry, junior, mid, senior, lead, principal, executive",
-  "careerDirection": "// Brief description focusing on salary potential",
+  "careerDirection": "// Brief description focusing on salary potential for these titles",
   "locationOptimization": {
     "remotePreference": ${hasRemote},
     "marketAdaptation": "// How to adapt search for different markets",
-    "salaryExpectation": "// Expected salary range for this role"
+    "salaryExpectation": "// Expected salary range for these job titles"
   }
 }
 
-Focus on job titles and keywords that maximize salary potential across multiple locations!`
+IMPORTANT: Use the PROVIDED job titles exactly - do not modify or suggest alternatives!`
         }
       ]
     });
@@ -468,7 +484,8 @@ Focus on job titles and keywords that maximize salary potential across multiple 
     if (jsonMatch) {
       const profile = JSON.parse(jsonMatch[0]);
       
-      profile.targetJobTitles = (profile.targetJobTitles || []).slice(0, 3);
+      // 🆕 NEW: Ensure we use the provided job titles exactly
+      profile.targetJobTitles = jobTitles;
       profile.targetKeywords = (profile.targetKeywords || []).slice(0, 5);
       
       return {
@@ -478,14 +495,15 @@ Focus on job titles and keywords that maximize salary potential across multiple 
       };
     }
     
-    return createLocationFallbackCareerProfile(currentRole, skills, searchLocations);
+    return createLocationFallbackCareerProfile(jobTitles[0], skills, searchLocations, jobTitles);
     
   } catch (error) {
     console.error('Error in location-based career analysis:', error);
     return createLocationFallbackCareerProfile(
-      resumeData.experience?.[0]?.title || 'Professional',
+      jobTitles[0] || 'Professional',
       resumeData.skills?.map(s => typeof s === 'string' ? s : s.name).join(', ') || '',
-      searchLocations
+      searchLocations,
+      jobTitles
     );
   }
 }

@@ -210,34 +210,41 @@ const jobService = {
     }
   },
 
-  // 🔧 FIXED: Find jobs with AI - now properly sends location data to backend
+  // 🔧 FIXED: Find jobs with AI - now properly sends job titles and location data to backend
   findJobsWithAi: async (resumeId, searchCriteria = {}) => {
     try {
-      console.log('🚀 Frontend: Starting weekly AI job search with full criteria:', {
+      console.log('🚀 Frontend: Starting AI job search with job titles and locations:', {
         resumeId,
         searchCriteria
       });
       
-      // 🔧 FIX: Ensure proper data structure is sent to backend
+      // 🆕 NEW: Extract job titles from search criteria
+      const jobTitles = searchCriteria.jobTitles || [];
+      
+      // Validate job titles
+      if (!jobTitles || jobTitles.length === 0) {
+        throw new Error('Job titles are required for AI job search');
+      }
+      
+      // 🔧 FIX: Build proper request payload with job titles
       const requestPayload = {
-        resumeId,
-        searchCriteria: {
-          searchLocations: searchCriteria.searchLocations || [{ name: 'Remote', type: 'remote' }],
-          includeRemote: searchCriteria.includeRemote !== false,
-          experienceLevel: searchCriteria.experienceLevel || 'mid',
-          jobTypes: searchCriteria.jobTypes || ['FULL_TIME'],
-          salaryRange: searchCriteria.salaryRange || null,
-          workEnvironment: searchCriteria.workEnvironment || 'any'
-        }
+        jobTitles: jobTitles, // 🆕 NEW: Include job titles
+        searchLocations: searchCriteria.searchLocations || [{ name: 'Remote', type: 'remote' }],
+        includeRemote: searchCriteria.includeRemote !== false,
+        experienceLevel: searchCriteria.experienceLevel || 'mid',
+        jobTypes: searchCriteria.jobTypes || ['FULL_TIME'],
+        salaryRange: searchCriteria.salaryRange || null,
+        workEnvironment: searchCriteria.workEnvironment || 'any'
       };
       
-      console.log('📍 Frontend: Sending locations to backend:', requestPayload.searchCriteria.searchLocations);
-      console.log('🏠 Frontend: Include remote:', requestPayload.searchCriteria.includeRemote);
+      console.log('🎯 Frontend: Sending job titles to backend:', requestPayload.jobTitles);
+      console.log('📍 Frontend: Sending locations to backend:', requestPayload.searchLocations);
+      console.log('🏠 Frontend: Include remote:', requestPayload.includeRemote);
       
-      // 🔧 FIX: Send the data in the request body, not just searchCriteria
-      const response = await api.post(`/jobs/find-with-ai/${resumeId}`, requestPayload.searchCriteria);
+      // 🔧 FIX: Send the complete payload to the backend
+      const response = await api.post(`/jobs/find-with-ai/${resumeId}`, requestPayload);
       
-      console.log('✅ Frontend: Weekly AI job search response:', response.data);
+      console.log('✅ Frontend: AI job search response:', response.data);
       
       return response.data;
     } catch (error) {

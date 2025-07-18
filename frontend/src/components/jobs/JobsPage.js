@@ -58,6 +58,7 @@ import FindJobsDialog from './FindJobsDialog';
 import AutoJobLogo from '../common/AutoJobLogo';
 import JobImportLimit from '../subscription/limits/JobImportLimit';
 import { useSubscription } from '../../context/SubscriptionContext';
+import { useAiSearches } from './hooks/useAiSearches';
 
 // Helper function to determine job analysis status
 const getJobAnalysisStatus = (job) => {
@@ -414,6 +415,9 @@ const JobsPage = () => {
     hasFeatureAccess 
   } = useSubscription();
 
+  // NEW: Use AI searches hook to check for existing searches
+  const { searches: aiSearches, loading: aiSearchesLoading } = useAiSearches();
+
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -580,16 +584,19 @@ const JobsPage = () => {
       return;
     }
     
-    // RESTRICTION 2: Casual users can only create 1 AI job discovery
-    if (currentPlan === 'casual') {
-      const aiDiscoveryUsage = usage?.aiJobDiscovery || { used: 0, limit: 1 };
-      if (aiDiscoveryUsage.used >= aiDiscoveryUsage.limit) {
-        setOpenAiDiscoveryLimitDialog(true);
-        return;
-      }
+    // NEW: Check for existing AI searches (both Casual and Hunter users can only have 1 active search)
+    const activeAiSearches = aiSearches.filter(search => 
+      search.status === 'running' || search.status === 'paused'
+    );
+    
+    if (activeAiSearches.length > 0) {
+      // User already has an active AI search - redirect to manage it
+      setOpenAiDiscoveryLimitDialog(true);
+      return;
     }
     
-    // RESTRICTION 3: Hunter users have unlimited access (no additional checks needed)
+    // RESTRICTION 2: Casual users can only create 1 AI job discovery (now handled by active search check above)
+    // RESTRICTION 3: Hunter users can only have 1 active search at a time (now handled by active search check above)
     
     setOpenFindJobsDialog(true);
   };
@@ -1379,85 +1386,120 @@ const JobsPage = () => {
   }).length;
 
   // AI Discovery Limit Dialog Component
-  const AiDiscoveryLimitDialog = () => (
-    <Dialog 
-      open={openAiDiscoveryLimitDialog} 
-      onClose={() => setOpenAiDiscoveryLimitDialog(false)}
-      maxWidth="sm"
-      fullWidth
-      PaperProps={{
-        sx: { 
-          borderRadius: 3,
-          maxHeight: '90vh'
-        }
-      }}
-    >
-      <Box sx={{ 
-        background: `linear-gradient(135deg, ${theme.palette.info.main} 0%, ${theme.palette.info.light} 100%)`,
-        color: 'white',
-        p: 3,
-        textAlign: 'center'
-      }}>
-        <SafeAutoJobLogo size="large" />
-        <Typography variant="h6" fontWeight={600} sx={{ mt: 2 }}>
-          {currentPlan === 'free' 
-            ? 'AI Job Discovery - Upgrade Required' 
-            : 'AI Job Discovery Limit Reached'
+  const AiDiscoveryLimitDialog = () => {
+    // Check if user has existing AI searches
+    const activeAiSearches = aiSearches.filter(search => 
+      search.status === 'running' || search.status === 'paused'
+    );
+    const hasActiveSearch = activeAiSearches.length > 0;
+    
+    return (
+      <Dialog 
+        open={openAiDiscoveryLimitDialog} 
+        onClose={() => setOpenAiDiscoveryLimitDialog(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { 
+            borderRadius: 3,
+            maxHeight: '90vh'
           }
-        </Typography>
-      </Box>
-      
-      <Box sx={{ p: 3 }}>
-        {currentPlan === 'free' ? (
-          <>
-            <Typography variant="body1" paragraph>
-              AI Job Discovery is a premium feature that automatically finds relevant job opportunities 
-              based on your resume and career goals.
-            </Typography>
-            <Typography variant="body2" color="text.secondary" paragraph>
-              <strong>What you get with AI Job Discovery:</strong>
-            </Typography>
-            <Box component="ul" sx={{ pl: 2, color: 'text.secondary' }}>
-              <li>Automated job searching across multiple platforms</li>
-              <li>Personalized job recommendations based on your resume</li>
-              <li>Daily job alerts for new matches</li>
-              <li>Advanced filtering and relevance scoring</li>
-            </Box>
-          </>
-        ) : (
-          <>
-            <Typography variant="body1" paragraph>
-              You've reached your monthly limit of {aiDiscoveryUsage.limit} AI job discovery.
-            </Typography>
-            <Typography variant="body2" color="text.secondary" paragraph>
-              <strong>Current usage:</strong> {aiDiscoveryUsage.used}/{aiDiscoveryUsage.limit} searches used
-            </Typography>
-            <Typography variant="body2" color="text.secondary" paragraph>
-              Upgrade to Hunter plan for unlimited AI job searches and additional premium features.
-            </Typography>
-          </>
-        )}
-
-        <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'center' }}>
-          <Button 
-            variant="outlined"
-            onClick={() => setOpenAiDiscoveryLimitDialog(false)}
-            sx={{ borderRadius: 2 }}
-          >
-            Maybe Later
-          </Button>
-          <Button 
-            variant="contained"
-            startIcon={<UpgradeIcon />}
-            onClick={() => handleUpgrade(currentPlan === 'free' ? 'casual' : 'hunter')}
-            sx={{ borderRadius: 2 }}
-          >
-            {currentPlan === 'free' ? 'Upgrade to Casual' : 'Upgrade to Hunter'}
-          </Button>
+        }}
+      >
+        <Box sx={{ 
+          background: `linear-gradient(135deg, ${theme.palette.info.main} 0%, ${theme.palette.info.light} 100%)`,
+          color: 'white',
+          p: 3,
+          textAlign: 'center'
+        }}>
+          <SafeAutoJobLogo size="large" />
+          <Typography variant="h6" fontWeight={600} sx={{ mt: 2 }}>
+            {currentPlan === 'free' 
+              ? 'AI Job Discovery - Upgrade Required' 
+              : hasActiveSearch
+                ? 'AI Search Already Active'
+                : 'AI Job Discovery Limit Reached'
+            }
+          </Typography>
         </Box>
-      </Box>
-    </Dialog>
-  );
+        
+        <Box sx={{ p: 3 }}>
+          {currentPlan === 'free' ? (
+            <>
+              <Typography variant="body1" paragraph>
+                AI Job Discovery is a premium feature that automatically finds relevant job opportunities 
+                based on your resume and career goals.
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                <strong>What you get with AI Job Discovery:</strong>
+              </Typography>
+              <Box component="ul" sx={{ pl: 2, color: 'text.secondary' }}>
+                <li>Automated job searching across multiple platforms</li>
+                <li>Personalized job recommendations based on your resume</li>
+                <li>Daily job alerts for new matches</li>
+                <li>Advanced filtering and relevance scoring</li>
+              </Box>
+            </>
+          ) : hasActiveSearch ? (
+            <>
+              <Typography variant="body1" paragraph>
+                You already have an active AI job search running. You can only have one AI search active at a time.
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                <strong>Current AI Search Status:</strong> {activeAiSearches[0]?.status === 'running' ? 'Running' : 'Paused'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                To create a new AI search, you must first delete your existing search. You can manage your AI searches from the AI Searches page.
+              </Typography>
+            </>
+          ) : (
+            <>
+              <Typography variant="body1" paragraph>
+                You've reached your monthly limit of {aiDiscoveryUsage.limit} AI job discovery.
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                <strong>Current usage:</strong> {aiDiscoveryUsage.used}/{aiDiscoveryUsage.limit} searches used
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Upgrade to Hunter plan for unlimited AI job searches and additional premium features.
+              </Typography>
+            </>
+          )}
+
+          <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'center' }}>
+            <Button 
+              variant="outlined"
+              onClick={() => setOpenAiDiscoveryLimitDialog(false)}
+              sx={{ borderRadius: 2 }}
+            >
+              {hasActiveSearch ? 'Close' : 'Maybe Later'}
+            </Button>
+            {hasActiveSearch ? (
+              <Button 
+                variant="contained"
+                onClick={() => {
+                  setOpenAiDiscoveryLimitDialog(false);
+                  navigate('/jobs/ai-searches');
+                }}
+                sx={{ borderRadius: 2 }}
+              >
+                Manage AI Searches
+              </Button>
+            ) : (
+              <Button 
+                variant="contained"
+                startIcon={<UpgradeIcon />}
+                onClick={() => handleUpgrade(currentPlan === 'free' ? 'casual' : 'hunter')}
+                sx={{ borderRadius: 2 }}
+              >
+                {currentPlan === 'free' ? 'Upgrade to Casual' : 'Upgrade to Hunter'}
+              </Button>
+            )}
+          </Box>
+        </Box>
+      </Dialog>
+    );
+  };
 
   return (
     <MainLayout>

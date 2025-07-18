@@ -869,7 +869,7 @@ exports.findJobsWithAi = async (req, res) => {
       return res.status(400).json({ message: 'Resume parsing not complete. Please try again later.' });
     }
     
-    // 🔧 FIX: Properly extract searchCriteria from request body
+    // 🔧 FIX: Properly extract searchCriteria from request body including job titles
     console.log('🚀 Backend: Received AI job search request');
     console.log('📋 Backend: Resume ID:', resumeId);
     console.log('👤 Backend: User ID:', userId);
@@ -877,6 +877,7 @@ exports.findJobsWithAi = async (req, res) => {
     
     // Extract searchCriteria from request body
     const {
+      jobTitles,
       searchLocations,
       includeRemote,
       experienceLevel,
@@ -885,8 +886,41 @@ exports.findJobsWithAi = async (req, res) => {
       workEnvironment
     } = req.body;
     
-    // Build searchCriteria object with all received data
+    // 🆕 NEW: Validate job titles input
+    if (!jobTitles || !Array.isArray(jobTitles) || jobTitles.length === 0) {
+      return res.status(400).json({
+        message: 'Job titles are required',
+        error: 'Please provide at least one job title to search for',
+        field: 'jobTitles'
+      });
+    }
+    
+    if (jobTitles.length > 10) {
+      return res.status(400).json({
+        message: 'Too many job titles',
+        error: 'Maximum 10 job titles allowed',
+        field: 'jobTitles'
+      });
+    }
+    
+    // Validate each job title
+    for (const title of jobTitles) {
+      if (!title || typeof title !== 'string' || title.trim().length < 2 || title.trim().length > 100) {
+        return res.status(400).json({
+          message: 'Invalid job title',
+          error: 'Each job title must be 2-100 characters long',
+          field: 'jobTitles',
+          invalidTitle: title
+        });
+      }
+    }
+    
+    // Clean and normalize job titles
+    const normalizedJobTitles = jobTitles.map(title => title.trim()).filter(title => title.length > 0);
+    
+    // Build searchCriteria object with all received data including job titles
     const searchCriteria = {
+      jobTitles: normalizedJobTitles, // 🆕 NEW: Include job titles
       searchLocations: searchLocations || [{ name: 'Remote', type: 'remote' }],
       includeRemote: includeRemote !== false,
       experienceLevel: experienceLevel || 'mid',

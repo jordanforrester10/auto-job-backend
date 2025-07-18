@@ -17,6 +17,19 @@ const aiJobSearchSchema = new mongoose.Schema({
     required: true
   },
   searchCriteria: {
+    // 🆕 NEW: Direct job titles input (replaces resume-derived jobTitle)
+    jobTitles: {
+      type: [String],
+      required: true,
+      validate: {
+        validator: function(v) {
+          return v && v.length > 0 && v.length <= 10 && 
+                 v.every(title => title && title.trim().length >= 2 && title.trim().length <= 100);
+        },
+        message: 'Between 1-10 job titles required, each 2-100 characters'
+      }
+    },
+    // Legacy fields for backward compatibility (will be populated from jobTitles)
     jobTitle: String,
     skills: [String],
     location: String,
@@ -735,6 +748,7 @@ aiJobSearchSchema.index({ 'jobsFound.apiSource': 1 });
 aiJobSearchSchema.index({ 'jobsFound.jobBoardOrigin': 1 });
 aiJobSearchSchema.index({ currentWeekStart: 1 });
 aiJobSearchSchema.index({ 'searchCriteria.searchLocations.name': 1 });
+aiJobSearchSchema.index({ 'searchCriteria.jobTitles': 1 }); // 🆕 NEW: Index for job titles search
 aiJobSearchSchema.index({ 'jobsFound.location.parsed.city': 1 });
 aiJobSearchSchema.index({ 'jobsFound.salary.min': 1, 'jobsFound.salary.max': 1 });
 
