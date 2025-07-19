@@ -54,7 +54,8 @@ import {
   Rocket as RocketIcon,
   Warning as WarningIcon,
   Upgrade as UpgradeIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  People as PeopleIcon
 } from '@mui/icons-material';
 
 // Import our component files
@@ -62,6 +63,7 @@ import JobHeader from './components/JobHeader';
 import OverviewTab from './tabs/OverviewTab';
 import AnalysisTab from './tabs/AnalysisTab';
 import ContentTab from './tabs/ContentTab';
+import SuggestedRecruitersTab from './tabs/SuggestedRecruitersTab';
 import AutoJobLogo from '../common/AutoJobLogo';
 
 import jobService from '../../utils/jobService';
@@ -504,6 +506,7 @@ const JobDetail = () => {
               <Tab label="Overview" icon={<DescriptionIcon />} iconPosition="start" />
               <Tab label="Analysis" icon={<LightbulbIcon />} iconPosition="start" />
               <Tab label="Content" icon={<DescriptionIcon />} iconPosition="start" />
+              <Tab label="Suggested Recruiters" icon={<PeopleIcon />} iconPosition="start" />
             </Tabs>
           </Paper>
 
@@ -538,6 +541,13 @@ const JobDetail = () => {
           {tabValue === 2 && (
             <Box sx={{ py: 1 }}>
               <ContentTab job={job} />
+            </Box>
+          )}
+
+          {/* Suggested Recruiters Tab */}
+          {tabValue === 3 && (
+            <Box sx={{ py: 1 }}>
+              <SuggestedRecruitersTab job={job} />
             </Box>
           )}
         </Box>

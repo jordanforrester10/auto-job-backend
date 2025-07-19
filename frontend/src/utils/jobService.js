@@ -131,6 +131,17 @@ const jobService = {
     }
   },
 
+  // Get suggested recruiters for a job
+  getSuggestedRecruiters: async (jobId) => {
+    try {
+      const response = await api.get(`/jobs/${jobId}/suggested-recruiters`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching suggested recruiters:', error);
+      throw error;
+    }
+  },
+
   // Update job
   updateJob: async (jobId, jobData) => {
     try {

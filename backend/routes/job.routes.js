@@ -33,6 +33,9 @@ router.post('/rematch-best/:jobId', jobController.rematchJobWithBestResume);
 // NEW: Get job analysis status (must be before /:id)
 router.get('/analysis-status/:id', jobController.getJobAnalysisStatus);
 
+// NEW: Get suggested recruiters for a job (must be before /:id)
+router.get('/:id/suggested-recruiters', jobController.getSuggestedRecruiters);
+
 // Get job by ID (this catches all /jobs/:id patterns, so it must come after specific routes)
 router.get('/:id', jobController.getJobById);
 

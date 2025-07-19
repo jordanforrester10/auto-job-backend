@@ -1614,3 +1614,228 @@ exports.deleteAiSearch = async (req, res) => {
     });
   }
 };
+
+// Get suggested recruiters for a job - WITH SUBSCRIPTION FILTERING
+exports.getSuggestedRecruiters = async (req, res) => {
+  try {
+    const userId = req.user?._id || req.userId;
+    const jobId = req.params.id; // Fix: route uses :id, not :jobId
+    
+    if (!userId) {
+      return res.status(401).json({ message: 'User identification missing' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(jobId)) {
+      return res.status(400).json({ message: 'Invalid job ID' });
+    }
+
+    console.log(`🔍 Getting suggested recruiters for job ${jobId} by user ${userId}`);
+
+    // Get the job to extract company name
+    const job = await Job.findOne({ _id: jobId, userId });
+    
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+
+    if (!job.company) {
+      return res.status(400).json({ 
+        message: 'Job company information not available',
+        error: 'Cannot suggest recruiters without company information'
+      });
+    }
+
+    // Get user's subscription info for filtering
+    let currentSubscription;
+    try {
+      currentSubscription = await subscriptionService.getCurrentSubscription(userId);
+      console.log('✅ User plan for suggested recruiters:', currentSubscription.user.subscriptionTier);
+    } catch (permissionError) {
+      console.error('❌ Error checking subscription info:', permissionError);
+      return res.status(500).json({ 
+        message: 'Failed to validate subscription information',
+        error: permissionError.message 
+      });
+    }
+
+    const companyName = job.company;
+    console.log(`🏢 Searching for recruiters at company: ${companyName}`);
+
+    // Build SQL query with fuzzy matching for company name
+    const sqlQuery = `
+      SELECT 
+        r.id,
+        r.first_name,
+        r.last_name,
+        r.email,
+        r.title,
+        r.linkedin_profile_url as linkedin_url,
+        r.experience_years,
+        r.last_active_date,
+        r.rating,
+        r.specializations,
+        c.name as company_name,
+        c.website as company_website,
+        c.employee_range as company_size,
+        c.logo_url as company_logo,
+        c.is_h1b_sponsor,
+        c.h1b_matched_company_id,
+        i.name as industry_name,
+        l.city,
+        l.state,
+        l.country,
+        -- Check if user has contacted this recruiter
+        oh.last_contact_date,
+        oh.status as outreach_status,
+        -- Check if user has unlocked this recruiter
+        ru.unlocked_at,
+        CASE WHEN ru.unlocked_at IS NOT NULL THEN true ELSE false END as is_unlocked
+      FROM recruiters r
+      LEFT JOIN companies c ON r.current_company_id = c.id
+      LEFT JOIN industries i ON r.industry_id = i.id
+      LEFT JOIN locations l ON r.location_id = l.id
+      LEFT JOIN outreach_history oh ON (r.id = oh.recruiter_id AND oh.mongodb_user_id = $1)
+      LEFT JOIN recruiter_unlocks ru ON (r.id = ru.recruiter_id AND ru.mongodb_user_id = $1)
+      WHERE r.is_active = true 
+        AND c.name ILIKE $2
+      ORDER BY r.last_active_date DESC NULLS LAST, r.id DESC
+      LIMIT 10
+    `;
+
+    // Get total count for company stats
+    const countQuery = `
+      SELECT COUNT(*) as count
+      FROM recruiters r
+      LEFT JOIN companies c ON r.current_company_id = c.id
+      WHERE r.is_active = true 
+        AND c.name ILIKE $1
+    `;
+
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    });
+
+    // Execute queries
+    const [recruitersResult, countResult] = await Promise.all([
+      pool.query(sqlQuery, [userId.toString(), `%${companyName}%`]),
+      pool.query(countQuery, [`%${companyName}%`])
+    ]);
+
+    const totalRecruiters = parseInt(countResult.rows[0].count);
+    const showingCount = recruitersResult.rows.length;
+
+    console.log(`📊 Found ${showingCount} recruiters (${totalRecruiters} total) at ${companyName}`);
+
+    // Format recruiter data based on user's plan (same logic as recruiter search)
+    const recruiters = recruitersResult.rows.map(row => {
+      const baseRecruiter = {
+        id: row.id,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+        company: {
+          name: row.company_name,
+          website: row.company_website,
+          size: row.company_size,
+          logo: row.company_logo,
+          isH1BSponsor: row.is_h1b_sponsor || false,
+          h1bMatchedCompanyId: row.h1b_matched_company_id
+        },
+        industry: row.industry_name,
+        location: {
+          city: row.city,
+          state: row.state,
+          country: row.country
+        },
+        outreach: {
+          hasContacted: !!row.last_contact_date,
+          lastContactDate: row.last_contact_date,
+          status: row.outreach_status
+        },
+        isUnlocked: row.is_unlocked,
+        unlockedAt: row.unlocked_at
+      };
+
+      // Add H1B company information if H1B sponsor
+      if (row.is_h1b_sponsor) {
+        baseRecruiter.h1bCompanyInfo = {
+          isH1BCompany: true,
+          verifiedH1BSponsor: true,
+          companyName: row.company_name,
+          flagSource: 'database',
+          matchedCompanyId: row.h1b_matched_company_id
+        };
+      }
+
+      // Apply subscription-based filtering (same as recruiter search)
+      if (currentSubscription.user.subscriptionTier === 'free') {
+        return {
+          ...baseRecruiter,
+          // Hide sensitive contact information for free users
+          email: null,
+          linkedinUrl: null,
+          title: 'Senior Recruiter', // Generic title
+          experienceYears: null,
+          lastActiveDate: null,
+          rating: null,
+          specializations: null,
+          accessLevel: 'limited'
+        };
+      }
+
+      // For paid users, return full data
+      return {
+        ...baseRecruiter,
+        email: row.email,
+        title: row.title,
+        linkedinUrl: row.linkedin_url,
+        experienceYears: row.experience_years,
+        lastActiveDate: row.last_active_date,
+        rating: row.rating,
+        specializations: row.specializations,
+        accessLevel: 'full'
+      };
+    });
+
+    // Get usage statistics to include in response
+    let usageStats = null;
+    try {
+      const userUsage = await usageService.getUserUsageStats(userId);
+      usageStats = {
+        recruiterUnlocks: userUsage.usageStats.recruiterUnlocks,
+        plan: userUsage.plan,
+        planLimits: {
+          recruiterAccess: currentSubscription.user.subscriptionTier !== 'free',
+          recruiterUnlocks: userUsage.planLimits.recruiterUnlocks
+        }
+      };
+    } catch (usageError) {
+      console.error('❌ Error fetching usage stats (non-critical):', usageError);
+    }
+
+    // Build search URL for "View all recruiters" link
+    const searchUrl = `/recruiters?company=${encodeURIComponent(companyName)}`;
+
+    res.status(200).json({
+      success: true,
+      suggestedRecruiters: recruiters,
+      companyStats: {
+        companyName: companyName,
+        totalRecruiters: totalRecruiters,
+        showingCount: showingCount
+      },
+      searchUrl: searchUrl,
+      userPlan: currentSubscription.user.subscriptionTier,
+      usageStats: usageStats
+    });
+
+  } catch (error) {
+    console.error('Error getting suggested recruiters:', error);
+    res.status(500).json({ 
+      message: 'Failed to get suggested recruiters', 
+      error: error.message 
+    });
+  }
+};
