@@ -711,34 +711,40 @@ const JobsPage = () => {
   };
 
   // Get AI discovery button state and tooltip
-  const getAiDiscoveryButtonState = () => {
-    if (currentPlan === 'free') {
-      return {
-        disabled: true,
-        tooltip: 'AI Job Discovery requires Casual plan or higher',
-        text: 'AI Automated Jobs Search (Upgrade Required)',
-        icon: LockIcon
-      };
-    }
-    
-    if (currentPlan === 'casual' && isAiDiscoveryAtLimit) {
-      return {
-        disabled: true,
-        tooltip: 'You\'ve used your 1 AI job discovery for this month. Upgrade to Hunter for unlimited searches.',
-        text: 'AI Automated Jobs Search (Limit Reached)',
-        icon: LockIcon
-      };
-    }
-    
+const getAiDiscoveryButtonState = () => {
+  if (currentPlan === 'free') {
     return {
-      disabled: false,
-      tooltip: currentPlan === 'casual' 
-        ? `Create AI job search (${aiDiscoveryUsage.used}/${aiDiscoveryUsage.limit} used)`
-        : 'Create unlimited AI job searches',
-      text: 'Discover Jobs',
-      icon: SafeAutoJobLogo
+      disabled: true,
+      tooltip: 'AI Job Discovery requires Casual plan or higher',
+      text: 'AI Automated Jobs Search (Upgrade Required)',
+      icon: LockIcon,
+      color: 'warning', // Add this line for orange color
+      variant: 'contained' // Add this line to make it more prominent
     };
+  }
+  
+  if (currentPlan === 'casual' && isAiDiscoveryAtLimit) {
+    return {
+      disabled: true,
+      tooltip: 'You\'ve used your 1 AI job discovery for this month. Upgrade to Hunter for unlimited searches.',
+      text: 'AI Automated Jobs Search (Limit Reached)',
+      icon: LockIcon,
+      color: 'warning', // Add this line
+      variant: 'contained' // Add this line
+    };
+  }
+  
+  return {
+    disabled: false,
+    tooltip: currentPlan === 'casual' 
+      ? `Create AI job search (${aiDiscoveryUsage.used}/${aiDiscoveryUsage.limit} used)`
+      : 'Create unlimited AI job searches',
+    text: 'Discover Jobs',
+    icon: SafeAutoJobLogo,
+    color: 'primary', // Add this line
+    variant: 'outlined' // Add this line
   };
+};
 
   const aiDiscoveryButtonState = getAiDiscoveryButtonState();
 
@@ -916,31 +922,28 @@ const JobsPage = () => {
           >
             {isAtLimit && planLimits?.jobImports !== -1 ? 'Upgrade to Add Jobs' : 'Add Job Manually'}
           </Button>
-          <Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
-            <span>
-              <Button 
-                variant="outlined" 
-                color="primary" 
-                startIcon={
-                  aiDiscoveryButtonState.icon === LockIcon ? 
-                    <LockIcon /> : 
-                    <SafeAutoJobLogo size="small" />
-                } 
-                onClick={handleOpenFindJobsDialog}
-                disabled={aiDiscoveryButtonState.disabled}
-                sx={{ 
-                  py: 1, 
-                  px: 3, 
-                  fontSize: '0.9rem', 
-                  fontWeight: 500,
-                  borderRadius: 2,
-                  opacity: aiDiscoveryButtonState.disabled ? 0.6 : 1
-                }}
-              >
-                {aiDiscoveryButtonState.text}
-              </Button>
-            </span>
-          </Tooltip>
+<Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
+  <span>
+    <Button 
+      variant={aiDiscoveryButtonState.variant || "outlined"} 
+      color={aiDiscoveryButtonState.color || "primary"} 
+      startIcon={
+        aiDiscoveryButtonState.icon === LockIcon ? 
+          <LockIcon /> : 
+          <SafeAutoJobLogo size="small" />
+      } 
+      onClick={handleOpenFindJobsDialog}
+      disabled={aiDiscoveryButtonState.disabled}
+      sx={{ 
+        textTransform: 'none',
+        opacity: aiDiscoveryButtonState.disabled ? 0.9 : 1, // Slightly reduce opacity change
+        fontWeight: aiDiscoveryButtonState.disabled ? 600 : 'normal' // Make text bolder when disabled
+      }}
+    >
+      {aiDiscoveryButtonState.text}
+    </Button>
+  </span>
+</Tooltip>
         </Box>
         {allResumes.length === 0 && (
           <Alert severity="info" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
@@ -1517,27 +1520,31 @@ const JobsPage = () => {
           </Box>
           {!loading && !error && jobs.length > 0 && (
             <Box sx={{ display: 'flex', gap: 2 }}>
-              <Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
-                <span>
-                  <Button 
-                    variant="outlined" 
-                    color="primary" 
-                    startIcon={
-                      aiDiscoveryButtonState.icon === LockIcon ? 
-                        <LockIcon /> : 
-                        <SafeAutoJobLogo size="small" />
-                    } 
-                    onClick={handleOpenFindJobsDialog}
-                    disabled={aiDiscoveryButtonState.disabled}
-                    sx={{ 
-                      textTransform: 'none',
-                      opacity: aiDiscoveryButtonState.disabled ? 0.6 : 1
-                    }}
-                  >
-                    {aiDiscoveryButtonState.text}
-                  </Button>
-                </span>
-              </Tooltip>
+<Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
+  <span>
+    <Button 
+      variant={aiDiscoveryButtonState.variant || "outlined"} 
+      color={aiDiscoveryButtonState.color || "primary"} 
+      startIcon={
+        aiDiscoveryButtonState.icon === LockIcon ? 
+          <LockIcon /> : 
+          <SafeAutoJobLogo size="small" />
+      } 
+      onClick={handleOpenFindJobsDialog}
+      disabled={aiDiscoveryButtonState.disabled}
+      sx={{ 
+        py: 1, 
+        px: 3, 
+        fontSize: '0.9rem', 
+        fontWeight: aiDiscoveryButtonState.disabled ? 600 : 500,
+        borderRadius: 2,
+        opacity: aiDiscoveryButtonState.disabled ? 0.9 : 1
+      }}
+    >
+      {aiDiscoveryButtonState.text}
+    </Button>
+  </span>
+</Tooltip>
               <Button 
                 variant="contained" 
                 color="primary" 
