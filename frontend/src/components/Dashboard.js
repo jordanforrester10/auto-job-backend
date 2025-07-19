@@ -354,16 +354,7 @@ const Dashboard = () => {
       label: 'Upload Your First Resume',
       content: (
         <Box>
-          {userPlan === 'free' && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              <Typography variant="body2">
-                <strong>Free Plan:</strong> Upload 1 resume. 
-                <Button variant="text" size="small" href="/settings" sx={{ ml: 1 }}>
-                  Upgrade for more
-                </Button>
-              </Typography>
-            </Alert>
-          )}
+
           <List>
             <ListItem>
               <ListItemIcon>

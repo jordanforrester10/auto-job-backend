@@ -1,4 +1,4 @@
-// controllers/resume.controller.js - UPDATED WITH JOB SUGGESTIONS ENDPOINT
+// controllers/resume.controller.js - UPDATED WITH JOB SUGGESTIONS ENDPOINT AND SKILL VALIDATION MAPPING
 const { PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { s3Client, S3_BUCKET } = require('../config/s3');
@@ -10,11 +10,113 @@ const jobSearchService = require('../services/jobSearch.service'); // 🆕 ADD T
 const usageService = require('../services/usage.service');
 const mongoose = require('mongoose');
 const path = require('path');
-const uuid = require('uuid').v4;
+const { v4: uuid } = require('uuid');
 
 // Import models for Phase 3 implementation
 const Job = require('../models/mongodb/job.model');
 const AiJobSearch = require('../models/mongodb/aiJobSearch.model');
+
+// 🔧 NEW: Validation mapping for keySkills enums
+const validateAndMapSkillCategory = (category) => {
+  const categoryMappings = {
+    // Valid categories (pass through)
+    'technical': 'technical',
+    'soft': 'soft', 
+    'business': 'business',
+    'domain': 'domain',
+    'certification': 'certification',
+    
+    // Invalid -> Valid mappings
+    'management': 'business',
+    'methodology': 'technical',
+    'organizational': 'business',
+    'process': 'business',
+    'strategy': 'business',
+    'planning': 'business',
+    'leadership': 'business',
+    'communication': 'soft',
+    'analytical': 'technical',
+    'design': 'technical',
+    'tool': 'technical',
+    'framework': 'technical',
+    'platform': 'technical',
+    'language': 'technical',
+    'programming': 'technical'
+  };
+  
+  const normalizedCategory = category ? category.toLowerCase() : 'technical';
+  return categoryMappings[normalizedCategory] || 'technical';
+};
+
+const validateAndMapSkillType = (skillType) => {
+  const skillTypeMappings = {
+    // Valid skillTypes (pass through)
+    'programming': 'programming',
+    'management': 'management', 
+    'analytical': 'analytical',
+    'communication': 'communication',
+    'design': 'design',
+    'general': 'general',
+    'knowledge': 'knowledge',
+    'extracted': 'extracted',
+    'technical': 'technical',
+    'soft': 'soft',
+    'business': 'business',
+    'certification': 'certification',
+    'tool': 'tool',
+    'framework': 'framework',
+    'language': 'language',
+    'platform': 'platform',
+    'methodology': 'methodology',
+    'domain': 'domain',
+    'planning': 'planning',
+    'strategy': 'strategy',
+    
+    // Invalid -> Valid mappings
+    'organizational': 'management',
+    'process': 'methodology',
+    'leadership': 'management',
+    'problem-solving': 'analytical',
+    'teamwork': 'communication',
+    'project-management': 'management',
+    'data-analysis': 'analytical',
+    'system-design': 'design',
+    'architecture': 'design'
+  };
+  
+  const normalizedSkillType = skillType ? skillType.toLowerCase() : 'general';
+  return skillTypeMappings[normalizedSkillType] || 'general';
+};
+
+// 🔧 NEW: Helper function to validate and fix keySkills array
+const validateAndFixKeySkills = (keySkills) => {
+  if (!Array.isArray(keySkills)) return [];
+  
+  return keySkills.map(skill => {
+    if (typeof skill === 'string') {
+      return {
+        name: skill,
+        importance: 5,
+        category: validateAndMapSkillCategory('general'),
+        skillType: validateAndMapSkillType('general'),
+        context: 'extracted from description'
+      };
+    }
+    
+    // Validate and map the skill object
+    const validatedSkill = {
+      name: skill.name || 'Unknown Skill',
+      importance: skill.importance && skill.importance >= 1 && skill.importance <= 10 ? skill.importance : 5,
+      category: validateAndMapSkillCategory(skill.category),
+      skillType: validateAndMapSkillType(skill.skillType),
+      context: skill.context || 'mentioned in job description'
+    };
+    
+    console.log(`🔧 Skill validation: ${skill.name} - category: ${skill.category} → ${validatedSkill.category}, skillType: ${skill.skillType} → ${validatedSkill.skillType}`);
+    
+    return validatedSkill;
+  });
+};
 
 // Helper function to generate S3 key for a resume file
 const generateS3Key = (userId, originalFilename) => {
@@ -671,7 +773,7 @@ exports.getJobSuggestions = async (req, res) => {
     const parsedData = resume.parsedData;
     
     // Prepare data for AI analysis
-    const resumeContext = {
+   const resumeContext = {
       skills: parsedData.skills || [],
       experience: parsedData.experience || [],
       education: parsedData.education || [],
@@ -1491,7 +1593,7 @@ exports.getPersonalizedOnboardingJobs = async (req, res) => {
       }
     }
     
-    // 🆕 NEW: Prepare current preferences for cache comparison
+// 🆕 NEW: Prepare current preferences for cache comparison
     const currentPreferences = {
       locations: locations,
       jobTitles: jobTitles,
@@ -2376,7 +2478,7 @@ function validateAndSanitizeParsedData(parsedData) {
   return sanitizedData;
 }
 
-// 🔧 NEW: Helper function to create enhanced parsed data for onboarding jobs
+// 🔧 NEW: Helper function to create enhanced parsed data for onboarding jobs WITH SKILL VALIDATION
 function createEnhancedParsedDataForOnboarding(job) {
   try {
     console.log(`🔧 Creating enhanced parsed data for job: ${job.title} at ${job.company}`);
@@ -2447,12 +2549,13 @@ function createEnhancedParsedDataForOnboarding(job) {
         'Flexible work arrangements'
       ],
       
-      keySkills: analysis.keySkills || existingParsedData.keySkills || [
+      // 🔧 FIXED: Apply skill validation to keySkills
+      keySkills: validateAndFixKeySkills(analysis.keySkills || existingParsedData.keySkills || [
         { name: 'Communication', importance: 8, category: 'soft', skillType: 'communication' },
         { name: 'Problem Solving', importance: 8, category: 'soft', skillType: 'analytical' },
         { name: 'Teamwork', importance: 7, category: 'soft', skillType: 'communication' },
         { name: 'Leadership', importance: 6, category: 'soft', skillType: 'management' }
-      ],
+      ]),
       
       experienceLevel: analysis.experienceLevel || existingParsedData.experienceLevel || 'mid',
       
@@ -2487,7 +2590,8 @@ function createEnhancedParsedDataForOnboarding(job) {
       requiredQualificationsCount: enhancedParsedData.qualifications.required.length,
       preferredQualificationsCount: enhancedParsedData.qualifications.preferred.length,
       technicalRequirementsCount: enhancedParsedData.technicalRequirements.length,
-      toolsCount: enhancedParsedData.toolsAndTechnologies.length
+      toolsCount: enhancedParsedData.toolsAndTechnologies.length,
+      keySkillsCount: enhancedParsedData.keySkills.length
     });
     
     return enhancedParsedData;
@@ -2506,10 +2610,10 @@ function createEnhancedParsedDataForOnboarding(job) {
       technicalRequirements: ['Proficiency with relevant tools and technologies'],
       toolsAndTechnologies: ['Standard office software and industry tools'],
       benefits: ['Competitive compensation and benefits package'],
-      keySkills: [
+      keySkills: validateAndFixKeySkills([
         { name: 'Communication', importance: 7, category: 'soft', skillType: 'communication' },
         { name: 'Problem Solving', importance: 7, category: 'soft', skillType: 'analytical' }
-      ],
+      ]),
       experienceLevel: 'mid',
       yearsOfExperience: { minimum: 2, preferred: 5 },
       educationRequirements: ['Bachelor\'s degree in relevant field'],

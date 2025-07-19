@@ -46,16 +46,31 @@ class ActiveJobsDBExtractor {
     }
   }
 
-  /**
+
+/**
    * 🆕 NEW: Multi-location job search with enhanced salary extraction
+   * Handles both AI searches (weeklyLimit) and onboarding (limit) flows
    */
   async searchActiveJobsDBWithLocations(searchParams) {
     try {
-      const { jobTitle, searchLocations, experienceLevel, weeklyLimit, keywords } = searchParams;
+      // 🔧 FIX: Extract both limit parameters and determine which to use
+      const { 
+        jobTitle, 
+        searchLocations, 
+        experienceLevel, 
+        weeklyLimit,     // 50 for Casual, 100 for Hunter (AI searches)
+        limit,           // 3 for onboarding flow
+        keywords,
+        onboardingSearch = false
+      } = searchParams;
+      
+      // 🔧 FIX: Use the appropriate limit based on search type
+      const searchLimit = limit || weeklyLimit || 25;
+      const searchType = onboardingSearch ? 'onboarding' : (weeklyLimit ? 'weekly AI search' : 'general');
       
       console.log(`🌍 Starting multi-location search for "${jobTitle}"`);
       console.log(`📍 Locations: ${searchLocations.map(loc => loc.name).join(', ')}`);
-      console.log(`🎯 Weekly limit: ${weeklyLimit} jobs`);
+      console.log(`🎯 Search limit: ${searchLimit} jobs (${searchType})`);
       
       // 🔧 FIX: Build OR parameter for multiple locations in single API call
       const locationNames = searchLocations
@@ -77,21 +92,20 @@ class ActiveJobsDBExtractor {
       // Include remote jobs if requested
       const includeRemote = searchLocations.some(loc => loc.name === 'Remote' || loc.type === 'remote');
       if (includeRemote && locationFilter) {
-        // For remote, we'll make a separate call or modify the filter
         console.log(`🏠 Remote jobs requested in addition to location-based search`);
       }
       
-        // 🔧 FIX: Make single API call with OR parameter
-        let searchResults = await this.makeActiveJobsDBAPICall({
+      // 🔧 FIX: Make single API call with OR parameter using the correct searchLimit
+      let searchResults = await this.makeActiveJobsDBAPICall({
         title_filter: `"${jobTitle}"`,
         location_filter: locationFilter,
-        limit: Math.min(weeklyLimit, 100), // API limit per call
+        limit: Math.min(searchLimit, 100), // 🔧 FIX: Use searchLimit (3 for onboarding, 50/100 for AI searches)
         offset: 0,
         description_type: 'text'
-        });
+      });
 
-        // 🆕 NEW: Fallback logic if no results found
-        if (searchResults.jobs.length === 0) {
+      // 🆕 NEW: Fallback logic if no results found
+      if (searchResults.jobs.length === 0) {
         console.log(`⚠️ No results for "${jobTitle}", trying broader search...`);
         
         // Remove "AI" and try again
@@ -99,18 +113,17 @@ class ActiveJobsDBExtractor {
         console.log(`🔄 Trying broader title: "${broaderTitle}"`);
         
         if (broaderTitle !== jobTitle && broaderTitle.length > 0) {
-            searchResults = await this.makeActiveJobsDBAPICall({
+          searchResults = await this.makeActiveJobsDBAPICall({
             title_filter: `"${broaderTitle}"`,
             location_filter: locationFilter,
-            limit: Math.min(weeklyLimit, 100),
+            limit: Math.min(searchLimit, 100), // 🔧 FIX: Use searchLimit here too
             offset: 0,
             description_type: 'text'
-            });
-            
-            console.log(`📊 Broader search results: ${searchResults.jobs.length} jobs found`);
+          });
+          
+          console.log(`📊 Broader search results: ${searchResults.jobs.length} jobs found`);
         }
-        }
-
+      }
       
       console.log(`✅ Multi-location API call completed: ${searchResults.jobs.length} jobs found`);
       
@@ -119,15 +132,20 @@ class ActiveJobsDBExtractor {
       if (includeRemote) {
         console.log(`🏠 Making additional call for remote jobs...`);
         try {
-          const remoteResults = await this.makeActiveJobsDBAPICall({
-            title_filter: `"${jobTitle}"`,
-            location_filter: '"remote"',
-            limit: Math.min(25, weeklyLimit - searchResults.jobs.length), // Remaining quota
-            offset: 0,
-            description_type: 'text'
-          });
-          remoteJobs = remoteResults.jobs || [];
-          console.log(`🏠 Remote jobs found: ${remoteJobs.length}`);
+          const remainingQuota = Math.max(0, searchLimit - searchResults.jobs.length);
+          if (remainingQuota > 0) {
+            const remoteResults = await this.makeActiveJobsDBAPICall({
+              title_filter: `"${jobTitle}"`,
+              location_filter: '"remote"',
+              limit: Math.min(remainingQuota, 25), // 🔧 FIX: Use remaining quota from searchLimit
+              offset: 0,
+              description_type: 'text'
+            });
+            remoteJobs = remoteResults.jobs || [];
+            console.log(`🏠 Remote jobs found: ${remoteJobs.length}`);
+          } else {
+            console.log(`🏠 Skipping remote search - quota already filled (${searchResults.jobs.length}/${searchLimit})`);
+          }
         } catch (remoteError) {
           console.error('❌ Error fetching remote jobs (non-critical):', remoteError);
         }
@@ -136,57 +154,61 @@ class ActiveJobsDBExtractor {
       // Combine all results
       const allJobs = [...searchResults.jobs, ...remoteJobs];
       
+      // 🔧 FIX: Limit final results to the requested searchLimit
+      const limitedJobs = allJobs.slice(0, searchLimit);
+      
       // Build location stats
-        // Build location stats
-        const locationStats = {};
-        searchLocations.forEach(loc => {
-        const jobsForLocation = allJobs.filter(job => {
-            // 🔧 FIX: Handle location as object or string
-            let jobLocation = '';
-            if (typeof job.location === 'string') {
+      const locationStats = {};
+      searchLocations.forEach(loc => {
+        const jobsForLocation = limitedJobs.filter(job => {
+          // 🔧 FIX: Handle location as object or string
+          let jobLocation = '';
+          if (typeof job.location === 'string') {
             jobLocation = job.location.toLowerCase();
-            } else if (job.location && job.location.original) {
+          } else if (job.location && job.location.original) {
             jobLocation = job.location.original.toLowerCase();
-            } else if (job.location && job.location.city) {
+          } else if (job.location && job.location.city) {
             jobLocation = `${job.location.city} ${job.location.state || ''}`.toLowerCase();
-            } else {
+          } else {
             jobLocation = '';
-            }
-            
-            const searchLocation = loc.name.toLowerCase();
-            
-            if (loc.type === 'remote' || loc.name === 'Remote') {
+          }
+          
+          const searchLocation = loc.name.toLowerCase();
+          
+          if (loc.type === 'remote' || loc.name === 'Remote') {
             return jobLocation.includes('remote');
-            }
-            
-            // Match city name
-            const cityName = searchLocation.includes(',') ? 
+          }
+          
+          // Match city name
+          const cityName = searchLocation.includes(',') ? 
             searchLocation.split(',')[0].trim() : searchLocation;
-            return jobLocation.includes(cityName);
+          return jobLocation.includes(cityName);
         });
         
         locationStats[loc.name] = jobsForLocation.length;
-        });
+      });
       
       // Build salary stats
-      const jobsWithSalary = allJobs.filter(job => job.salary && (job.salary.min || job.salary.max));
+      const jobsWithSalary = limitedJobs.filter(job => job.salary && (job.salary.min || job.salary.max));
       const salaryStats = {
-        totalJobs: allJobs.length,
+        totalJobs: limitedJobs.length,
         jobsWithSalary: jobsWithSalary.length,
-        salaryPercentage: allJobs.length > 0 ? Math.round((jobsWithSalary.length / allJobs.length) * 100) : 0
+        salaryPercentage: limitedJobs.length > 0 ? Math.round((jobsWithSalary.length / limitedJobs.length) * 100) : 0
       };
       
-      console.log(`📊 Final results: ${allJobs.length} total jobs from ${searchLocations.length} locations`);
+      console.log(`📊 Final results: ${limitedJobs.length} total jobs from ${searchLocations.length} locations (${searchType}: limited to ${searchLimit})`);
       console.log(`💰 Salary data available for ${salaryStats.jobsWithSalary}/${salaryStats.totalJobs} jobs (${salaryStats.salaryPercentage}%)`);
       
       return {
-        jobs: allJobs,
-        totalFound: allJobs.length,
+        jobs: limitedJobs, // 🔧 FIX: Return properly limited jobs
+        totalFound: limitedJobs.length,
         locationsSearched: searchLocations.length,
         locationStats: locationStats,
         salaryStats: salaryStats,
         searchMethod: 'multi_location_or_parameter',
-        apiCalls: includeRemote ? 2 : 1 // Track API efficiency
+        searchType: searchType,
+        requestedLimit: searchLimit,
+        apiCalls: includeRemote ? (remainingQuota > 0 ? 2 : 1) : 1 // Track API efficiency
       };
       
     } catch (error) {
