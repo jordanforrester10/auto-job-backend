@@ -1,4 +1,4 @@
-// src/components/jobs/JobsPage.js - Enhanced with auto-open dialog from resume onboarding
+// src/components/jobs/JobsPage.js - Enhanced with Tailor Resume button on job cards
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { 
@@ -23,9 +23,17 @@ import {
   Tab,
   Snackbar,
   Dialog,
-  useTheme,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  useTheme as muiUseTheme,
   alpha,
-  Collapse
+  Collapse,
+  Fade,
+  createTheme
 } from '@mui/material';
 import { 
   Add as AddIcon, 
@@ -47,7 +55,15 @@ import {
   Upgrade as UpgradeIcon,
   Lock as LockIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon
+  ExpandLess as ExpandLessIcon,
+  Close as CloseIcon,
+  Description as DescriptionIcon,
+  AutoFixHigh as AutoFixHighIcon,
+  Stars as StarsIcon,
+  TrendingUp as TrendingUpIcon,
+  Speed as SpeedIcon,
+  Psychology as PsychologyIcon,
+  Insights as InsightsIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import jobService from '../../utils/jobService';
@@ -402,7 +418,43 @@ function TabPanel(props) {
 }
 
 const JobsPage = () => {
+  // 🔧 FIX: Create a robust theme hook with fallback
+  const useTheme = () => {
+    const theme = muiUseTheme();
+    
+    // If theme context is undefined, provide a fallback theme
+    if (!theme || !theme.palette) {
+      console.warn('Theme context is undefined - using fallback theme');
+      return createTheme({
+        palette: {
+          primary: { main: '#1976d2' },
+          secondary: { main: '#dc004e' },
+          error: { main: '#f44336' },
+          warning: { main: '#ff9800' },
+          info: { main: '#2196f3' },
+          success: { main: '#4caf50' },
+          text: { primary: '#000000', secondary: '#666666' },
+          background: { default: '#ffffff', paper: '#ffffff' },
+          divider: '#e0e0e0'
+        },
+        spacing: (factor) => `${8 * factor}px`,
+        breakpoints: {
+          up: () => '@media (min-width:0px)',
+          down: () => '@media (max-width:9999px)'
+        }
+      });
+    }
+    
+    return theme;
+  };
+
   const theme = useTheme();
+  
+  // 🔧 FIX: Add color validation helper to prevent undefined color access
+  const getValidColor = (color, fallback = 'primary') => {
+    const validColors = ['primary', 'secondary', 'error', 'warning', 'info', 'success'];
+    return validColors.includes(color) ? color : fallback;
+  };
   const navigate = useNavigate();
   const location = useLocation();
   const { 
@@ -412,7 +464,8 @@ const JobsPage = () => {
     canPerformAction, 
     getUsagePercentage,
     planInfo,
-    hasFeatureAccess 
+    hasFeatureAccess,
+    refreshSubscription 
   } = useSubscription();
 
   // NEW: Use AI searches hook to check for existing searches
@@ -440,19 +493,44 @@ const JobsPage = () => {
   // State for collapsible usage summary
   const [usageSummaryExpanded, setUsageSummaryExpanded] = useState(false);
 
-  // Safe AutoJobLogo wrapper component
-  const SafeAutoJobLogo = ({ size = 'small' }) => {
+  // NEW: State for resume tailoring dialog (moved from JobDetail.js)
+  const [tailorDialogOpen, setTailorDialogOpen] = useState(false);
+  const [selectedResumeId, setSelectedResumeId] = useState('');
+  const [selectedJobForTailoring, setSelectedJobForTailoring] = useState(null);
+  const [matchLoading, setMatchLoading] = useState(false);
+  const [resumeMatchStatus, setResumeMatchStatus] = useState({});
+  const [usageData, setUsageData] = useState(null);
+  const [canCreateTailoredResume, setCanCreateTailoredResume] = useState(true);
+
+  // Safe AutoJobLogo wrapper component - FIXED VERSION
+  const SafeAutoJobLogo = ({ size = 'small', color, sx, ...props }) => {
     try {
       return (
         <AutoJobLogo 
           variant="icon-only" 
           size={size} 
           showTagline={false}
+          sx={{
+            width: size === 'small' ? 16 : size === 'medium' ? 20 : 24,
+            height: size === 'small' ? 16 : size === 'medium' ? 20 : 24,
+            ...sx
+          }}
+          {...props}
         />
       );
     } catch (error) {
       console.warn('AutoJobLogo failed to render:', error);
-      return <SmartToyIcon sx={{ fontSize: size === 'small' ? 16 : 20 }} />;
+      // Fallback to SmartToyIcon with proper sizing
+      return (
+        <SmartToyIcon 
+          sx={{ 
+            fontSize: size === 'small' ? 16 : size === 'medium' ? 20 : 24,
+            color: color || 'currentColor',
+            ...sx
+          }} 
+          {...props}
+        />
+      );
     }
   };
 
@@ -469,6 +547,18 @@ const JobsPage = () => {
     fetchJobs();
     fetchActiveResumes();
   }, []);
+
+  // NEW: Check usage limits for tailoring
+  useEffect(() => {
+    if (usage && planLimits) {
+      const tailoringUsage = usage.resumeTailoring || { used: 0, limit: planLimits.resumeTailoring };
+      setUsageData(tailoringUsage);
+      
+      // Check if user can create tailored resume
+      const permission = canPerformAction('resumeTailoring', 1);
+      setCanCreateTailoredResume(permission.allowed);
+    }
+  }, [usage, planLimits, canPerformAction]);
 
   // Poll analysis status for jobs that are still processing
   useEffect(() => {
@@ -605,15 +695,16 @@ const JobsPage = () => {
     setOpenFindJobsDialog(false);
   };
 
-  const handleJobCreated = (newJob) => {
+  const handleJobCreated = (response) => {
     fetchJobs(); // Refresh the entire list
     handleCloseCreateDialog();
     showSnackbar('Job created successfully - analysis in progress', 'success');
     
     // Start polling the new job if it has an ID
-    if (newJob?.job?.id) {
+    // 🔧 FIX: Backend returns { job: { id: ... } } not { job: { job: { id: ... } } }
+    if (response?.job?.id) {
       setTimeout(() => {
-        startPollingJobStatus(newJob.job.id);
+        startPollingJobStatus(response.job.id);
       }, 1000);
     }
   };
@@ -691,6 +782,121 @@ const JobsPage = () => {
     setUsageSummaryExpanded(!usageSummaryExpanded);
   };
 
+  // NEW: Resume tailoring functions (from JobDetail.js)
+  const handleOpenTailorDialog = (job) => {
+    // Check if user can create tailored resume before opening dialog
+    if (!canCreateTailoredResume) {
+      showSnackbar('Resume tailoring limit reached. Please upgrade your plan to continue.', 'warning');
+      return;
+    }
+    
+    // Check if job analysis is complete
+    const analysisStatus = getJobAnalysisStatus(job);
+    if (!analysisStatus.canViewJob) {
+      showSnackbar('Please wait for job analysis to complete before tailoring resumes', 'warning');
+      return;
+    }
+    
+    setSelectedJobForTailoring(job);
+    setTailorDialogOpen(true);
+  };
+
+  const handleCloseTailorDialog = () => {
+    setTailorDialogOpen(false);
+    setSelectedResumeId('');
+    setSelectedJobForTailoring(null);
+  };
+
+  const handleResumeChange = (e) => {
+    setSelectedResumeId(e.target.value);
+  };
+
+  const handleTailorResume = async () => {
+    if (!selectedResumeId || !selectedJobForTailoring) {
+      showSnackbar('Please select a resume to tailor', 'warning');
+      return;
+    }
+
+    // Final check before proceeding
+    if (!canCreateTailoredResume) {
+      showSnackbar('Resume tailoring limit reached. Please upgrade your plan.', 'warning');
+      return;
+    }
+
+    setMatchLoading(true);
+    
+    try {
+      // First match the resume with the job using enhanced matching
+      const matchResult = await jobService.matchResumeWithJob(selectedJobForTailoring._id, selectedResumeId);
+      
+      // Show success message with match score
+      showSnackbar(`Analysis complete! Match score: ${matchResult.matchAnalysis?.overallScore || 'N/A'}%`, 'success');
+      
+      // Refresh jobs data to show new match analysis
+      await fetchJobs();
+      
+      // Force refresh subscription data after successful matching
+      try {
+        await refreshSubscription(true);
+      } catch (refreshError) {
+        console.error('Error refreshing subscription (non-critical):', refreshError);
+      }
+      
+      // Close dialog and navigate to tailoring page
+      handleCloseTailorDialog();
+      navigate(`/jobs/${selectedJobForTailoring._id}/tailor/${selectedResumeId}`);
+    } catch (error) {
+      console.error('Error initializing resume tailoring:', error);
+      
+      // Handle usage limit errors
+      if (error.response?.status === 403 && error.response?.data?.upgradeRequired) {
+        showSnackbar('Resume tailoring limit reached. Please upgrade your plan.', 'warning');
+        setCanCreateTailoredResume(false);
+      } else {
+        showSnackbar('Failed to start resume tailoring process. Please try again.', 'error');
+      }
+      setMatchLoading(false);
+    }
+  };
+
+  const renderResumeStatusChip = (resume) => {
+    const status = resumeMatchStatus[resume._id];
+    
+    if (!status) {
+      return null;
+    }
+
+    if (status.isTailored) {
+      return (
+        <Tooltip title={`${status.tailoredVersions.length} tailored version(s) for this job`}>
+          <Chip
+            icon={<AutoFixHighIcon />}
+            label="Tailored"
+            color="success"
+            size="small"
+            sx={{ ml: 1 }}
+          />
+        </Tooltip>
+      );
+    }
+
+    if (status.isMatched) {
+      return (
+        <Tooltip title="Already matched with this job">
+          <Chip
+            icon={<CheckCircleIcon />}
+            label="Matched"
+            color="info"
+            size="small"
+            sx={{ ml: 1 }}
+          />
+        </Tooltip>
+      );
+    }
+
+    return null;
+  };
+
   // Calculate usage statistics
   const jobImportUsage = usage?.jobImports || { used: 0, limit: planLimits?.jobImports || 0 };
   const usagePercentage = getUsagePercentage('jobImports');
@@ -704,49 +910,114 @@ const JobsPage = () => {
   const hasAiDiscoveryAccess = hasFeatureAccess('aiJobDiscovery');
   const currentPlan = subscription?.subscriptionTier || 'free';
 
+  // Calculate tailoring usage
+  const tailoringUsagePercentage = usageData ? getUsagePercentage('resumeTailoring') : 0;
+  const isTailoringApproachingLimit = tailoringUsagePercentage >= 80;
+  const isTailoringAtLimit = tailoringUsagePercentage >= 100 || !canCreateTailoredResume;
+
   const getUsageColor = () => {
-    if (isAtLimit) return 'error';
-    if (isApproachingLimit) return 'warning';
-    return 'success';
+    if (isAtLimit) return getValidColor('error');
+    if (isApproachingLimit) return getValidColor('warning');
+    return getValidColor('success');
+  };
+
+  // Get tailoring usage color
+  const getTailoringUsageColor = () => {
+    if (isTailoringAtLimit) return getValidColor('error');
+    if (isTailoringApproachingLimit) return getValidColor('warning');
+    return getValidColor('success');
   };
 
   // Get AI discovery button state and tooltip
-const getAiDiscoveryButtonState = () => {
-  if (currentPlan === 'free') {
+  const getAiDiscoveryButtonState = () => {
+    if (currentPlan === 'free') {
+      return {
+        disabled: true,
+        tooltip: 'AI Job Discovery requires Casual plan or higher',
+        text: 'AI Automated Jobs Search (Upgrade Required)',
+        icon: LockIcon,
+        color: getValidColor('warning'),
+        variant: 'contained'
+      };
+    }
+    
+    if (currentPlan === 'casual' && isAiDiscoveryAtLimit) {
+      return {
+        disabled: true,
+        tooltip: 'You\'ve used your 1 AI job discovery for this month. Upgrade to Hunter for unlimited searches.',
+        text: 'AI Automated Jobs Search (Limit Reached)',
+        icon: LockIcon,
+        color: getValidColor('warning'),
+        variant: 'contained'
+      };
+    }
+    
     return {
-      disabled: true,
-      tooltip: 'AI Job Discovery requires Casual plan or higher',
-      text: 'AI Automated Jobs Search (Upgrade Required)',
-      icon: LockIcon,
-      color: 'warning', // Add this line for orange color
-      variant: 'contained' // Add this line to make it more prominent
+      disabled: false,
+      tooltip: currentPlan === 'casual' 
+        ? `Create AI job search (${aiDiscoveryUsage.used}/${aiDiscoveryUsage.limit} used)`
+        : 'Create unlimited AI job searches',
+      text: 'Discover Jobs',
+      icon: SafeAutoJobLogo,
+      color: getValidColor('primary'),
+      variant: 'outlined'
     };
-  }
-  
-  if (currentPlan === 'casual' && isAiDiscoveryAtLimit) {
-    return {
-      disabled: true,
-      tooltip: 'You\'ve used your 1 AI job discovery for this month. Upgrade to Hunter for unlimited searches.',
-      text: 'AI Automated Jobs Search (Limit Reached)',
-      icon: LockIcon,
-      color: 'warning', // Add this line
-      variant: 'contained' // Add this line
-    };
-  }
-  
-  return {
-    disabled: false,
-    tooltip: currentPlan === 'casual' 
-      ? `Create AI job search (${aiDiscoveryUsage.used}/${aiDiscoveryUsage.limit} used)`
-      : 'Create unlimited AI job searches',
-    text: 'Discover Jobs',
-    icon: SafeAutoJobLogo,
-    color: 'primary', // Add this line
-    variant: 'outlined' // Add this line
   };
-};
 
   const aiDiscoveryButtonState = getAiDiscoveryButtonState();
+
+  const getTailorButtonState = (job) => {
+    const analysisStatus = getJobAnalysisStatus(job);
+    
+    // Check if job analysis is complete
+    if (!analysisStatus.canViewJob) {
+      return {
+        disabled: true,
+        tooltip: 'Wait for job analysis to complete',
+        text: 'Analyzing...',
+        variant: 'outlined',
+        color: getValidColor('default', 'primary')
+      };
+    }
+
+    // Check if no resumes available
+    if (allResumes.length === 0) {
+      return {
+        disabled: true,
+        tooltip: 'Upload a resume first to tailor it for this job',
+        text: 'Tailor Resume',
+        variant: 'outlined',
+        color: getValidColor('default', 'primary')
+      };
+    }
+
+    // Check subscription limits
+    if (isTailoringAtLimit) {
+      const upgradeText = planInfo?.tier === 'free' ? 'Upgrade to Casual' : 'Upgrade Plan';
+      return {
+        disabled: true,
+        tooltip: `Resume tailoring limit reached (${usageData?.used || 0}/${planLimits?.resumeTailoring || 0}). ${upgradeText} for more tailorings.`,
+        text: 'Limit Reached',
+        variant: 'contained',
+        color: getValidColor('warning')
+      };
+    }
+
+    // Available to use - CHANGED TO ORANGE
+    const remainingTailorings = planLimits?.resumeTailoring === -1 
+      ? 'unlimited' 
+      : (planLimits?.resumeTailoring || 0) - (usageData?.used || 0);
+    
+    return {
+      disabled: false,
+      tooltip: planLimits?.resumeTailoring === -1 
+        ? 'Create tailored resume (unlimited)' 
+        : `Create tailored resume (${remainingTailorings} remaining)`,
+      text: 'Tailor Resume',
+      variant: 'contained',
+      color: getValidColor('warning') // CHANGED FROM 'secondary' TO 'warning' for orange color
+    };
+  };
 
   // Render usage card with collapsible functionality
   const renderUsageCard = () => (
@@ -754,8 +1025,8 @@ const getAiDiscoveryButtonState = () => {
       sx={{ 
         mb: 3, 
         borderRadius: 2,
-        border: `1px solid ${theme.palette[getUsageColor()].main}`,
-        backgroundColor: `${theme.palette[getUsageColor()].main}08`
+        border: `1px solid ${safeTheme.palette[getUsageColor()].main}`,
+        backgroundColor: `${safeTheme.palette[getUsageColor()].main}08`
       }}
     >
       {/* Header with toggle button */}
@@ -816,6 +1087,26 @@ const getAiDiscoveryButtonState = () => {
               </Box>
             )}
 
+            {/* Resume Tailoring Progress */}
+            {planLimits?.resumeTailoring !== -1 && (
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Resume Tailorings
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {usageData?.used || 0}/{planLimits?.resumeTailoring || 0}
+                  </Typography>
+                </Box>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={Math.min(tailoringUsagePercentage, 100)}
+                  color={getTailoringUsageColor()}
+                  sx={{ height: 6, borderRadius: 3 }}
+                />
+              </Box>
+            )}
+
             {/* AI Job Discovery Progress */}
             {hasAiDiscoveryAccess && planLimits?.aiJobDiscovery !== -1 && (
               <Box sx={{ mb: 2 }}>
@@ -845,6 +1136,9 @@ const getAiDiscoveryButtonState = () => {
                     ? '⚠️ You\'re approaching your monthly job import limit.'
                     : `🎯 ${planLimits?.jobImports - (jobImportUsage.used || 0)} manual job imports remaining this month.`
               }
+              {isTailoringAtLimit && (
+                <><br/>🔒 Resume tailoring limit reached. Upgrade for more capacity.</>
+              )}
               {currentPlan === 'free' && (
                 <><br/>🔒 AI Job Discovery requires Casual plan or higher.</>
               )}
@@ -853,15 +1147,15 @@ const getAiDiscoveryButtonState = () => {
               )}
             </Typography>
 
-            {(isAtLimit || isApproachingLimit || currentPlan === 'free' || isAiDiscoveryAtLimit) && (
+            {(isAtLimit || isApproachingLimit || currentPlan === 'free' || isAiDiscoveryAtLimit || isTailoringAtLimit) && (
               <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   <strong>Upgrade for more capacity:</strong>
                 </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    • <strong>Casual Plan ($19.99/month):</strong> 25 manual job imports, 50 jobs automatically discovered per week<br/>
-                    • <strong>Hunter Plan ($34.99/month):</strong> Unlimited manual job imports & 100 jobs automatically discovered per week
-                  </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  • <strong>Casual Plan ($19.99/month):</strong> 25 manual job imports, 25 resume tailorings, 50 jobs automatically discovered per week<br/>
+                  • <strong>Hunter Plan ($34.99/month):</strong> Unlimited manual job imports, 50 resume tailorings & 100 jobs automatically discovered per week
+                </Typography>
                 <Button
                   variant="outlined"
                   size="small"
@@ -922,28 +1216,28 @@ const getAiDiscoveryButtonState = () => {
           >
             {isAtLimit && planLimits?.jobImports !== -1 ? 'Upgrade to Add Jobs' : 'Add Job Manually'}
           </Button>
-<Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
-  <span>
-    <Button 
-      variant={aiDiscoveryButtonState.variant || "outlined"} 
-      color={aiDiscoveryButtonState.color || "primary"} 
-      startIcon={
-        aiDiscoveryButtonState.icon === LockIcon ? 
-          <LockIcon /> : 
-          <SafeAutoJobLogo size="small" />
-      } 
-      onClick={handleOpenFindJobsDialog}
-      disabled={aiDiscoveryButtonState.disabled}
-      sx={{ 
-        textTransform: 'none',
-        opacity: aiDiscoveryButtonState.disabled ? 0.9 : 1, // Slightly reduce opacity change
-        fontWeight: aiDiscoveryButtonState.disabled ? 600 : 'normal' // Make text bolder when disabled
-      }}
-    >
-      {aiDiscoveryButtonState.text}
-    </Button>
-  </span>
-</Tooltip>
+          <Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
+            <span>
+              <Button 
+                variant={aiDiscoveryButtonState.variant || "outlined"} 
+                color={aiDiscoveryButtonState.color || "primary"} 
+                startIcon={
+                  aiDiscoveryButtonState.icon === LockIcon ? 
+                    <LockIcon /> : 
+                    <SafeAutoJobLogo size="small" />
+                } 
+                onClick={handleOpenFindJobsDialog}
+                disabled={aiDiscoveryButtonState.disabled}
+                sx={{ 
+                  textTransform: 'none',
+                  opacity: aiDiscoveryButtonState.disabled ? 0.9 : 1,
+                  fontWeight: aiDiscoveryButtonState.disabled ? 600 : 'normal'
+                }}
+              >
+                {aiDiscoveryButtonState.text}
+              </Button>
+            </span>
+          </Tooltip>
         </Box>
         {allResumes.length === 0 && (
           <Alert severity="info" sx={{ mt: 2.5, maxWidth: 480, fontSize: '0.85rem' }}>
@@ -1105,6 +1399,7 @@ const getAiDiscoveryButtonState = () => {
         const analysisStatus = getJobAnalysisStatus(job);
         const canView = analysisStatus.canViewJob;
         const isAnalyzing = analysisStatus.status === 'analyzing' || analysisStatus.status === 'pending';
+        const tailorButtonState = getTailorButtonState(job);
         
         return (
           <Grid item xs={12} sm={6} md={4} key={job._id}>
@@ -1145,27 +1440,31 @@ const getAiDiscoveryButtonState = () => {
 
               {job.isAiGenerated && (
                 <Chip 
-                  icon={<SafeAutoJobLogo size="small" sx={{ '& svg': { width: 12, height: 12 } }} />}
+                  icon={<SafeAutoJobLogo size="small" sx={{ '& svg': { width: 10, height: 10 } }} />}
                   label="Discovered" 
                   size="small" 
                   sx={{ 
                     position: 'absolute', 
-                    top: 12, 
-                    right: 12,
-                    height: '28px',
+                    top: 8,
+                    right: 8,
+                    height: '24px',
                     fontWeight: 600,
-                    fontSize: '0.75rem',
+                    fontSize: '0.7rem',
                     backgroundColor: '#00c4b4',
                     color: '#ffffff',
                     border: '1px solid #00c4b4',
-                    boxShadow: '0 2px 8px rgba(38, 166, 154, 0.3)',
+                    boxShadow: '0 1px 4px rgba(38, 166, 154, 0.3)',
                     zIndex: 5,
                     '& .MuiChip-icon': {
                       color: '#ffffff !important'
                     },
+                    '& .MuiChip-label': {
+                      px: 1,
+                      fontSize: '0.7rem'
+                    },
                     '&:hover': {
                       backgroundColor: '#00695C',
-                      boxShadow: '0 4px 12px rgba(38, 166, 154, 0.4)'
+                      boxShadow: '0 2px 6px rgba(38, 166, 154, 0.4)'
                     }
                   }}
                 />
@@ -1246,36 +1545,54 @@ const getAiDiscoveryButtonState = () => {
                         color="success"
                       />
                     )}
-                    <Chip 
-                      label={job.applicationStatus?.replace('_', ' ') || 'Not Applied'} 
-                      size="small" 
-                      variant="outlined" 
-                      color={job.applicationStatus === 'APPLIED' ? 'primary' : 'default'}
-                    />
                   </Box>
                 </Box>
               </CardContent>
 
-              <CardActions sx={{ justifyContent: 'space-between', p: 2 }}>
-                <Tooltip 
-                  title={!canView ? "Analysis in progress - please wait" : "View job details"}
-                  arrow
-                >
-                  <span>
-                    <Button 
-                      size="small" 
-                      color="primary" 
-                      onClick={() => handleJobClick(job)}
-                      variant="contained"
-                      disabled={!canView}
-                      startIcon={
-                        canView ? <VisibilityIcon /> : <ScheduleIcon />
-                      }
-                    >
-                      {canView ? 'View Details' : 'Analyzing...'}
-                    </Button>
-                  </span>
-                </Tooltip>
+              <CardActions sx={{ justifyContent: 'space-between', p: 2, pt: 0 }}>
+                <Box sx={{ display: 'flex', gap: 1, flex: 1 }}>
+                  <Tooltip 
+                    title={!canView ? "Analysis in progress - please wait" : "View job details"}
+                    arrow
+                  >
+                    <span>
+                      <Button 
+                        size="small" 
+                        color="primary" 
+                        onClick={() => handleJobClick(job)}
+                        variant="outlined"
+                        disabled={!canView}
+                        startIcon={
+                          canView ? <VisibilityIcon /> : <ScheduleIcon />
+                        }
+                        sx={{ minWidth: '110px' }}
+                      >
+                        {canView ? 'View Details' : 'Analyzing...'}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  
+                  {/* NEW: Tailor Resume Button */}
+                  <Tooltip title={tailorButtonState.tooltip} arrow>
+                    <span>
+                      <Button 
+                        size="small" 
+                        variant={tailorButtonState.variant}
+                        color={tailorButtonState.color}
+                        onClick={() => handleOpenTailorDialog(job)}
+                        disabled={tailorButtonState.disabled}
+                        startIcon={<AutoFixHighIcon />}
+                        sx={{ 
+                          minWidth: '120px',
+                          fontWeight: tailorButtonState.disabled ? 600 : 500
+                        }}
+                      >
+                        {tailorButtonState.text}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                </Box>
+                
                 <Box>
                   {job.sourceUrl && (
                     <Tooltip title="Open Original Listing">
@@ -1388,7 +1705,32 @@ const getAiDiscoveryButtonState = () => {
     return status.status === 'analyzing' || status.status === 'pending';
   }).length;
 
-  // AI Discovery Limit Dialog Component
+  // 🔧 FIX: Create a safe theme fallback to prevent Material-UI crashes
+  const safeTheme = theme && theme.palette ? theme : {
+    palette: {
+      primary: { main: '#1976d2' },
+      secondary: { main: '#dc004e' },
+      error: { main: '#f44336' },
+      warning: { main: '#ff9800' },
+      info: { main: '#2196f3' },
+      success: { main: '#4caf50' },
+      text: { primary: '#000000', secondary: '#666666' },
+      background: { default: '#ffffff', paper: '#ffffff' },
+      divider: '#e0e0e0'
+    },
+    spacing: (factor) => `${8 * factor}px`,
+    breakpoints: {
+      up: () => '@media (min-width:0px)',
+      down: () => '@media (max-width:9999px)'
+    }
+  };
+
+  // Log if we're using fallback theme
+  if (!theme || !theme.palette) {
+    console.warn('Using fallback theme due to undefined theme context');
+  }
+
+// AI Discovery Limit Dialog Component
   const AiDiscoveryLimitDialog = () => {
     // Check if user has existing AI searches
     const activeAiSearches = aiSearches.filter(search => 
@@ -1520,31 +1862,31 @@ const getAiDiscoveryButtonState = () => {
           </Box>
           {!loading && !error && jobs.length > 0 && (
             <Box sx={{ display: 'flex', gap: 2 }}>
-<Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
-  <span>
-    <Button 
-      variant={aiDiscoveryButtonState.variant || "outlined"} 
-      color={aiDiscoveryButtonState.color || "primary"} 
-      startIcon={
-        aiDiscoveryButtonState.icon === LockIcon ? 
-          <LockIcon /> : 
-          <SafeAutoJobLogo size="small" />
-      } 
-      onClick={handleOpenFindJobsDialog}
-      disabled={aiDiscoveryButtonState.disabled}
-      sx={{ 
-        py: 1, 
-        px: 3, 
-        fontSize: '0.9rem', 
-        fontWeight: aiDiscoveryButtonState.disabled ? 600 : 500,
-        borderRadius: 2,
-        opacity: aiDiscoveryButtonState.disabled ? 0.9 : 1
-      }}
-    >
-      {aiDiscoveryButtonState.text}
-    </Button>
-  </span>
-</Tooltip>
+              <Tooltip title={aiDiscoveryButtonState.tooltip} arrow>
+                <span>
+                  <Button 
+                    variant={aiDiscoveryButtonState.variant || "outlined"} 
+                    color={aiDiscoveryButtonState.color || "primary"} 
+                    startIcon={
+                      aiDiscoveryButtonState.icon === LockIcon ? 
+                        <LockIcon /> : 
+                        <SafeAutoJobLogo size="small" />
+                    } 
+                    onClick={handleOpenFindJobsDialog}
+                    disabled={aiDiscoveryButtonState.disabled}
+                    sx={{ 
+                      py: 1, 
+                      px: 3, 
+                      fontSize: '0.9rem', 
+                      fontWeight: aiDiscoveryButtonState.disabled ? 600 : 500,
+                      borderRadius: 2,
+                      opacity: aiDiscoveryButtonState.disabled ? 0.9 : 1
+                    }}
+                  >
+                    {aiDiscoveryButtonState.text}
+                  </Button>
+                </span>
+              </Tooltip>
               <Button 
                 variant="contained" 
                 color="primary" 
@@ -1626,6 +1968,374 @@ const getAiDiscoveryButtonState = () => {
 
       {/* AI Discovery Limit Dialog */}
       <AiDiscoveryLimitDialog />
+
+      {/* NEW: Enhanced AI Resume Analysis Dialog - WITH USAGE LIMITS */}
+      <Dialog
+        open={tailorDialogOpen}
+        onClose={handleCloseTailorDialog}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { 
+            borderRadius: 4,
+            overflow: 'hidden',
+            boxShadow: '0px 24px 38px rgba(0, 0, 0, 0.14), 0px 9px 46px rgba(0, 0, 0, 0.12), 0px 11px 15px rgba(0, 0, 0, 0.20)',
+            height: 'auto',
+            maxHeight: '90vh'
+          }
+        }}
+        TransitionComponent={Fade}
+        transitionDuration={300}
+      >
+        {/* Custom Header with Solid Teal */}
+        <DialogTitle 
+          sx={{ 
+            backgroundColor: theme.palette.secondary.main,
+            color: 'white',
+            p: 0,
+            position: 'relative',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Background Pattern */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: `radial-gradient(circle at 20% 50%, ${alpha('#ffffff', 0.1)} 0%, transparent 50%), 
+                           radial-gradient(circle at 80% 20%, ${alpha('#ffffff', 0.08)} 0%, transparent 50%)`,
+              zIndex: 0
+            }}
+          />
+          
+          {/* Header Content */}
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            p: 2.5,
+            position: 'relative',
+            zIndex: 1
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <SafeAutoJobLogo size="small" color="white" />
+              <Box>
+                <Typography 
+                  variant="h6" 
+                  sx={{ 
+                    fontWeight: 700,
+                    mb: 0.25,
+                    textShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                  }}
+                >
+                  Enhanced AI Resume Analysis
+                </Typography>
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    opacity: 0.9,
+                    fontWeight: 500,
+                    fontSize: '0.8rem'
+                  }}
+                >
+                  Powered by advanced AI agents
+                </Typography>
+              </Box>
+            </Box>
+            
+            <IconButton
+              onClick={handleCloseTailorDialog}
+              sx={{ 
+                color: 'white',
+                '&:hover': {
+                  bgcolor: alpha('#ffffff', 0.1)
+                }
+              }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: 0, overflow: 'hidden' }}>
+          {/* Usage Warning if at limit */}
+          {isTailoringAtLimit && (
+            <Box sx={{ p: 2.5, bgcolor: alpha(theme.palette.warning.main, 0.1), borderBottom: `1px solid ${alpha(theme.palette.warning.main, 0.2)}` }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <WarningIcon color="warning" />
+                <Typography variant="subtitle2" fontWeight={600} color="warning.main">
+                  Resume Tailoring Limit Reached
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                You've used {usageData?.used || 0} of {planLimits?.resumeTailoring || 0} monthly tailorings.
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Upgrade your plan to continue tailoring resumes for better job matches.
+              </Typography>
+            </Box>
+          )}
+
+          {/* Hero Section */}
+          <Box sx={{ 
+            p: 2.5, 
+            background: `linear-gradient(180deg, ${alpha(theme.palette.secondary.main, 0.02)} 0%, transparent 100%)`
+          }}>
+            <Typography 
+              variant="body1" 
+              sx={{ 
+                mb: 1.5,
+                fontWeight: 600,
+                color: 'text.primary',
+                fontSize: '1rem'
+              }}
+            >
+              Select a resume for intelligent analysis and personalized recommendations.
+            </Typography>
+            
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'text.secondary',
+                lineHeight: 1.4,
+                fontSize: '0.875rem'
+              }}
+            >
+              Our AI will analyze your resume against "{selectedJobForTailoring?.title}" at {selectedJobForTailoring?.company} 
+              and provide detailed insights to maximize your interview chances.
+            </Typography>
+          </Box>
+
+          {/* AI Features Showcase */}
+          <Box sx={{ px: 2.5, pb: 1.5 }}>
+            <Card sx={{ 
+              borderRadius: 2,
+              border: `1px solid ${alpha(theme.palette.secondary.main, 0.12)}`,
+              background: `linear-gradient(135deg, ${alpha(theme.palette.secondary.main, 0.02)} 0%, ${alpha(theme.palette.secondary.light, 0.02)} 100%)`
+            }}>
+              <CardContent sx={{ p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+                  <StarsIcon 
+                    sx={{ 
+                      color: theme.palette.warning.main,
+                      mr: 1,
+                      fontSize: '1.25rem'
+                    }} 
+                  />
+                  <Typography 
+                    variant="body2" 
+                    sx={{ 
+                      fontWeight: 600,
+                      color: 'text.primary'
+                    }}
+                  >
+                    Our enhanced AI will provide:
+                  </Typography>
+                </Box>
+                
+                <Grid container spacing={1}>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                      <TrendingUpIcon sx={{ color: 'success.main', mr: 0.75, fontSize: '1rem' }} />
+                      <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
+                        Dynamic Match Scores
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                      <SpeedIcon sx={{ color: 'info.main', mr: 0.75, fontSize: '1rem' }} />
+                      <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
+                        Skill Importance Weighting
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                      <PsychologyIcon sx={{ color: 'warning.main', mr: 0.75, fontSize: '1rem' }} />
+                      <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
+                        Experience Level Compatibility
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                      <InsightsIcon sx={{ color: 'secondary.main', mr: 0.75, fontSize: '1rem' }} />
+                      <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
+                        Personalized Improvements
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Box>
+
+          {/* Resume Selection */}
+          <Box sx={{ px: 2.5, pb: 2.5 }}>
+            <Divider sx={{ my: 2 }} />
+            
+            {allResumes.length === 0 ? (
+              <Alert 
+                severity="warning" 
+                sx={{ 
+                  borderRadius: 2,
+                  '& .MuiAlert-icon': {
+                    fontSize: '1.25rem'
+                  }
+                }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.25 }}>
+                  No resumes found
+                </Typography>
+                <Typography variant="caption">
+                  You don't have any resumes uploaded. Please upload a resume first to continue.
+                </Typography>
+              </Alert>
+            ) : (
+              <Box>
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    mb: 1.5,
+                    fontWeight: 600,
+                    color: 'text.primary'
+                  }}
+                >
+                  Choose your resume for analysis
+                </Typography>
+                
+                <FormControl 
+                  fullWidth 
+                  disabled={isTailoringAtLimit}
+                  sx={{ 
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 2
+                    }
+                  }}
+                >
+                  <InputLabel id="tailor-resume-label">Select Resume for Analysis</InputLabel>
+                  <Select
+                    labelId="tailor-resume-label"
+                    value={selectedResumeId}
+                    onChange={handleResumeChange}
+                    label="Select Resume for Analysis"
+                  >
+                    {allResumes.map((resume) => (
+                      <MenuItem 
+                        key={resume._id} 
+                        value={resume._id}
+                        sx={{ 
+                          minHeight: 48,
+                          py: 1
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                          <DescriptionIcon sx={{ mr: 1.5, color: 'text.secondary', fontSize: '1.25rem' }} />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              {resume.name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Updated {new Date(resume.updatedAt).toLocaleDateString()}
+                            </Typography>
+                          </Box>
+                          {renderResumeStatusChip(resume)}
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+
+        <DialogActions sx={{ 
+          p: 2.5, 
+          pt: 0,
+          gap: 1.5,
+          background: `linear-gradient(180deg, transparent 0%, ${alpha(theme.palette.background.paper, 0.8)} 100%)`
+        }}>
+          <Button 
+            onClick={handleCloseTailorDialog}
+            variant="outlined"
+            sx={{ 
+              borderRadius: 2,
+              px: 3,
+              py: 1,
+              fontWeight: 600
+            }}
+          >
+            Cancel
+          </Button>
+          
+          {/* Conditional button based on usage limits */}
+          {isTailoringAtLimit ? (
+            <Button 
+              onClick={() => handleUpgrade(planInfo?.tier === 'free' ? 'casual' : 'hunter')}
+              variant="contained" 
+              color="warning"
+              startIcon={<UpgradeIcon />}
+              sx={{ 
+                px: 3,
+                py: 1,
+                borderRadius: 2,
+                fontWeight: 600,
+                backgroundColor: theme.palette.warning.main,
+                color: 'white',
+                boxShadow: `0px 8px 16px ${alpha(theme.palette.warning.main, 0.24)}`,
+                '&:hover': {
+                  backgroundColor: theme.palette.warning.dark,
+                  boxShadow: `0px 12px 20px ${alpha(theme.palette.warning.main, 0.32)}`,
+                  transform: 'translateY(-1px)'
+                },
+                transition: 'all 0.2s ease-in-out'
+              }}
+            >
+              Upgrade to Continue
+            </Button>
+          ) : (
+            <Button 
+              onClick={handleTailorResume}
+              variant="contained" 
+              color="secondary"
+              disabled={!selectedResumeId || matchLoading || !canCreateTailoredResume}
+              startIcon={
+                matchLoading ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <SafeAutoJobLogo size="small" color="white" sx={{ transform: 'scale(0.7)' }} />
+                )
+              }
+              sx={{ 
+                px: 3,
+                py: 1,
+                borderRadius: 2,
+                fontWeight: 600,
+                backgroundColor: theme.palette.secondary.main,
+                color: 'white',
+                boxShadow: `0px 8px 16px ${alpha(theme.palette.secondary.main, 0.24)}`,
+                '&:hover': {
+                  backgroundColor: theme.palette.secondary.dark,
+                  boxShadow: `0px 12px 20px ${alpha(theme.palette.secondary.main, 0.32)}`,
+                  transform: 'translateY(-1px)'
+                },
+                '&:disabled': {
+                  backgroundColor: alpha(theme.palette.secondary.main, 0.6),
+                  color: 'white'
+                },
+                transition: 'all 0.2s ease-in-out'
+              }}
+            >
+              {matchLoading ? 'Analyzing Resume...' : 'Start Enhanced Analysis'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
       
       {/* Job menu */}
       <Menu
@@ -1647,9 +2357,17 @@ const getAiDiscoveryButtonState = () => {
         open={snackbar.open}
         autoHideDuration={6000}
         onClose={handleCloseSnackbar}
-        message={snackbar.message}
-        severity={snackbar.severity}
-      />
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={handleCloseSnackbar} 
+          severity={snackbar.severity} 
+          sx={{ width: '100%', borderRadius: 2 }}
+          variant="filled"
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </MainLayout>
   );
 };
