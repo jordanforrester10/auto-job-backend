@@ -723,7 +723,7 @@ const ResumesPage = () => {
                           }
                         }}
                       >
-                        Upgrade to Improve
+                        Upgrade to Improve ATS Score
                       </Button>
                     )}
                   </Paper>

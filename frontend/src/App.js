@@ -17,6 +17,7 @@ import ResumeDetail from './components/resumes/ResumeDetail';
 
 // Import onboarding components
 import OnboardingWelcome from './components/onboarding/OnboardingWelcome';
+import NewUserModal from './components/onboarding/NewUserModal'; // NEW IMPORT
 
 // Import job-related components
 import JobsPage from './components/jobs/JobsPage';
@@ -42,9 +43,33 @@ import GlobalAiAssistant from './components/assistant/GlobalAiAssistant';
 // Import Admin Dashboard
 import AdminDashboard from './components/admin/AdminDashboard';
 
+// Import Auth hook for modal integration
+import { useAuth } from './context/AuthContext'; // NEW IMPORT
+
 // Placeholder components for other sections
 const ApplicationsPage = () => <div>Applications Page (Coming Soon)</div>;
 const AISettingsPage = () => <div>AI Settings Page (Coming Soon)</div>;
+
+// NEW: Component to handle the new user modal
+const NewUserModalHandler = () => {
+  const { showNewUserModal, dismissNewUserModal } = useAuth();
+
+  const handleSkip = () => {
+    dismissNewUserModal(); // Mark as seen permanently
+  };
+
+  const handleClose = () => {
+    dismissNewUserModal(); // Mark as seen permanently
+  };
+
+  return (
+    <NewUserModal
+      open={showNewUserModal}
+      onClose={handleClose}
+      onSkip={handleSkip}
+    />
+  );
+};
 
 // Conditional AI Assistant wrapper component
 const ConditionalAiAssistant = () => {
@@ -60,6 +85,7 @@ const ProtectedRouteWithSubscription = ({ children }) => (
       <AiAssistantProvider>
         {children}
         <ConditionalAiAssistant />
+        <NewUserModalHandler /> {/* NEW: Add modal handler here */}
       </AiAssistantProvider>
     </SubscriptionProvider>
   </ProtectedRoute>

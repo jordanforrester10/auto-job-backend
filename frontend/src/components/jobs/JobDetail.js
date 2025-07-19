@@ -636,18 +636,9 @@ const JobDetail = () => {
                       textShadow: '0 2px 4px rgba(0,0,0,0.1)'
                     }}
                   >
-                    Enhanced AI Resume Analysis
+                    Tailor your Resume to this Job
                   </Typography>
-                  <Typography 
-                    variant="body2" 
-                    sx={{ 
-                      opacity: 0.9,
-                      fontWeight: 500,
-                      fontSize: '0.8rem'
-                    }}
-                  >
-                    Powered by advanced AI agents
-                  </Typography>
+
                 </Box>
               </Box>
               
@@ -785,7 +776,7 @@ const JobDetail = () => {
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                           <InsightsIcon sx={{ color: 'secondary.main', mr: 0.75, fontSize: '1rem' }} />
                           <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
-                            Personalized Improvement Suggestions
+                          Job to Resume Specific Improvements
                           </Typography>
                         </Box>
                         <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
@@ -829,7 +820,7 @@ const JobDetail = () => {
                       color: 'text.primary'
                     }}
                   >
-                    Choose your resume for analysis
+                    Choose your resume to fine-tune to this specific job
                   </Typography>
                   
                   <FormControl 

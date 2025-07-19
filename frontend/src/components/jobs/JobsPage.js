@@ -985,7 +985,7 @@ const JobsPage = () => {
       return {
         disabled: true,
         tooltip: 'Upload a resume first to tailor it for this job',
-        text: 'Tailor Resume',
+        text: 'Tailor My Resume',
         variant: 'outlined',
         color: getValidColor('default', 'primary')
       };
@@ -1013,7 +1013,7 @@ const JobsPage = () => {
       tooltip: planLimits?.resumeTailoring === -1 
         ? 'Create tailored resume (unlimited)' 
         : `Create tailored resume (${remainingTailorings} remaining)`,
-      text: 'Tailor Resume',
+      text: 'Tailor My Resume',
       variant: 'contained',
       color: getValidColor('warning') // CHANGED FROM 'secondary' TO 'warning' for orange color
     };
@@ -2031,18 +2031,9 @@ const JobsPage = () => {
                     textShadow: '0 2px 4px rgba(0,0,0,0.1)'
                   }}
                 >
-                  Enhanced AI Resume Analysis
+                  Tailor your Resume to this Job
                 </Typography>
-                <Typography 
-                  variant="body2" 
-                  sx={{ 
-                    opacity: 0.9,
-                    fontWeight: 500,
-                    fontSize: '0.8rem'
-                  }}
-                >
-                  Powered by advanced AI agents
-                </Typography>
+
               </Box>
             </Box>
             
@@ -2165,7 +2156,7 @@ const JobsPage = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                       <InsightsIcon sx={{ color: 'secondary.main', mr: 0.75, fontSize: '1rem' }} />
                       <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
-                        Personalized Improvements
+                        Job to Resume Specific Improvements
                       </Typography>
                     </Box>
                   </Grid>
@@ -2205,7 +2196,7 @@ const JobsPage = () => {
                     color: 'text.primary'
                   }}
                 >
-                  Choose your resume for analysis
+                  Choose your resume to fine-tune to this specific job
                 </Typography>
                 
                 <FormControl 

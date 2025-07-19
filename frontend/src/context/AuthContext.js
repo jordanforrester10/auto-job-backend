@@ -1,4 +1,4 @@
-// frontend/src/context/AuthContext.js - FIXED INFINITE LOOP ISSUE
+// frontend/src/context/AuthContext.js - UPDATED WITH NEW USER MODAL LOGIC
 import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
 import api, { isRateLimitError, getErrorMessage } from '../utils/axios';
 
@@ -11,6 +11,10 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // NEW: Modal state for new user onboarding
+  const [showNewUserModal, setShowNewUserModal] = useState(false);
+  const [isNewRegistration, setIsNewRegistration] = useState(false);
   
   // Use refs to track loading state and prevent infinite loops
   const isLoadingUser = useRef(false);
@@ -46,9 +50,18 @@ export const AuthProvider = ({ children }) => {
       console.log('✅ User loaded successfully:', response.data);
       
       if (response.data.success && response.data.data?.user) {
-        setCurrentUser(response.data.data.user);
+        const user = response.data.data.user;
+        setCurrentUser(user);
         setIsAuthenticated(true);
         setError(null);
+        
+        // NEW: Check if we should show the new user modal
+        if (isNewRegistration && !hasUserSeenOnboarding(user)) {
+          console.log('🎯 Triggering new user modal for fresh registration');
+          setShowNewUserModal(true);
+          setIsNewRegistration(false); // Reset the flag
+        }
+        
         console.log('✅ User authenticated successfully');
       } else {
         throw new Error('Invalid response format from /auth/me');
@@ -78,7 +91,7 @@ export const AuthProvider = ({ children }) => {
       isLoadingUser.current = false;
       setLoading(false);
     }
-  }, [token]); // Only depend on token
+  }, [token, isNewRegistration]); // Add isNewRegistration to dependencies
 
   // Load user if token exists - but only run when token actually changes
   useEffect(() => {
@@ -89,6 +102,24 @@ export const AuthProvider = ({ children }) => {
       setLoading(false);
     }
   }, [token]); // Remove loadUser from dependencies to prevent infinite loop
+
+  // NEW: Helper function to check if user has seen onboarding modal
+  const hasUserSeenOnboarding = (user) => {
+    if (!user) return false;
+    
+    // Check localStorage for user-specific onboarding completion
+    const onboardingKey = `onboarding_seen_${user._id || user.id}`;
+    return localStorage.getItem(onboardingKey) === 'true';
+  };
+
+  // NEW: Function to dismiss the new user modal - marks as seen permanently
+  const dismissNewUserModal = () => {
+    if (currentUser) {
+      const onboardingKey = `onboarding_seen_${currentUser._id || currentUser.id}`;
+      localStorage.setItem(onboardingKey, 'true');
+    }
+    setShowNewUserModal(false);
+  };
 
   // Register new user
   const register = async (userData) => {
@@ -111,7 +142,10 @@ export const AuthProvider = ({ children }) => {
         setCurrentUser(data.user);
         setIsAuthenticated(true);
         
-        console.log('✅ Registration successful');
+        // NEW: Set flag to show modal after user loads
+        setIsNewRegistration(true);
+        
+        console.log('✅ Registration successful - will show onboarding modal');
         return { success: true, user: data.user };
       } else {
         throw new Error(response.data.error || 'Invalid registration response');
@@ -156,6 +190,9 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(true);
         setError(null);
         
+        // NEW: Check if this is a first-time login (could show modal for very new users)
+        // For now, we only show it for fresh registrations
+        
         console.log('✅ Login successful for user:', data.user.email);
         return { success: true, user: data.user };
       } else {
@@ -199,6 +236,9 @@ export const AuthProvider = ({ children }) => {
       setCurrentUser(null);
       setIsAuthenticated(false);
       setError(null);
+      // NEW: Reset modal states
+      setShowNewUserModal(false);
+      setIsNewRegistration(false);
       console.log('✅ Local session cleared');
     }
   };
@@ -288,7 +328,10 @@ export const AuthProvider = ({ children }) => {
     forgotPassword,
     resetPassword,
     clearError,
-    refreshUser
+    refreshUser,
+    // NEW: Modal-related values and functions
+    showNewUserModal,
+    dismissNewUserModal
   };
 
   return (

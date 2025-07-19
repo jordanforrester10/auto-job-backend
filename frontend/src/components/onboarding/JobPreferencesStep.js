@@ -239,11 +239,11 @@ const JobPreferencesStep = ({ onContinue, onPrevious, resumeAnalysis, loading = 
         
         {/* Title */}
         <Typography variant="h4" sx={{ fontWeight: 600, mb: 2 }}>
-          Let's Find Your Perfect Jobs! 🎯
+          Setup your job preferences! 🎯
         </Typography>
         
         <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 600, mx: 'auto' }}>
-          Tell us where you'd like to work and what roles you're targeting. We'll use this to find personalized job matches just for you.
+          Tell us where you'd like to work and what roles you're targeting. We'll use this to find some personalized job matches for you to begin with.
         </Typography>
       </Box>
 

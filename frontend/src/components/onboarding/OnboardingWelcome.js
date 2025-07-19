@@ -234,10 +234,10 @@ const OnboardingWelcome = () => {
       >
         <Box sx={{ textAlign: 'center', mb: 2 }}>
           <Typography variant="h3" sx={{ fontWeight: 700, mb: 2, color: 'primary.main' }}>
-            Welcome to auto-job.ai! 🎉
+            Let's help you get started! 🎉
           </Typography>
           <Typography variant="h6" color="text.secondary" sx={{ maxWidth: 600, mx: 'auto' }}>
-            Your resume has been analyzed and we've found personalized job matches and recruiters just for you.
+            Your resume has been analyzed, and we have some personalized job matches and recruiters waiting for you.
           </Typography>
         </Box>
 
