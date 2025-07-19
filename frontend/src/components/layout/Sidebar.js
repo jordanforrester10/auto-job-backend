@@ -85,8 +85,8 @@ const Sidebar = ({ open, onClose }) => {
         path: '/resumes',
         icon: <DescriptionIcon />,
         color: '#34a853',
-        available: true,
-        usageFeature: 'resumeUploads'
+        available: true
+        // ✅ FEATURE GATING REMOVED: Resume uploads are now unlimited - no usage display needed
       },
       { 
         title: 'Find Jobs',

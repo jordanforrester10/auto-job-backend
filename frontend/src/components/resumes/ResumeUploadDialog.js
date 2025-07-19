@@ -145,15 +145,7 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
   };
 
   const validateAndSetFile = (file) => {
-    // 🔒 FEATURE GATING: Check upload limits before allowing file selection
-    const uploadCheck = canPerformAction('resumeUploads', 1);
-    
-    if (!uploadCheck.allowed) {
-      setError(`Upload limit reached: ${uploadCheck.reason}`);
-      setShowUpgradePrompt(true);
-      return;
-    }
-
+    // ✅ FEATURE GATING REMOVED: Resume uploads are now unlimited for all users
     const validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
     const maxSize = 10 * 1024 * 1024; // 10MB
     
@@ -241,14 +233,7 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
       return;
     }
 
-    // 🔒 FEATURE GATING: Double-check usage limits before upload
-    const uploadCheck = canPerformAction('resumeUploads', 1);
-    
-    if (!uploadCheck.allowed) {
-      setError(`Upload limit reached: ${uploadCheck.reason}`);
-      setShowUpgradePrompt(true);
-      return;
-    }
+    // ✅ FEATURE GATING REMOVED: Resume uploads are now unlimited for all users
 
     try {
       setLoading(true);
@@ -451,19 +436,20 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
     }
   };
 
-  // 🔒 FEATURE GATING: Get current usage stats
+  // ✅ FEATURE GATING REMOVED: Get current usage stats - UPDATED FOR UNLIMITED UPLOADS
   const getUploadUsageStats = () => {
-    if (!usage || !planLimits) return { used: 0, limit: 1, percentage: 0 };
+    if (!usage || !planLimits) return { used: 0, limit: -1, percentage: 0, unlimited: true };
     
     const used = usage.resumeUploads?.used || 0;
     const limit = planLimits.resumeUploads;
-    const percentage = limit === -1 ? 0 : Math.round((used / limit) * 100);
+    const unlimited = limit === -1;
+    const percentage = unlimited ? 0 : Math.round((used / limit) * 100);
     
-    return { used, limit, percentage };
+    return { used, limit, percentage, unlimited };
   };
 
   const uploadStats = getUploadUsageStats();
-  const isUploadBlocked = uploadStats.used >= uploadStats.limit && uploadStats.limit !== -1;
+  const isUploadBlocked = false; // ✅ UPLOADS ARE NOW UNLIMITED - NEVER BLOCK
 
   const renderStepContent = () => {
     switch (activeStep) {
@@ -683,16 +669,8 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Box>
               <Typography variant="h6" fontWeight={600}>Upload Resume</Typography>
-              {/* 🔒 FEATURE GATING: Show usage indicator in dialog title */}
+              {/* Show plan info without usage indicators */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Usage: 
-                </Typography>
-                <Chip 
-                  size="small"
-                  label={uploadStats.limit === -1 ? 'Unlimited' : `${uploadStats.used}/${uploadStats.limit}`}
-                  color={isUploadBlocked ? 'error' : 'default'}
-                />
                 {planInfo && (
                   <Chip 
                     size="small" 

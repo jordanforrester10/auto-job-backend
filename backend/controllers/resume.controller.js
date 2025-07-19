@@ -43,38 +43,8 @@ exports.uploadResume = async (req, res) => {
       return res.status(401).json({ message: 'User identification missing' });
     }
 
-    // 🔒 FEATURE GATING: Check upload limits before processing
-    console.log('🔒 Checking resume upload limits for user:', userId);
-    
-    try {
-      const uploadPermission = await usageService.checkUsageLimit(userId, 'resumeUploads', 1);
-      
-      if (!uploadPermission.allowed) {
-        console.log('❌ Upload limit exceeded:', uploadPermission.reason);
-        return res.status(403).json({ 
-          message: 'Upload limit reached',
-          error: uploadPermission.reason,
-          current: uploadPermission.current,
-          limit: uploadPermission.limit,
-          plan: uploadPermission.plan,
-          upgradeRequired: true,
-          feature: 'resumeUploads'
-        });
-      }
-      
-      console.log('✅ Upload permission granted:', {
-        current: uploadPermission.current,
-        limit: uploadPermission.limit,
-        remaining: uploadPermission.remaining
-      });
-      
-    } catch (permissionError) {
-      console.error('❌ Error checking upload permission:', permissionError);
-      return res.status(500).json({ 
-        message: 'Failed to validate upload permission',
-        error: permissionError.message 
-      });
-    }
+    // ✅ FEATURE GATING REMOVED: Resume uploads are now unlimited for all users
+    console.log('✅ Resume upload initiated for user:', userId, '(unlimited uploads enabled)');
 
     const originalFilename = req.file.originalname;
     
@@ -140,19 +110,8 @@ exports.uploadResume = async (req, res) => {
     await s3Client.send(new PutObjectCommand(uploadParams));
     console.log('S3 upload successful');
     
-    // 🔒 FEATURE GATING: Track successful upload AFTER S3 upload succeeds
-    try {
-      await usageService.trackUsage(userId, 'resumeUploads', 1, {
-        resumeId: resume._id.toString(),
-        fileName: originalFilename,
-        fileType: fileType,
-        fileSize: req.file.size
-      });
-      console.log('✅ Upload usage tracked successfully');
-    } catch (trackingError) {
-      console.error('❌ Error tracking upload usage (non-critical):', trackingError);
-      // Don't fail the upload if tracking fails
-    }
+    // ✅ FEATURE GATING REMOVED: Resume upload tracking removed (uploads are unlimited)
+    console.log('✅ Resume upload completed successfully (no usage tracking needed)');
     
     // Update processing status after successful upload
     resume.processingStatus = {
@@ -1172,34 +1131,8 @@ exports.analyzeResume = async (req, res) => {
       return res.status(400).json({ message: 'Invalid resume ID' });
     }
     
-    // 🔒 FEATURE GATING: Check analysis limits
-    console.log('🔒 Checking resume analysis limits for user:', userId);
-    
-    try {
-      const analysisPermission = await usageService.checkUsageLimit(userId, 'resumeAnalysis', 1);
-      
-      if (!analysisPermission.allowed) {
-        console.log('❌ Analysis limit exceeded:', analysisPermission.reason);
-        return res.status(403).json({ 
-          message: 'Resume analysis limit reached',
-          error: analysisPermission.reason,
-          current: analysisPermission.current,
-          limit: analysisPermission.limit,
-          plan: analysisPermission.plan,
-          upgradeRequired: true,
-          feature: 'resumeAnalysis'
-        });
-      }
-      
-      console.log('✅ Analysis permission granted');
-      
-    } catch (permissionError) {
-      console.error('❌ Error checking analysis permission:', permissionError);
-      return res.status(500).json({ 
-        message: 'Failed to validate analysis permission',
-        error: permissionError.message 
-      });
-    }
+    // ✅ FEATURE GATING REMOVED: Resume analysis is now unlimited for all users
+    console.log('✅ Resume analysis initiated for user:', userId, '(unlimited analysis enabled)');
     
     const resume = await Resume.findOne({ _id: resumeId, userId });
     

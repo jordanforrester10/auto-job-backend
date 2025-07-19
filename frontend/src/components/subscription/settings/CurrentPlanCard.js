@@ -41,16 +41,16 @@ const CurrentPlanCard = ({ subscription, planInfo, onPlanChange, onError, onSucc
   });
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
-  // Plan feature definitions
+  // Plan feature definitions - ✅ UPDATED: Resume uploads are now unlimited for ALL tiers
   const planFeatures = {
     free: [
-      '1 Resume Upload',
+      'Unlimited Resume Uploads', // ✅ CHANGED: Now unlimited for Free users
       '3 Job Imports',
       '1 Resume Tailoring',
       'Basic Analytics'
     ],
     casual: [
-      '5 Resume Uploads',
+      'Unlimited Resume Uploads', // ✅ CHANGED: Now unlimited for Casual users
       '25 Manual Job Imports', 
       '25 Resume Tailoring',
       'Recruiter Database Access',

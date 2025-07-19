@@ -47,7 +47,7 @@ const PlanChangeDialog = ({ open, onClose, currentPlan, onSuccess, onError }) =>
       icon: <StarIcon />,
       description: 'Basic job search features',
       features: [
-        '1 Resume Upload',
+        'Unlimited Resume Uploads',
         '3 Job Imports', 
         '1 Resume Tailoring',
         'Basic Analytics',
@@ -61,7 +61,7 @@ const PlanChangeDialog = ({ open, onClose, currentPlan, onSuccess, onError }) =>
       icon: <StarIcon />,
       description: 'Enhanced job search with recruiter access',
       features: [
-        '5 Resume Uploads',
+        'Unlimited Resume Uploads',
         '25 Manual Job Imports',
         '25 Resume Tailoring',
         'Recruiter Database Access',

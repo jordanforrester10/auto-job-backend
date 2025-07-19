@@ -72,11 +72,7 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
 
   // Feature display names and icons
   const featureConfig = {
-    resumeUploads: {
-      name: 'Resume Uploads',
-      icon: '📄',
-      description: 'Monthly resume uploads'
-    },
+
     jobImports: {
       name: 'Job Imports',
       icon: '💼',
@@ -148,6 +144,9 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
         percentage = unlimited ? 0 : Math.round((used / limit) * 100);
         remaining = unlimited ? '∞' : Math.max(0, limit - used);
         status = getUsageStatus(used, limit);
+        
+        // ✅ FEATURE GATING REMOVED: Skip resume uploads from usage display since they're now unlimited
+        if (feature === 'resumeUploads' && unlimited) return;
       }
       
       const config = featureConfig[feature];

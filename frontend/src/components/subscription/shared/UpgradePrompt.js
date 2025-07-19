@@ -58,7 +58,7 @@ const UpgradePrompt = ({
       color: theme.palette.primary.main,
       description: 'Perfect for active job seekers',
       features: [
-        '5 Resume uploads & analysis',
+        'Unlimited Resume uploads & analysis',
         '25 Manual Job imports per month',
         '25 Resume tailoring sessions',
         'Full recruiter database access',

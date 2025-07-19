@@ -268,6 +268,16 @@ export const SubscriptionProvider = ({ children }) => {
       return canCreateAiJobSearch();
     }
 
+    // ✅ FEATURE GATING REMOVED: Resume uploads are now unlimited for all users
+    if (action === 'resumeUploads') {
+      return { allowed: true, unlimited: true };
+    }
+
+    // ✅ FEATURE GATING REMOVED: Resume analysis is now unlimited for all users
+    if (action === 'resumeAnalysis') {
+      return { allowed: true, unlimited: true };
+    }
+
     const limit = planLimits[action];
     const current = usage[action]?.used || 0;
 

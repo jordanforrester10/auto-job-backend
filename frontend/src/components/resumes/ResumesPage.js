@@ -85,14 +85,7 @@ const ResumesPage = () => {
   };
 
   const handleOpenUploadDialog = () => {
-    // Check if user can upload more resumes
-    const uploadCheck = canPerformAction('resumeUploads', 1);
-    
-    if (!uploadCheck.allowed) {
-      setShowUpgradePrompt(true);
-      return;
-    }
-    
+    // ✅ FEATURE GATING REMOVED: Resume uploads are now unlimited for all users
     setOpenUploadDialog(true);
   };
 
@@ -140,45 +133,19 @@ const ResumesPage = () => {
     return 'error.main';
   };
 
-  // Get usage stats for resume uploads
+  // Get usage stats for resume uploads - UPDATED FOR UNLIMITED UPLOADS
   const getUploadUsageStats = () => {
-    if (!usage || !planLimits) return { used: 0, limit: 1, percentage: 0 };
+    if (!usage || !planLimits) return { used: 0, limit: -1, percentage: 0, unlimited: true };
     
     const used = usage.resumeUploads?.used || 0;
     const limit = planLimits.resumeUploads;
-    const percentage = limit === -1 ? 0 : Math.round((used / limit) * 100);
+    const unlimited = limit === -1;
+    const percentage = unlimited ? 0 : Math.round((used / limit) * 100);
     
-    return { used, limit, percentage };
+    return { used, limit, percentage, unlimited };
   };
 
   const uploadStats = getUploadUsageStats();
-
-  // Render usage indicator for upload button
-  const renderUploadUsageIndicator = () => {
-    if (subscriptionLoading || !planLimits) return null;
-    
-    const { used, limit } = uploadStats;
-    
-    if (limit === -1) {
-      return (
-        <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-          Unlimited
-        </Typography>
-      );
-    }
-    
-    const isAtLimit = used >= limit;
-    const isNearLimit = used >= limit * 0.8;
-    
-    return (
-      <Chip 
-        size="small"
-        label={`${used}/${limit}`}
-        color={isAtLimit ? 'error' : isNearLimit ? 'warning' : 'default'}
-        sx={{ ml: 1 }}
-      />
-    );
-  };
 
   // Render upgrade alert if needed
   const renderUpgradeAlert = () => {
@@ -250,7 +217,6 @@ const ResumesPage = () => {
               : 'Upload Your First Resume'
             }
           </Button>
-          {renderUploadUsageIndicator()}
         </Box>
         
         {uploadStats.used >= uploadStats.limit && uploadStats.limit !== -1 && (
@@ -644,8 +610,6 @@ const ResumesPage = () => {
                 : 'Add another resume to your collection'
               }
             </Typography>
-            
-            {renderUploadUsageIndicator()}
             
             {uploadStats.used >= uploadStats.limit && uploadStats.limit !== -1 && (
               <Button 

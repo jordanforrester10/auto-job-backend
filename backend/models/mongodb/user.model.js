@@ -252,8 +252,8 @@ userSchema.methods.resetLoginAttempts = function() {
 userSchema.methods.getPlanLimits = function() {
   const PLAN_LIMITS = {
     free: {
-      resumeUploads: 1,
-      resumeAnalysis: 1,
+      resumeUploads: -1, // unlimited - REMOVED FEATURE GATING
+      resumeAnalysis: -1, // unlimited - REMOVED FEATURE GATING
       jobImports: 3,
       resumeTailoring: 1,
       recruiterAccess: true,
@@ -264,8 +264,8 @@ userSchema.methods.getPlanLimits = function() {
       aiMessagesPerConversation: 0
     },
     casual: {
-      resumeUploads: 5,
-      resumeAnalysis: 5,
+      resumeUploads: -1, // unlimited - REMOVED FEATURE GATING
+      resumeAnalysis: -1, // unlimited - REMOVED FEATURE GATING
       jobImports: 25,
       resumeTailoring: 25,
       recruiterAccess: true,
@@ -276,8 +276,8 @@ userSchema.methods.getPlanLimits = function() {
       aiMessagesPerConversation: 0
     },
     hunter: {
-      resumeUploads: -1, // unlimited
-      resumeAnalysis: -1, // unlimited
+      resumeUploads: -1, // unlimited - ALREADY UNLIMITED
+      resumeAnalysis: -1, // unlimited - ALREADY UNLIMITED
       jobImports: -1, // unlimited
       resumeTailoring: 50,
       recruiterAccess: true,
