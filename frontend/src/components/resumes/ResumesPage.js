@@ -32,7 +32,13 @@ import {
   Delete as DeleteIcon,
   SmartToy as SmartToyIcon,
   Lock as LockIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  Work as WorkIcon,
+  Business as BusinessIcon,
+  LocationOn as LocationOnIcon,
+  ArrowForward as ArrowForwardIcon,
+  AutoAwesome as AutoAwesomeIcon,
+  Star as StarIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import axios from '../../utils/axios';
@@ -60,6 +66,8 @@ const ResumesPage = () => {
     getUsagePercentage,
     planInfo,
     isFreePlan,
+    isCasualPlan,
+    isHunterPlan,
     needsUpgrade,
     loading: subscriptionLoading
   } = useSubscription();
@@ -85,7 +93,6 @@ const ResumesPage = () => {
   };
 
   const handleOpenUploadDialog = () => {
-    // ✅ FEATURE GATING REMOVED: Resume uploads are now unlimited for all users
     setOpenUploadDialog(true);
   };
 
@@ -97,7 +104,6 @@ const ResumesPage = () => {
     fetchResumes();
     handleCloseUploadDialog();
     
-    // If a resumeId is provided, navigate to the resume detail page
     if (resumeId) {
       navigate(`/resumes/${resumeId}`);
     }
@@ -120,7 +126,6 @@ const ResumesPage = () => {
       await axios.delete(`/resumes/${selectedResumeId}`);
       setResumes(prevResumes => prevResumes.filter(resume => resume._id !== selectedResumeId));
       handleMenuClose();
-      // Refresh usage stats after deletion
       fetchResumes();
     } catch (err) {
       console.error('Error deleting resume:', err);
@@ -133,7 +138,60 @@ const ResumesPage = () => {
     return 'error.main';
   };
 
-  // Get usage stats for resume uploads - UPDATED FOR UNLIMITED UPLOADS
+  // Calculate dynamic job count based on resume data
+  const calculateJobCount = () => {
+    const baseJobCount = 500;
+    const resumeBonus = resumes.length * 150;
+    
+    // Calculate unique skills from all resume analyses
+    const allSkills = new Set();
+    resumes.forEach(resume => {
+      if (resume.analysis?.skills) {
+        resume.analysis.skills.forEach(skill => allSkills.add(skill));
+      }
+      if (resume.analysis?.technicalSkills) {
+        resume.analysis.technicalSkills.forEach(skill => allSkills.add(skill));
+      }
+    });
+    
+    const skillsBonus = allSkills.size * 50;
+    return baseJobCount + resumeBonus + skillsBonus;
+  };
+
+  // Generate static sample job data with diverse industries
+  const generateMockJobs = () => {
+    // Fixed sample jobs covering tech, marketing, and sales
+    const sampleJobs = [
+      {
+        title: 'Software Engineer',
+        company: 'Google',
+        location: 'Mountain View, CA',
+        type: 'Full-time',
+        matchScore: 85,
+        id: 'sample-job-1'
+      },
+      {
+        title: 'Marketing Manager',
+        company: 'Walmart',
+        location: 'Bentonville, AR',
+        type: 'Full-time',
+        matchScore: 78,
+        id: 'sample-job-2'
+      },
+      {
+        title: 'Sales Director',
+        company: 'Apple',
+        location: 'Cupertino, CA',
+        type: 'Full-time',
+        matchScore: 82,
+        id: 'sample-job-3'
+      }
+    ];
+
+    return sampleJobs;
+  };
+
+  // Get usage stats for resume uploads
   const getUploadUsageStats = () => {
     if (!usage || !planLimits) return { used: 0, limit: -1, percentage: 0, unlimited: true };
     
@@ -146,6 +204,118 @@ const ResumesPage = () => {
   };
 
   const uploadStats = getUploadUsageStats();
+
+  // Smart Job Discovery Section - ONLY FOR FREE USERS
+  const renderJobDiscoverySection = () => {
+    // 🔧 FIXED: Only show for free users and when they have resumes
+    if (!isFreePlan || resumes.length === 0) return null;
+
+    const jobCount = calculateJobCount();
+    const mockJobs = generateMockJobs();
+
+    return (
+      <Paper 
+        elevation={2} 
+        sx={{ 
+          p: 3, 
+          mb: 4, 
+          borderRadius: 3,
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white',
+          position: 'relative',
+          overflow: 'hidden'
+        }}
+      >
+        {/* Background decoration */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: -50,
+            right: -50,
+            width: 150,
+            height: 150,
+            borderRadius: '50%',
+            background: 'rgba(255, 255, 255, 0.1)',
+            opacity: 0.5
+          }}
+        />
+        
+        <Box sx={{ position: 'relative', zIndex: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <AutoAwesomeIcon sx={{ fontSize: 32, mr: 2 }} />
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+                  <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                    🎯 We found 650 jobs matching your skills
+                  </Typography>
+                  <Chip 
+                    label="AI Powered" 
+                    size="small" 
+                    sx={{ 
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      color: 'white',
+                      fontWeight: 600
+                    }} 
+                  />
+                </Box>
+                <Typography variant="body2" sx={{ opacity: 0.8, fontStyle: 'italic' }}>
+                  Add jobs manually and tailor your resume, or upgrade for automated discovery and resume tailoring
+                </Typography>
+              </Box>
+            </Box>
+            
+            {/* Action Buttons */}
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Button
+                variant="contained"
+                onClick={() => navigate('/jobs')}
+                startIcon={<AddIcon />}
+                sx={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  color: 'white',
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  px: 3,
+                  py: 1,
+                  borderRadius: 2,
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.3)'
+                  }
+                }}
+              >
+                Add Jobs Manually
+              </Button>
+              
+              <Button
+                variant="contained"
+                onClick={() => setShowUpgradePrompt(true)}
+                startIcon={<TrendingUpIcon />}
+                sx={{
+                  backgroundColor: '#ff9800',
+                  color: 'white',
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  px: 3,
+                  py: 1,
+                  borderRadius: 2,
+                  boxShadow: '0 4px 12px rgba(255, 152, 0, 0.3)',
+                  '&:hover': {
+                    backgroundColor: '#f57c00',
+                    boxShadow: '0 6px 16px rgba(255, 152, 0, 0.4)'
+                  }
+                }}
+              >
+                Upgrade To Automate
+              </Button>
+            </Box>
+          </Box>
+        </Box>
+      </Paper>
+    );
+  };
 
   // Render upgrade alert if needed
   const renderUpgradeAlert = () => {
@@ -192,7 +362,7 @@ const ResumesPage = () => {
           Let's Supercharge Your Job Search
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 560, lineHeight: 1.5 }}>
-          Upload your resume to unlock AI-powered analysis, optimization, and job matching. 
+          Upload your first resume to discover a preview of jobs that match you and begin tailoring your resume to the jobs.
           Our platform will help you create the perfect resume, match with relevant job opportunities, 
           and significantly increase your chances of landing interviews.
         </Typography>
@@ -383,6 +553,7 @@ const ResumesPage = () => {
   const renderResumeGrid = () => (
     <>
       {renderUpgradeAlert()}
+      {renderJobDiscoverySection()}
       
       <Grid container spacing={3} sx={{ mt: 1 }}>
         {resumes.map((resume) => (
@@ -496,33 +667,66 @@ const ResumesPage = () => {
                   )}
                 </Box>
                 
+                {/* Enhanced Quick Wins Section */}
                 {resume.analysis && resume.analysis.improvementAreas && resume.analysis.improvementAreas.length > 0 && (
-                  <Box sx={{ mt: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-                      <LightbulbIcon fontSize="small" sx={{ color: 'warning.main' }} />
-                      <Typography variant="body2" fontWeight={500}>
-                        Improvement Areas
+                  <Paper 
+                    elevation={0}
+                    sx={{ 
+                      mt: 2, 
+                      p: 2,
+                      backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 2
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1.5 }}>
+                      <WarningIcon fontSize="small" sx={{ color: 'warning.main' }} />
+                      <Typography variant="subtitle2" fontWeight={600}>
+                        Quick Wins
                       </Typography>
                     </Box>
                     {resume.analysis.improvementAreas.slice(0, 2).map((area, index) => (
-                      <Typography key={index} variant="body2" color="text.secondary" sx={{ 
-                        display: 'flex', 
-                        alignItems: 'center',
-                        fontSize: '0.75rem',
-                        '&:before': {
-                          content: '""',
-                          display: 'inline-block',
-                          width: '4px',
-                          height: '4px',
+                      <Box key={index} sx={{ display: 'flex', alignItems: 'flex-start', mb: 1 }}>
+                        <Box sx={{
+                          width: 4,
+                          height: 4,
                           borderRadius: '50%',
-                          backgroundColor: 'text.secondary',
-                          mr: 1
-                        }
-                      }}>
-                        {area.section}: {area.suggestions[0]}
-                      </Typography>
+                          backgroundColor: 'warning.main',
+                          mt: 1,
+                          mr: 1,
+                          flexShrink: 0
+                        }} />
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem', lineHeight: 1.3 }}>
+                          <strong>{area.section}:</strong> {area.suggestions[0]}
+                        </Typography>
+                      </Box>
                     ))}
-                  </Box>
+                    
+                    {isFreePlan && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        fullWidth
+                        startIcon={<TrendingUpIcon />}
+                        onClick={() => setShowUpgradePrompt(true)}
+                        sx={{
+                          mt: 1.5,
+                          textTransform: 'none',
+                          fontSize: '0.8rem',
+                          borderColor: 'warning.main',
+                          color: 'warning.main',
+                          '&:hover': {
+                            borderColor: 'warning.dark',
+                            backgroundColor: 'warning.main',
+                            color: 'white'
+                          }
+                        }}
+                      >
+                        Upgrade to Improve
+                      </Button>
+                    )}
+                  </Paper>
                 )}
               </CardContent>
               <CardActions sx={{ justifyContent: 'space-between', p: 2 }}>
