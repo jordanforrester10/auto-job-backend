@@ -2289,9 +2289,43 @@ async function saveOnboardingJobsToCollection(userId, resumeId, jobs, preference
         try {
           const realMatchAnalysis = await jobMatchingService.matchResumeWithJob(resumeId, savedJob._id);
           
+          // 🔍 DEBUG: Log what we got from the matching service
+          console.log(`🔍 DEBUG: Phase 3 analysis result for ${savedJob.title}:`);
+          console.log(`   - Overall Score: ${realMatchAnalysis.overallScore}%`);
+          console.log(`   - improvementSuggestions length: ${realMatchAnalysis.improvementSuggestions?.length || 0}`);
+          console.log(`   - improvementAreas length: ${realMatchAnalysis.improvementAreas?.length || 0}`);
+          console.log(`   - Sample suggestions: ${JSON.stringify(realMatchAnalysis.improvementSuggestions?.slice(0, 2))}`);
+          console.log(`   - Sample areas: ${JSON.stringify(realMatchAnalysis.improvementAreas?.slice(0, 2))}`);
+          
+          // CRITICAL: Ensure improvementAreas is properly set before saving
+          if (!realMatchAnalysis.improvementAreas || realMatchAnalysis.improvementAreas.length === 0) {
+            if (realMatchAnalysis.improvementSuggestions && realMatchAnalysis.improvementSuggestions.length > 0) {
+              console.log('🔧 Phase 3: Copying improvementSuggestions to improvementAreas');
+              realMatchAnalysis.improvementAreas = realMatchAnalysis.improvementSuggestions;
+            } else {
+              console.log('🚨 Phase 3: No improvement suggestions found, generating fallback');
+              realMatchAnalysis.improvementAreas = [
+                `Your background shows potential for this ${savedJob.title} role. Consider highlighting relevant experience that aligns with ${savedJob.company}'s requirements.`,
+                `Review the job requirements and identify which of your skills and experiences best demonstrate the capabilities they're seeking.`
+              ];
+            }
+          }
+          
           // Update the job with REAL analysis results
           savedJob.matchAnalysis = realMatchAnalysis;
+          
+          // 🔍 DEBUG: Log what we're about to save
+          console.log(`🔍 DEBUG: About to save Phase 3 matchAnalysis for ${savedJob.title}:`);
+          console.log(`   - improvementAreas length: ${savedJob.matchAnalysis.improvementAreas?.length || 0}`);
+          console.log(`   - Sample areas: ${JSON.stringify(savedJob.matchAnalysis.improvementAreas?.slice(0, 2))}`);
+          
           await savedJob.save();
+          
+          // 🔍 DEBUG: Verify after save
+          const verifyJob = await Job.findById(savedJob._id);
+          console.log(`🔍 DEBUG: Phase 3 verification after save for ${savedJob.title}:`);
+          console.log(`   - improvementAreas length: ${verifyJob.matchAnalysis?.improvementAreas?.length || 0}`);
+          console.log(`   - Sample areas: ${JSON.stringify(verifyJob.matchAnalysis?.improvementAreas?.slice(0, 2))}`);
           
           console.log(`✅ REAL Phase 3 analysis completed for ${savedJob.title} - Score: ${realMatchAnalysis.overallScore}%`);
         } catch (analysisError) {

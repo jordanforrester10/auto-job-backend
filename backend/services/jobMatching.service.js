@@ -110,16 +110,18 @@ exports.matchJobWithBestResume = async (jobId, userId, specificResumeId = null) 
       analysisVersion: '3.0-contextual-ai'
     };
     
-    // CRITICAL: Explicitly ensure improvement suggestions are included
+    // CRITICAL: Save improvement suggestions to improvementAreas (matches database schema)
     if (matchAnalysis.improvementSuggestions && Array.isArray(matchAnalysis.improvementSuggestions)) {
-      finalMatchAnalysis.improvementSuggestions = matchAnalysis.improvementSuggestions;
-      finalMatchAnalysis.improvementAreas = matchAnalysis.improvementSuggestions; // Legacy compatibility
+      finalMatchAnalysis.improvementAreas = matchAnalysis.improvementSuggestions;
+      console.log('✅ Saving improvement suggestions to improvementAreas field');
+      console.log('🔍 DEBUG: improvementSuggestions array:', JSON.stringify(matchAnalysis.improvementSuggestions));
+      console.log('🔍 DEBUG: finalMatchAnalysis.improvementAreas set to:', JSON.stringify(finalMatchAnalysis.improvementAreas));
     } else {
       // Force generation if missing
       const fallbackSuggestions = generateContextualImprovements(resume, job, matchAnalysis.overallScore);
-      finalMatchAnalysis.improvementSuggestions = fallbackSuggestions;
       finalMatchAnalysis.improvementAreas = fallbackSuggestions;
       console.log('🔧 Generated fallback improvement suggestions:', fallbackSuggestions);
+      console.log('🔍 DEBUG: finalMatchAnalysis.improvementAreas set to fallback:', JSON.stringify(finalMatchAnalysis.improvementAreas));
     }
     
     // Ensure strengths are included
@@ -137,24 +139,25 @@ exports.matchJobWithBestResume = async (jobId, userId, specificResumeId = null) 
     // CRITICAL: Verify data before saving with detailed logging
     console.log(`💾 About to save job with match analysis:`);
     console.log(`   - Overall Score: ${job.matchAnalysis.overallScore}%`);
-    console.log(`   - Improvement Suggestions: ${job.matchAnalysis.improvementSuggestions?.length || 0}`);
-    console.log(`   - Improvement Areas (legacy): ${job.matchAnalysis.improvementAreas?.length || 0}`);
-    console.log(`   - Actual suggestions: ${JSON.stringify(job.matchAnalysis.improvementSuggestions?.slice(0, 2))}`);
+    console.log(`   - Improvement Areas: ${job.matchAnalysis.improvementAreas?.length || 0}`);
+    console.log(`   - Actual suggestions: ${JSON.stringify(job.matchAnalysis.improvementAreas?.slice(0, 2))}`);
     console.log(`   - Job ID: ${jobId}`);
-    console.log(`   - Resume ID: ${resumeId}`);
+    console.log(`   - Resume ID: ${resume._id}`);
+    console.log('🔍 DEBUG: Full job.matchAnalysis object before save:', JSON.stringify(job.matchAnalysis, null, 2));
     
     await job.save();
     
+    // 🔍 DEBUG: Check job immediately after save
+    console.log('🔍 DEBUG: job.matchAnalysis.improvementAreas immediately after save:', JSON.stringify(job.matchAnalysis.improvementAreas));
+    
     // VERIFICATION: Re-fetch the job to confirm data was saved
     const savedJob = await Job.findById(jobId);
-    const savedSuggestions = savedJob.matchAnalysis?.improvementSuggestions?.length || 0;
     const savedAreas = savedJob.matchAnalysis?.improvementAreas?.length || 0;
     console.log(`✅ Job saved and verified:`);
-    console.log(`   - ${savedSuggestions} improvement suggestions persisted`);
     console.log(`   - ${savedAreas} improvement areas persisted`);
-    console.log(`   - Saved suggestions: ${JSON.stringify(savedJob.matchAnalysis?.improvementSuggestions?.slice(0, 2))}`);
+    console.log(`   - Saved suggestions: ${JSON.stringify(savedJob.matchAnalysis?.improvementAreas?.slice(0, 2))}`);
     
-    if ((savedSuggestions === 0 && savedAreas === 0) && matchAnalysis.overallScore < 70) {
+    if (savedAreas === 0 && matchAnalysis.overallScore < 70) {
       console.log('🚨 WARNING: Low score job saved without improvement suggestions!');
       console.log('🚨 Raw matchAnalysis object:', JSON.stringify(job.matchAnalysis, null, 2));
     }
@@ -401,6 +404,7 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
       // Log what we're about to save
       console.log(`📊 Saving match analysis with ${matchAnalysis.improvementSuggestions?.length || 0} improvement suggestions`);
       console.log(`📝 Improvement suggestions: ${JSON.stringify(matchAnalysis.improvementSuggestions?.slice(0, 2))}`);
+      console.log(`🔄 These will be saved to improvementAreas field to match database schema`);
       
       console.log(`Contextual AI matching completed - Overall Score: ${matchAnalysis.overallScore}%`);
       console.log(`Generated ${matchAnalysis.improvementSuggestions?.length || 0} contextual improvement suggestions`);

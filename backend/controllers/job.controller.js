@@ -365,6 +365,15 @@ exports.getJobById = async (req, res) => {
       return res.status(404).json({ message: 'Job not found' });
     }
     
+    // 🔍 DEBUG: Log what we're returning to help diagnose the frontend issue
+    console.log(`🔍 API Response Debug for job ${jobId}:`);
+    console.log(`   - Has matchAnalysis: ${!!job.matchAnalysis}`);
+    console.log(`   - Overall Score: ${job.matchAnalysis?.overallScore || 'N/A'}`);
+    console.log(`   - improvementAreas length: ${job.matchAnalysis?.improvementAreas?.length || 0}`);
+    console.log(`   - improvementSuggestions length: ${job.matchAnalysis?.improvementSuggestions?.length || 0}`);
+    console.log(`   - improvementAreas sample: ${JSON.stringify(job.matchAnalysis?.improvementAreas?.slice(0, 2))}`);
+    console.log(`   - strengthsHighlight length: ${job.matchAnalysis?.strengthsHighlight?.length || 0}`);
+    
     res.status(200).json({ job });
   } catch (error) {
     console.error('Error fetching job:', error);
