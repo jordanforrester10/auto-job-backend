@@ -1,4 +1,4 @@
-// src/components/jobs/tabs/OverviewTab.js
+// src/components/jobs/tabs/OverviewTab.js - FIXED AREAS FOR IMPROVEMENT LOGIC
 import React from 'react';
 import {
   Grid,
@@ -13,7 +13,8 @@ import {
   ListItemIcon,
   ListItemText,
   useTheme,
-  Chip
+  Chip,
+  Alert
 } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
@@ -25,7 +26,8 @@ import {
   Lightbulb as LightbulbIcon,
   Code as CodeIcon,
   Info as InfoIcon,
-  Star as StarIcon
+  Star as StarIcon,
+  Error as ErrorIcon
 } from '@mui/icons-material';
 
 // Import our component files
@@ -54,6 +56,52 @@ const OverviewTab = ({ job, onTailorClick }) => {
     }
   };
 
+  // Enhanced logic to check for valid improvement suggestions
+  const hasValidImprovements = job.matchAnalysis?.improvementSuggestions && 
+                              Array.isArray(job.matchAnalysis.improvementSuggestions) &&
+                              job.matchAnalysis.improvementSuggestions.length > 0 &&
+                              job.matchAnalysis.improvementSuggestions.some(suggestion => 
+                                suggestion && suggestion.trim().length > 0
+                              );
+
+  // Get filtered improvement suggestions (remove empty ones)
+  const validImprovementSuggestions = hasValidImprovements 
+    ? job.matchAnalysis.improvementSuggestions.filter(suggestion => 
+        suggestion && suggestion.trim().length > 0
+      )
+    : [];
+
+  // Enhanced logic for missing skills as fallback improvements
+  const missingSkillsAsImprovements = job.matchAnalysis?.missingSkills && 
+                                     Array.isArray(job.matchAnalysis.missingSkills) &&
+                                     job.matchAnalysis.missingSkills.length > 0
+    ? job.matchAnalysis.missingSkills.map(skill => {
+        const skillName = skill && typeof skill === 'object' ? skill.skill : skill;
+        const suggestion = skill && typeof skill === 'object' && skill.suggestionToAdd 
+          ? skill.suggestionToAdd 
+          : `Consider adding experience with ${skillName} to better match this role's requirements`;
+        return suggestion;
+      })
+    : [];
+
+  // Combine improvement suggestions and missing skills
+  const allImprovements = [
+    ...validImprovementSuggestions,
+    ...missingSkillsAsImprovements.slice(0, Math.max(0, 4 - validImprovementSuggestions.length))
+  ];
+
+  const overallScore = job.matchAnalysis?.overallScore || 0;
+
+  // Function to determine what type of improvements to show based on score
+  const getImprovementContext = (score) => {
+    if (score >= 85) return { color: 'success', message: 'Minor optimizations available' };
+    if (score >= 70) return { color: 'info', message: 'Good match with enhancement opportunities' };
+    if (score >= 50) return { color: 'warning', message: 'Several improvements recommended' };
+    return { color: 'error', message: 'Significant improvements needed' };
+  };
+
+  const improvementContext = getImprovementContext(overallScore);
+
   return (
     <Grid container spacing={3}>
       <Grid item xs={12} md={4}>
@@ -70,6 +118,16 @@ const OverviewTab = ({ job, onTailorClick }) => {
             <CardHeader 
               title="Match Insights & Recommendations" 
               avatar={<CheckCircleIcon color="primary" />}
+              action={
+                job.matchAnalysis.analysisMetadata?.analysisType === 'contextual-personalized' && (
+                  <Chip 
+                    label="Personalized AI" 
+                    size="small" 
+                    color="primary"
+                    variant="outlined"
+                  />
+                )
+              }
               sx={{ 
                 pb: 0, 
                 '& .MuiCardHeader-title': { fontWeight: 600 } 
@@ -100,7 +158,10 @@ const OverviewTab = ({ job, onTailorClick }) => {
                           <ListItemIcon>
                             <StarIcon color="success" fontSize="small" />
                           </ListItemIcon>
-                          <ListItemText primary={strength} />
+                          <ListItemText 
+                            primary={strength}
+                            primaryTypographyProps={{ variant: 'body2' }}
+                          />
                         </ListItem>
                       ))}
                     </List>
@@ -121,13 +182,16 @@ const OverviewTab = ({ job, onTailorClick }) => {
                             <ListItemText 
                               primary={skill.skill} 
                               secondary={skill.matchQuality ? `${skill.matchQuality} match` : null}
+                              primaryTypographyProps={{ variant: 'body2' }}
                             />
                           </ListItem>
                         ))
                       ) : (
-                        <ListItem>
-                          <ListItemText primary="No matching skills found." />
-                        </ListItem>
+                        <Alert severity="info" sx={{ borderRadius: 2 }}>
+                          <Typography variant="body2">
+                            Skills analysis in progress. Try refreshing for detailed insights.
+                          </Typography>
+                        </Alert>
                       )}
                     </List>
                   )}
@@ -137,32 +201,69 @@ const OverviewTab = ({ job, onTailorClick }) => {
                   <Typography variant="subtitle1" gutterBottom sx={{ 
                     display: 'flex', 
                     alignItems: 'center', 
-                    color: theme.palette.warning.main,
+                    color: theme.palette[improvementContext.color].main,
                     fontWeight: 600
                   }}>
                     <WarningIcon sx={{ mr: 1 }} /> Areas for Improvement
                   </Typography>
-                  <List dense>
-                    {job.matchAnalysis.improvementSuggestions && job.matchAnalysis.improvementSuggestions.length > 0 ? (
-                      job.matchAnalysis.improvementSuggestions.slice(0, 4).map((suggestion, index) => (
-                        <ListItem key={index} sx={{ 
-                          backgroundColor: `${theme.palette.warning.main}15`, 
-                          borderRadius: 2, 
-                          mb: 1,
-                          px: 2 
-                        }}>
-                          <ListItemIcon>
-                            <LightbulbIcon color="warning" fontSize="small" />
-                          </ListItemIcon>
-                          <ListItemText primary={suggestion} />
-                        </ListItem>
-                      ))
-                    ) : (
-                      <ListItem>
-                        <ListItemText primary="No improvement suggestions available." />
-                      </ListItem>
-                    )}
-                  </List>
+
+                  {/* Enhanced improvement suggestions logic */}
+                  {allImprovements.length > 0 ? (
+                    <>
+                      {/* Context alert based on score */}
+                      <Alert 
+                        severity={improvementContext.color} 
+                        sx={{ mb: 2, borderRadius: 2 }} 
+                        icon={overallScore >= 70 ? <InfoIcon /> : <WarningIcon />}
+                      >
+                        <Typography variant="body2">
+                          {improvementContext.message} (Score: {overallScore}%)
+                        </Typography>
+                      </Alert>
+
+                      <List dense>
+                        {allImprovements.slice(0, 4).map((suggestion, index) => (
+                          <ListItem key={index} sx={{ 
+                            backgroundColor: `${theme.palette[improvementContext.color].main}15`, 
+                            borderRadius: 2, 
+                            mb: 1,
+                            px: 2 
+                          }}>
+                            <ListItemIcon>
+                              <LightbulbIcon color={improvementContext.color} fontSize="small" />
+                            </ListItemIcon>
+                            <ListItemText 
+                              primary={suggestion}
+                              primaryTypographyProps={{ variant: 'body2' }}
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </>
+                  ) : (
+                    /* Enhanced fallback message based on score */
+                    <Alert 
+                      severity={overallScore >= 85 ? "success" : "info"} 
+                      sx={{ borderRadius: 2 }}
+                    >
+                      <Typography variant="body2" fontWeight={600} gutterBottom>
+                        {overallScore >= 85 
+                          ? 'Excellent match!' 
+                          : overallScore >= 70 
+                          ? 'Strong alignment detected!' 
+                          : 'Analysis in progress...'}
+                      </Typography>
+                      <Typography variant="body2">
+                        {overallScore >= 85 
+                          ? 'Your resume shows outstanding alignment with this role. Minor optimizations through tailoring could perfect your application.'
+                          : overallScore >= 70 
+                          ? 'Your qualifications align well with this position. A tailored resume could highlight your strongest matches.'
+                          : overallScore > 0 
+                          ? 'Our AI is analyzing improvement opportunities based on your specific background and this job\'s requirements.'
+                          : 'Complete the resume analysis to get personalized improvement recommendations.'}
+                      </Typography>
+                    </Alert>
+                  )}
                 </Grid>
               </Grid>
               
@@ -174,7 +275,11 @@ const OverviewTab = ({ job, onTailorClick }) => {
                   onClick={onTailorClick}
                   sx={{ borderRadius: 2, py: 1.2 }}
                 >
-                  Get Tailored Resume
+                  {overallScore >= 80 
+                    ? 'Perfect Your Resume' 
+                    : overallScore >= 60 
+                    ? 'Optimize Your Resume' 
+                    : 'Transform Your Resume'}
                 </Button>
               </Box>
             </CardContent>
@@ -220,7 +325,7 @@ const OverviewTab = ({ job, onTailorClick }) => {
                 onClick={onTailorClick}
                 sx={{ borderRadius: 2, px: 3, py: 1.2 }}
               >
-                Get Tailored Resume
+                Start Contextual Analysis
               </Button>
             </CardContent>
           </Card>
@@ -244,9 +349,10 @@ const OverviewTab = ({ job, onTailorClick }) => {
                       <CodeIcon sx={{ mr: 1 }} /> Required Skills
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Skills are color-coded by importance: <span style={{ color: theme.palette.error.main }}>Critical</span>, 
-                      <span style={{ color: theme.palette.warning.main }}> Important</span>, 
-                      <span style={{ color: theme.palette.info.main }}> Nice-to-have</span>
+                      Skills are color-coded by importance and match status: <span style={{ color: theme.palette.success.main }}>Matched</span>, 
+                      <span style={{ color: theme.palette.error.main }}> Missing Critical</span>, 
+                      <span style={{ color: theme.palette.warning.main }}> Missing Important</span>, 
+                      <span style={{ color: theme.palette.info.main }}> Missing Nice-to-have</span>
                     </Typography>
                     <Box sx={{ 
                       display: 'flex', 
@@ -299,7 +405,10 @@ const OverviewTab = ({ job, onTailorClick }) => {
                                 <ListItemIcon sx={{ minWidth: 28 }}>
                                   <CheckCircleIcon fontSize="small" color="secondary" />
                                 </ListItemIcon>
-                                <ListItemText primary={qual} />
+                                <ListItemText 
+                                  primary={qual}
+                                  primaryTypographyProps={{ variant: 'body2' }}
+                                />
                               </ListItem>
                             ))}
                           </List>
@@ -316,7 +425,10 @@ const OverviewTab = ({ job, onTailorClick }) => {
                                 <ListItemIcon sx={{ minWidth: 28 }}>
                                   <CheckCircleIcon fontSize="small" color="info" />
                                 </ListItemIcon>
-                                <ListItemText primary={qual} />
+                                <ListItemText 
+                                  primary={qual}
+                                  primaryTypographyProps={{ variant: 'body2' }}
+                                />
                               </ListItem>
                             ))}
                           </List>
@@ -364,6 +476,20 @@ const OverviewTab = ({ job, onTailorClick }) => {
                               job.parsedData.technicalComplexity === 'medium' ? 'warning' : 'success'
                             }
                             sx={{ textTransform: 'capitalize' }}
+                          />
+                        </Box>
+                      )}
+                      
+                      {/* Add contextual analysis info */}
+                      {job.matchAnalysis?.analysisMetadata?.analysisType === 'contextual-personalized' && (
+                        <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
+                          <Typography variant="body2" color="text.secondary">Analysis Type:</Typography>
+                          <Chip 
+                            label="Personalized AI Analysis" 
+                            size="small" 
+                            color="primary"
+                            variant="outlined"
+                            sx={{ mt: 0.5 }}
                           />
                         </Box>
                       )}

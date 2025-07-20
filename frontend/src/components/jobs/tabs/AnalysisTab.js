@@ -1,4 +1,4 @@
-// src/components/jobs/tabs/AnalysisTab.js - ENHANCED FOR ROLE-SPECIFIC ANALYSIS
+// src/components/jobs/tabs/AnalysisTab.js - ENHANCED FOR CONTEXTUAL AI RECOMMENDATIONS
 import React from 'react';
 import {
   Grid,
@@ -41,7 +41,9 @@ import {
   ExpandMore as ExpandMoreIcon,
   Engineering as EngineeringIcon,
   Computer as ComputerIcon,
-  Storage as StorageIcon
+  Storage as StorageIcon,
+  Error as ErrorIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 
 import SkillChip from '../components/SkillChip';
@@ -71,6 +73,41 @@ const AnalysisTab = ({ job, onTailorClick }) => {
     if (score >= 70) return 'info';
     if (score >= 55) return 'warning';
     return 'error';
+  };
+
+  const getScoreLabel = (score) => {
+    if (score >= 85) return 'Excellent Match';
+    if (score >= 70) return 'Good Match';
+    if (score >= 55) return 'Fair Match';
+    return 'Needs Improvement';
+  };
+
+  const getRecommendationSeverity = (score) => {
+    if (score >= 80) return 'success';
+    if (score >= 60) return 'info';
+    if (score >= 40) return 'warning';
+    return 'error';
+  };
+
+  const getRecommendationMessage = (score, hasImprovements) => {
+    if (score >= 85) {
+      return hasImprovements 
+        ? 'Excellent match! Just a few minor optimizations suggested.'
+        : 'Outstanding match! Your resume aligns exceptionally well with this role.';
+    }
+    if (score >= 70) {
+      return hasImprovements 
+        ? 'Good match with room for targeted improvements.'
+        : 'Strong alignment with this role. Consider minor enhancements to optimize further.';
+    }
+    if (score >= 55) {
+      return hasImprovements 
+        ? 'Moderate match. Several improvements recommended to strengthen your application.'
+        : 'Fair match. Focus on highlighting relevant experience and skills for this role.';
+    }
+    return hasImprovements 
+      ? 'Significant gaps identified. Multiple improvements needed to better align with this role.'
+      : 'Major improvements needed to better match this job\'s requirements.';
   };
 
   const getRoleSpecificIcon = (roleCategory) => {
@@ -175,7 +212,7 @@ const AnalysisTab = ({ job, onTailorClick }) => {
             lineHeight: 1.5
           }}
         >
-          Get detailed insights by matching your resume with this job. Our enhanced AI will provide role-specific analysis including:
+          Get detailed insights by matching your resume with this job. Our enhanced AI will provide contextual, personalized analysis including:
         </Typography>
 
         {/* Enhanced Features List */}
@@ -196,7 +233,7 @@ const AnalysisTab = ({ job, onTailorClick }) => {
                 <CheckCircleIcon color="primary" fontSize="small" />
               </ListItemIcon>
               <ListItemText 
-                primary="Role-specific skill matching with technical requirements"
+                primary="Contextual skill matching based on your actual resume content"
                 primaryTypographyProps={{ 
                   variant: 'body2', 
                   fontWeight: 500,
@@ -209,7 +246,7 @@ const AnalysisTab = ({ job, onTailorClick }) => {
                 <EngineeringIcon color="primary" fontSize="small" />
               </ListItemIcon>
               <ListItemText 
-                primary="Technical complexity assessment and tools analysis"
+                primary="Personalized recommendations referencing your specific experience"
                 primaryTypographyProps={{ 
                   variant: 'body2', 
                   fontWeight: 500,
@@ -222,7 +259,7 @@ const AnalysisTab = ({ job, onTailorClick }) => {
                 <TrendingUpIcon color="primary" fontSize="small" />
               </ListItemIcon>
               <ListItemText 
-                primary="Experience level compatibility with role requirements"
+                primary="Gap analysis with actionable steps to improve your match"
                 primaryTypographyProps={{ 
                   variant: 'body2', 
                   fontWeight: 500,
@@ -235,7 +272,7 @@ const AnalysisTab = ({ job, onTailorClick }) => {
                 <LightbulbIcon color="primary" fontSize="small" />
               </ListItemIcon>
               <ListItemText 
-                primary="Personalized recommendations for this specific role"
+                primary="Tactical advice for repositioning your background for this role"
                 primaryTypographyProps={{ 
                   variant: 'body2', 
                   fontWeight: 500,
@@ -268,7 +305,7 @@ const AnalysisTab = ({ job, onTailorClick }) => {
             transition: 'all 0.2s ease'
           }}
         >
-          Start Enhanced Role-Specific Analysis
+          Start Contextual Analysis
         </Button>
 
         <Typography 
@@ -279,11 +316,33 @@ const AnalysisTab = ({ job, onTailorClick }) => {
             maxWidth: 400
           }}
         >
-          Our AI will analyze your resume against this specific {roleCategory.replace('-', ' ')} role to provide detailed compatibility scores and targeted improvement suggestions.
+          Our AI will analyze your specific resume content against this {roleCategory.replace('-', ' ')} role to provide personalized, actionable recommendations.
         </Typography>
       </Box>
     );
   }
+
+  const overallScore = job.matchAnalysis.overallScore || 0;
+  
+  // Enhanced logic to check for valid improvement suggestions (check both field names)
+  const improvementSuggestions = job.matchAnalysis?.improvementSuggestions || 
+                                 job.matchAnalysis?.improvementAreas || 
+                                 [];
+  
+  const hasImprovements = Array.isArray(improvementSuggestions) &&
+                          improvementSuggestions.length > 0 &&
+                          improvementSuggestions.some(suggestion => 
+                            suggestion && suggestion.trim().length > 0
+                          );
+  
+  // Debug logging to see what data we have
+  console.log('=== DEBUG ANALYSIS TAB ===');
+  console.log('Match Analysis:', job.matchAnalysis);
+  console.log('Improvement Suggestions:', job.matchAnalysis?.improvementSuggestions);
+  console.log('Improvement Areas (legacy):', job.matchAnalysis?.improvementAreas);
+  console.log('Final suggestions array:', improvementSuggestions);
+  console.log('Has Improvements:', hasImprovements);
+  console.log('========================');
 
   return (
     <Grid container spacing={3}>
@@ -304,33 +363,38 @@ const AnalysisTab = ({ job, onTailorClick }) => {
             {getRoleSpecificIcon(roleCategory)}
             <Box>
               <Typography variant="subtitle2" fontWeight={600}>
-                Enhanced Role-Specific Analysis Complete
+                Enhanced Contextual Analysis Complete
               </Typography>
               <Typography variant="body2">
-                This analysis was specifically tailored for {roleCategory.replace('-', ' ')} roles with {technicalComplexity} technical complexity
+                This analysis was specifically tailored for {roleCategory.replace('-', ' ')} roles with personalized recommendations based on your resume content
               </Typography>
             </Box>
           </Alert>
         </Grid>
       )}
 
-      {/* Detailed Match Breakdown */}
+      {/* Overall Match Score with Context */}
       <Grid item xs={12}>
         <Card elevation={2} sx={{ mb: 3, borderRadius: 3 }}>
           <CardHeader 
-            title="Detailed Match Analysis" 
+            title="Overall Match Analysis" 
             avatar={<SpeedIcon color="primary" />}
             action={
               <Stack direction="row" spacing={1}>
+                <Chip 
+                  label={getScoreLabel(overallScore)}
+                  color={getScoreColor(overallScore)}
+                  variant="filled"
+                />
                 <Chip 
                   label={`Analyzed ${new Date(job.matchAnalysis.lastAnalyzed || Date.now()).toLocaleDateString()}`} 
                   size="small" 
                   color="secondary"
                   variant="outlined"
                 />
-                {hasRoleSpecificAnalysis && (
+                {job.matchAnalysis.analysisMetadata?.analysisType === 'contextual-personalized' && (
                   <Chip 
-                    label="Role-Specific" 
+                    label="Personalized" 
                     size="small" 
                     color="primary"
                     variant="filled"
@@ -343,150 +407,120 @@ const AnalysisTab = ({ job, onTailorClick }) => {
             }}
           />
           <CardContent>
+            <Box sx={{ textAlign: 'center', mb: 3 }}>
+              <CircularProgress
+                variant="determinate"
+                value={overallScore}
+                size={120}
+                thickness={6}
+                sx={{ 
+                  color: theme.palette[getScoreColor(overallScore)].main,
+                  mb: 2
+                }}
+              />
+              <Typography variant="h3" fontWeight={700} color={theme.palette[getScoreColor(overallScore)].main}>
+                {overallScore}%
+              </Typography>
+              <Typography variant="h6" color="text.secondary" sx={{ mt: 1 }}>
+                Match Score
+              </Typography>
+            </Box>
+
+            {/* Score-Based Recommendation Alert */}
+            <Alert 
+              severity={getRecommendationSeverity(overallScore)}
+              sx={{ mb: 3, borderRadius: 2 }}
+              icon={overallScore >= 70 ? <CheckCircleIcon /> : 
+                    overallScore >= 40 ? <InfoIcon /> : <WarningIcon />}
+            >
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                {getRecommendationMessage(overallScore, hasImprovements)}
+              </Typography>
+              {overallScore < 60 && (
+                <Typography variant="body2">
+                  Focus on the improvement suggestions below to significantly boost your match score.
+                </Typography>
+              )}
+            </Alert>
+
+            {/* Category Breakdown */}
             <Grid container spacing={3}>
               <Grid item xs={12} md={4}>
-                <Box sx={{ textAlign: 'center', p: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3, height: '100%' }}>
-                  <Box sx={{ mb: 2 }}>
-                    <CircularProgress
-                      variant="determinate"
-                      value={job.matchAnalysis.categoryScores?.skills || 0}
-                      size={80}
-                      thickness={6}
-                      sx={{ 
-                        color: theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.skills || 0)].main,
-                        mb: 1
-                      }}
-                    />
-                  </Box>
-                  <Typography variant="h5" fontWeight={600} color={theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.skills || 0)].main}>
+                <Box sx={{ textAlign: 'center', p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                  <CircularProgress
+                    variant="determinate"
+                    value={job.matchAnalysis.categoryScores?.skills || 0}
+                    size={60}
+                    thickness={6}
+                    sx={{ 
+                      color: theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.skills || 0)].main,
+                      mb: 1
+                    }}
+                  />
+                  <Typography variant="h6" fontWeight={600} color={theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.skills || 0)].main}>
                     {job.matchAnalysis.categoryScores?.skills || 0}%
                   </Typography>
-                  <Typography variant="subtitle1" fontWeight={500} color="primary.main">
+                  <Typography variant="subtitle2" fontWeight={500} color="primary.main">
                     Skills Match
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    {job.matchAnalysis.matchedSkills?.filter(s => s.found).length || 0} of {job.matchAnalysis.matchedSkills?.length || 0} skills matched
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    {job.matchAnalysis.matchedSkills?.filter(s => s.found).length || 0} of {job.matchAnalysis.matchedSkills?.length || 0} matched
                   </Typography>
-                  
-                  {/* Enhanced skills breakdown */}
-                  {job.matchAnalysis.matchedSkills && (
-                    <Box sx={{ mt: 2 }}>
-                      <Stack direction="row" spacing={1} justifyContent="center">
-                        <Chip 
-                          label={`${job.matchAnalysis.matchedSkills.filter(s => s.found && s.matchQuality === 'exact').length} exact`}
-                          size="small"
-                          color="success"
-                        />
-                        <Chip 
-                          label={`${job.matchAnalysis.matchedSkills.filter(s => s.found && s.matchQuality === 'partial').length} partial`}
-                          size="small"
-                          color="warning"
-                        />
-                      </Stack>
-                    </Box>
-                  )}
                 </Box>
               </Grid>
               
               <Grid item xs={12} md={4}>
-                <Box sx={{ textAlign: 'center', p: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3, height: '100%' }}>
-                  <Box sx={{ mb: 2 }}>
-                    <CircularProgress
-                      variant="determinate"
-                      value={job.matchAnalysis.categoryScores?.experience || 0}
-                      size={80}
-                      thickness={6}
-                      sx={{ 
-                        color: theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.experience || 0)].main,
-                        mb: 1
-                      }}
-                    />
-                  </Box>
-                  <Typography variant="h5" fontWeight={600} color={theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.experience || 0)].main}>
+                <Box sx={{ textAlign: 'center', p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                  <CircularProgress
+                    variant="determinate"
+                    value={job.matchAnalysis.categoryScores?.experience || 0}
+                    size={60}
+                    thickness={6}
+                    sx={{ 
+                      color: theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.experience || 0)].main,
+                      mb: 1
+                    }}
+                  />
+                  <Typography variant="h6" fontWeight={600} color={theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.experience || 0)].main}>
                     {job.matchAnalysis.categoryScores?.experience || 0}%
                   </Typography>
-                  <Typography variant="subtitle1" fontWeight={500} color="primary.main">
+                  <Typography variant="subtitle2" fontWeight={500} color="primary.main">
                     Experience Match
                   </Typography>
-                  
-                  {/* Enhanced experience details */}
-                  {job.matchAnalysis.experienceAnalysis ? (
-                    <Box sx={{ mt: 1 }}>
-                      <Typography variant="body2" color="text.secondary">
-                        {job.matchAnalysis.experienceAnalysis.relevantYearsExperience || 0} years relevant
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {job.matchAnalysis.experienceAnalysis.seniorityMatch && 
-                          `${job.matchAnalysis.experienceAnalysis.seniorityMatch} level`}
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Experience level alignment
+                  {job.matchAnalysis.experienceAnalysis?.relevantYearsExperience && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      {job.matchAnalysis.experienceAnalysis.relevantYearsExperience} years relevant
                     </Typography>
                   )}
                 </Box>
               </Grid>
               
               <Grid item xs={12} md={4}>
-                <Box sx={{ textAlign: 'center', p: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3, height: '100%' }}>
-                  <Box sx={{ mb: 2 }}>
-                    <CircularProgress
-                      variant="determinate"
-                      value={job.matchAnalysis.categoryScores?.education || 0}
-                      size={80}
-                      thickness={6}
-                      sx={{ 
-                        color: theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.education || 0)].main,
-                        mb: 1
-                      }}
-                    />
-                  </Box>
-                  <Typography variant="h5" fontWeight={600} color={theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.education || 0)].main}>
+                <Box sx={{ textAlign: 'center', p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                  <CircularProgress
+                    variant="determinate"
+                    value={job.matchAnalysis.categoryScores?.education || 0}
+                    size={60}
+                    thickness={6}
+                    sx={{ 
+                      color: theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.education || 0)].main,
+                      mb: 1
+                    }}
+                  />
+                  <Typography variant="h6" fontWeight={600} color={theme.palette[getScoreColor(job.matchAnalysis.categoryScores?.education || 0)].main}>
                     {job.matchAnalysis.categoryScores?.education || 0}%
                   </Typography>
-                  <Typography variant="subtitle1" fontWeight={500} color="primary.main">
+                  <Typography variant="subtitle2" fontWeight={500} color="primary.main">
                     Education Match
                   </Typography>
-                  
-                  {/* Enhanced education details */}
-                  {job.matchAnalysis.educationAnalysis ? (
-                    <Box sx={{ mt: 1 }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
-                        {job.matchAnalysis.educationAnalysis.degreeMatch} requirements
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
-                        {job.matchAnalysis.educationAnalysis.fieldAlignment} field alignment
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Education requirements met
+                  {job.matchAnalysis.educationAnalysis?.degreeMatch && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, textTransform: 'capitalize' }}>
+                      {job.matchAnalysis.educationAnalysis.degreeMatch} requirements
                     </Typography>
                   )}
                 </Box>
               </Grid>
             </Grid>
-            
-            <Box sx={{ 
-              mt: 3, 
-              p: 2, 
-              bgcolor: `${theme.palette.info.main}10`, 
-              borderRadius: 2,
-              border: `1px solid ${theme.palette.info.main}20`,
-              display: 'flex',
-              alignItems: 'flex-start'
-            }}>
-              <AnalyticsIcon color="info" sx={{ mr: 1.5, mt: 0.5 }} />
-              <Box>
-                <Typography variant="body2" paragraph>
-                  {hasRoleSpecificAnalysis 
-                    ? `Our enhanced role-specific AI algorithm analyzed this ${roleCategory.replace('-', ' ')} position using advanced NLP and semantic understanding tailored for this role type.`
-                    : 'Our enhanced AI matching algorithm analyzes your resume against this job using advanced NLP and semantic understanding.'
-                  } Scores are weighted: Skills (40%), Experience (35%), Education (25%).
-                </Typography>
-              </Box>
-            </Box>
           </CardContent>
         </Card>
       </Grid>
@@ -531,8 +565,8 @@ const AnalysisTab = ({ job, onTailorClick }) => {
                 ))}
               </Box>
             ) : (
-              <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
-                No matching skills found.
+              <Alert severity="warning" sx={{ mb: 3, borderRadius: 2 }}>
+                No matching skills found between your resume and this job's requirements.
               </Alert>
             )}
 
@@ -565,67 +599,171 @@ const AnalysisTab = ({ job, onTailorClick }) => {
               </Box>
             ) : (
               <Alert severity="success" sx={{ borderRadius: 2 }}>
-                Excellent! No missing skills identified. Your resume includes all required skills.
+                Excellent! Your resume includes all required skills for this position.
               </Alert>
             )}
           </CardContent>
         </Card>
       </Grid>
 
-      {/* Enhanced Improvement Suggestions */}
+      {/* ENHANCED: Contextual AI Recommendations */}
       <Grid item xs={12} md={6}>
         <Card elevation={2} sx={{ mb: 3, borderRadius: 3, height: 'fit-content' }}>
           <CardHeader 
-            title="AI Recommendations" 
+            title="Personalized AI Recommendations" 
             avatar={<LightbulbIcon color="primary" />}
+            action={
+              job.matchAnalysis.analysisMetadata?.analysisType === 'contextual-personalized' && (
+                <Chip 
+                  label="Contextual" 
+                  size="small" 
+                  color="primary"
+                  variant="outlined"
+                />
+              )
+            }
             sx={{ 
               '& .MuiCardHeader-title': { fontWeight: 600 } 
             }}
           />
           <CardContent>
-            {job.matchAnalysis.improvementSuggestions && job.matchAnalysis.improvementSuggestions.length > 0 ? (
-              <List sx={{ p: 0 }}>
-                {job.matchAnalysis.improvementSuggestions.map((suggestion, index) => (
-                  <ListItem key={index} sx={{ 
-                    backgroundColor: `${theme.palette.info.main}08`, 
-                    borderRadius: 2, 
-                    mb: 2,
-                    px: 2,
-                    alignItems: 'flex-start'
-                  }}>
-                    <ListItemIcon>
-                      <LightbulbIcon color="info" />
-                    </ListItemIcon>
-                    <ListItemText 
-                      primary={suggestion}
-                      primaryTypographyProps={{ variant: 'body2' }}
-                    />
-                  </ListItem>
-                ))}
-              </List>
+            {/* Score-based recommendation display */}
+            {hasImprovements ? (
+              <>
+                <Alert 
+                  severity={getRecommendationSeverity(overallScore)}
+                  sx={{ mb: 2, borderRadius: 2 }}
+                >
+                  <Typography variant="body2">
+                    {overallScore < 50 
+                      ? 'Multiple improvements recommended to strengthen your application for this role.'
+                      : overallScore < 70 
+                      ? 'Several targeted improvements can enhance your match score.'
+                      : 'Minor optimizations suggested to perfect your application.'}
+                  </Typography>
+                </Alert>
+
+                <List sx={{ p: 0 }}>
+                  {improvementSuggestions
+                    .filter(suggestion => suggestion && suggestion.trim().length > 0)
+                    .map((suggestion, index) => (
+                    <ListItem key={index} sx={{ 
+                      backgroundColor: `${theme.palette.info.main}08`, 
+                      borderRadius: 2, 
+                      mb: 2,
+                      px: 2,
+                      alignItems: 'flex-start'
+                    }}>
+                      <ListItemIcon sx={{ mt: 0.5 }}>
+                        <LightbulbIcon color="info" />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary={suggestion}
+                        primaryTypographyProps={{ variant: 'body2' }}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </>
             ) : (
-              <Alert severity="success" sx={{ borderRadius: 2 }}>
-                Great! No major improvements needed. Your resume looks excellent for this job.
+              <Alert 
+                severity={overallScore >= 85 ? "success" : overallScore >= 70 ? "info" : "warning"} 
+                sx={{ borderRadius: 2, mb: 2 }}
+              >
+                <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                  {overallScore >= 85 
+                    ? 'Outstanding match!' 
+                    : overallScore >= 70 
+                    ? 'Strong match!' 
+                    : overallScore < 50
+                    ? 'Analysis in progress...'
+                    : 'Good potential match!'}
+                </Typography>
+                <Typography variant="body2">
+                  {overallScore >= 85 
+                    ? 'Your resume aligns exceptionally well with this role. Consider the tailored resume option for final optimization.'
+                    : overallScore >= 70 
+                    ? 'Your qualifications are well-suited for this position. Minor enhancements could perfect your application.'
+                    : overallScore < 50
+                    ? 'Our AI is generating personalized recommendations based on your resume and this job. This may take a moment for new analyses.'
+                    : 'Your background shows good alignment. A tailored resume could optimize your application further.'}
+                </Typography>
               </Alert>
             )}
 
+            {/* Action button based on score */}
             <Box sx={{ mt: 3 }}>
               <Button
                 variant="contained"
-                color="secondary"
+                color={overallScore >= 70 ? "primary" : "secondary"}
                 startIcon={<SafeAutoJobLogo iconSize="small" />}
                 onClick={onTailorClick}
                 fullWidth
                 sx={{ borderRadius: 2, py: 1.2 }}
               >
-                Get Tailored Resume
+                {overallScore >= 80 
+                  ? 'Perfect Your Application' 
+                  : overallScore >= 60 
+                  ? 'Optimize Your Resume' 
+                  : 'Transform Your Resume'}
               </Button>
             </Box>
           </CardContent>
         </Card>
       </Grid>
 
-      {/* NEW: Technical Requirements Section */}
+      {/* Contextual Keywords Section */}
+      {job.matchAnalysis.contextualKeywords && job.matchAnalysis.contextualKeywords.length > 0 && (
+        <Grid item xs={12}>
+          <Card elevation={2} sx={{ borderRadius: 3 }}>
+            <CardHeader 
+              title="Recommended Keywords for This Role" 
+              avatar={<LightbulbIcon color="primary" />}
+              sx={{ 
+                pb: 1, 
+                '& .MuiCardHeader-title': { fontWeight: 600 } 
+              }}
+            />
+            <CardContent>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Based on your resume and this specific {job.title} role, consider incorporating these keywords:
+              </Typography>
+              
+              <Box sx={{ 
+                display: 'flex', 
+                flexWrap: 'wrap', 
+                gap: 1.5,
+                '& .MuiChip-root': {
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    transform: 'translateY(-2px)',
+                    boxShadow: 2
+                  }
+                }
+              }}>
+                {job.matchAnalysis.contextualKeywords.map((keyword, index) => (
+                  <Chip 
+                    key={`contextual-keyword-${index}`}
+                    label={keyword} 
+                    sx={{ 
+                      bgcolor: COLORS[index % COLORS.length] + '20',
+                      color: COLORS[index % COLORS.length],
+                      fontWeight: 500,
+                      borderRadius: 2,
+                      border: `1px solid ${COLORS[index % COLORS.length]}40`,
+                      '&:hover': {
+                        bgcolor: COLORS[index % COLORS.length] + '30',
+                      }
+                    }} 
+                  />
+                ))}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+      )}
+
+      {/* Technical Requirements Section (if available) */}
       {technicalRequirements.length > 0 && (
         <Grid item xs={12}>
           <Card elevation={2} sx={{ borderRadius: 3 }}>
@@ -665,144 +803,75 @@ const AnalysisTab = ({ job, onTailorClick }) => {
         </Grid>
       )}
 
-      {/* NEW: Tools & Technologies Section */}
-      {toolsAndTechnologies.length > 0 && (
+      {/* Analysis Quality Indicator */}
+      <Grid item xs={12}>
+        <Box sx={{ 
+          mt: 2, 
+          p: 2, 
+          bgcolor: `${theme.palette.info.main}10`, 
+          borderRadius: 2,
+          border: `1px solid ${theme.palette.info.main}20`,
+          display: 'flex',
+          alignItems: 'flex-start'
+        }}>
+          <AnalyticsIcon color="info" sx={{ mr: 1.5, mt: 0.5 }} />
+          <Box>
+            <Typography variant="body2" paragraph>
+              {job.matchAnalysis.analysisMetadata?.analysisType === 'contextual-personalized'
+                ? `Our enhanced contextual AI analyzed your specific resume content against this ${job.title} position, providing personalized recommendations based on your actual experience and the job requirements.`
+                : hasRoleSpecificAnalysis 
+                ? `This analysis was specifically optimized for ${roleCategory.replace('-', ' ')} roles using advanced NLP and semantic understanding tailored for this role type.`
+                : 'Our enhanced AI matching algorithm analyzes your resume against this job using advanced NLP and semantic understanding.'
+              } 
+              Scores are weighted: Skills (40%), Experience (35%), Education (25%).
+            </Typography>
+            
+            {job.matchAnalysis.analysisMetadata?.analysisType === 'contextual-personalized' && (
+              <Typography variant="caption" color="text.secondary">
+                Analysis Version: {job.matchAnalysis.analysisMetadata.algorithmVersion || '3.0-contextual'} • 
+                Personalized recommendations based on your resume content
+              </Typography>
+            )}
+          </Box>
+        </Box>
+      </Grid>
+
+      {/* Strengths Highlight Section */}
+      {job.matchAnalysis.strengthsHighlight && job.matchAnalysis.strengthsHighlight.length > 0 && (
         <Grid item xs={12}>
           <Card elevation={2} sx={{ borderRadius: 3 }}>
             <CardHeader 
-              title="Tools & Technologies" 
-              avatar={<ComputerIcon color="primary" />}
+              title="Your Key Strengths for This Role" 
+              avatar={<CheckCircleIcon color="success" />}
               sx={{ 
                 '& .MuiCardHeader-title': { fontWeight: 600 } 
               }}
             />
             <CardContent>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                Tools and technologies mentioned in this {roleCategory.replace('-', ' ')} role:
-              </Typography>
-              
-              <Box sx={{ 
-                display: 'flex', 
-                flexWrap: 'wrap', 
-                gap: 1.5,
-                '& .MuiChip-root': {
-                  transition: 'all 0.2s ease',
-                  '&:hover': {
-                    transform: 'translateY(-2px)',
-                    boxShadow: 2
-                  }
-                }
-              }}>
-                {toolsAndTechnologies.map((tool, index) => (
-                  <Chip 
-                    key={`tool-${index}`}
-                    label={tool} 
-                    sx={{ 
-                      bgcolor: COLORS[index % COLORS.length] + '20',
-                      color: COLORS[index % COLORS.length],
-                      fontWeight: 500,
-                      borderRadius: 2,
-                      border: `1px solid ${COLORS[index % COLORS.length]}40`,
-                      '&:hover': {
-                        bgcolor: COLORS[index % COLORS.length] + '30',
-                      }
-                    }} 
-                  />
+              <List sx={{ p: 0 }}>
+                {job.matchAnalysis.strengthsHighlight.map((strength, index) => (
+                  <ListItem key={index} sx={{ 
+                    backgroundColor: `${theme.palette.success.main}08`, 
+                    borderRadius: 2, 
+                    mb: 1,
+                    px: 2,
+                    border: `1px solid ${theme.palette.success.main}20`
+                  }}>
+                    <ListItemIcon>
+                      <CheckCircleIcon color="success" fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary={strength}
+                      primaryTypographyProps={{ variant: 'body2', fontWeight: 500 }}
+                    />
+                  </ListItem>
                 ))}
-              </Box>
+              </List>
             </CardContent>
           </Card>
         </Grid>
       )}
-
-      {/* Enhanced Keywords Section */}
-      <Grid item xs={12}>
-        <Card elevation={2} sx={{ borderRadius: 3 }}>
-          <CardHeader 
-            title="Keyword Optimization" 
-            avatar={<LightbulbIcon color="primary" />}
-            sx={{ 
-              pb: 1, 
-              '& .MuiCardHeader-title': { fontWeight: 600 } 
-            }}
-          />
-          <CardContent>
-            <Typography variant="body2" color="text.secondary" paragraph>
-              These keywords will boost your ATS compatibility and match score for this {roleCategory.replace('-', ' ')} position:
-            </Typography>
-            
-            <Box sx={{ 
-              display: 'flex', 
-              flexWrap: 'wrap', 
-              gap: 1.5,
-              '& .MuiChip-root': {
-                transition: 'all 0.2s ease',
-                '&:hover': {
-                  transform: 'translateY(-2px)',
-                  boxShadow: 2
-                }
-              }
-            }}>
-              {job.matchAnalysis.missingSkills && job.matchAnalysis.missingSkills.map((skill, index) => {
-                const skillName = skill && typeof skill === 'object' ? 
-                  (skill.name || skill.skill || 'Unknown Skill') : 
-                  (typeof skill === 'string' ? skill : 'Unknown Skill');
-                
-                const importance = skill && typeof skill === 'object' ? skill.importance : 5;
-                const category = skill && typeof skill === 'object' ? (skill.category || 'required') : 'required';
-                
-                return (
-                  <Tooltip 
-                    key={`keyword-skill-${index}`}
-                    title={`Importance: ${importance}/10 | ${category} | Role: ${roleCategory.replace('-', ' ')}`}
-                  >
-                    <Chip 
-                      label={skillName} 
-                      sx={{ 
-                        bgcolor: COLORS[index % COLORS.length] + '20',
-                        color: COLORS[index % COLORS.length],
-                        fontWeight: 500,
-                        borderRadius: 2,
-                        border: `1px solid ${COLORS[index % COLORS.length]}40`,
-                        '&:hover': {
-                          bgcolor: COLORS[index % COLORS.length] + '30',
-                        }
-                      }} 
-                    />
-                  </Tooltip>
-                );
-              })}
-            </Box>
-
-            {/* Role-Specific Analysis Summary */}
-            {hasRoleSpecificAnalysis && (
-              <Box sx={{ 
-                mt: 3, 
-                p: 2, 
-                bgcolor: `${theme.palette.success.main}08`, 
-                borderRadius: 2,
-                border: `1px solid ${theme.palette.success.main}20`,
-                display: 'flex',
-                alignItems: 'center'
-              }}>
-                {getRoleSpecificIcon(roleCategory)}
-                <Box sx={{ ml: 1.5 }}>
-                  <Typography variant="subtitle2" fontWeight={600} color="success.main">
-                    Role-Specific Analysis Complete
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    This analysis was specifically optimized for {roleCategory.replace('-', ' ')} roles with {technicalComplexity} technical complexity. 
-                    {technicalRequirements.length > 0 && ` Found ${technicalRequirements.length} technical requirements`}
-                    {toolsAndTechnologies.length > 0 && ` and ${toolsAndTechnologies.length} relevant tools/technologies.`}
-                  </Typography>
-                </Box>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      </Grid>
     </Grid>
   );
 };
-
 export default AnalysisTab;

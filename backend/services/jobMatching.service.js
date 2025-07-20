@@ -1,4 +1,4 @@
-// services/jobMatching.service.js - UPDATED TO AUTO-SELECT BEST RESUME
+// services/jobMatching.service.js - UPDATED WITH CONTEXTUAL AI RECOMMENDATIONS
 const Job = require('../models/mongodb/job.model');
 const Resume = require('../models/mongodb/resume.model');
 const { openai } = require('../config/openai');
@@ -103,14 +103,61 @@ exports.matchJobWithBestResume = async (jobId, userId, specificResumeId = null) 
     const matchAnalysis = await this.matchResumeWithJob(resume._id, jobId);
     
     // Update the job with the new match analysis
-    job.matchAnalysis = {
+    const finalMatchAnalysis = {
       ...matchAnalysis,
       resumeId: resume._id,
       lastAnalyzed: new Date(),
-      analysisVersion: '2.0-auto-best'
+      analysisVersion: '3.0-contextual-ai'
     };
     
+    // CRITICAL: Explicitly ensure improvement suggestions are included
+    if (matchAnalysis.improvementSuggestions && Array.isArray(matchAnalysis.improvementSuggestions)) {
+      finalMatchAnalysis.improvementSuggestions = matchAnalysis.improvementSuggestions;
+      finalMatchAnalysis.improvementAreas = matchAnalysis.improvementSuggestions; // Legacy compatibility
+    } else {
+      // Force generation if missing
+      const fallbackSuggestions = generateContextualImprovements(resume, job, matchAnalysis.overallScore);
+      finalMatchAnalysis.improvementSuggestions = fallbackSuggestions;
+      finalMatchAnalysis.improvementAreas = fallbackSuggestions;
+      console.log('🔧 Generated fallback improvement suggestions:', fallbackSuggestions);
+    }
+    
+    // Ensure strengths are included
+    if (matchAnalysis.strengthsHighlight && Array.isArray(matchAnalysis.strengthsHighlight)) {
+      finalMatchAnalysis.strengthsHighlight = matchAnalysis.strengthsHighlight;
+      finalMatchAnalysis.strengthAreas = matchAnalysis.strengthsHighlight; // Legacy compatibility
+    } else {
+      const fallbackStrengths = generateContextualStrengths(resume, job);
+      finalMatchAnalysis.strengthsHighlight = fallbackStrengths;
+      finalMatchAnalysis.strengthAreas = fallbackStrengths;
+    }
+    
+    job.matchAnalysis = finalMatchAnalysis;
+    
+    // CRITICAL: Verify data before saving with detailed logging
+    console.log(`💾 About to save job with match analysis:`);
+    console.log(`   - Overall Score: ${job.matchAnalysis.overallScore}%`);
+    console.log(`   - Improvement Suggestions: ${job.matchAnalysis.improvementSuggestions?.length || 0}`);
+    console.log(`   - Improvement Areas (legacy): ${job.matchAnalysis.improvementAreas?.length || 0}`);
+    console.log(`   - Actual suggestions: ${JSON.stringify(job.matchAnalysis.improvementSuggestions?.slice(0, 2))}`);
+    console.log(`   - Job ID: ${jobId}`);
+    console.log(`   - Resume ID: ${resumeId}`);
+    
     await job.save();
+    
+    // VERIFICATION: Re-fetch the job to confirm data was saved
+    const savedJob = await Job.findById(jobId);
+    const savedSuggestions = savedJob.matchAnalysis?.improvementSuggestions?.length || 0;
+    const savedAreas = savedJob.matchAnalysis?.improvementAreas?.length || 0;
+    console.log(`✅ Job saved and verified:`);
+    console.log(`   - ${savedSuggestions} improvement suggestions persisted`);
+    console.log(`   - ${savedAreas} improvement areas persisted`);
+    console.log(`   - Saved suggestions: ${JSON.stringify(savedJob.matchAnalysis?.improvementSuggestions?.slice(0, 2))}`);
+    
+    if ((savedSuggestions === 0 && savedAreas === 0) && matchAnalysis.overallScore < 70) {
+      console.log('🚨 WARNING: Low score job saved without improvement suggestions!');
+      console.log('🚨 Raw matchAnalysis object:', JSON.stringify(job.matchAnalysis, null, 2));
+    }
     
     console.log(`Job match updated with best resume. Score: ${matchAnalysis.overallScore}%`);
     
@@ -131,14 +178,14 @@ exports.matchJobWithBestResume = async (jobId, userId, specificResumeId = null) 
 };
 
 /**
- * Enhanced job matching with more intelligent scoring
+ * Enhanced job matching with contextual AI recommendations
  * @param {string} resumeId - MongoDB ID of the resume
  * @param {string} jobId - MongoDB ID of the job
- * @returns {Object} Match analysis results with accurate scoring
+ * @returns {Object} Match analysis results with contextual recommendations
  */
 exports.matchResumeWithJob = async (resumeId, jobId) => {
   try {
-    console.log(`Starting enhanced matching for resume ${resumeId} with job ${jobId}`);
+    console.log(`Starting contextual AI matching for resume ${resumeId} with job ${jobId}`);
     
     // Get the resume and job from the database
     const resume = await Resume.findById(resumeId);
@@ -161,9 +208,9 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
       throw new Error('Job analysis data not available for matching');
     }
     
-    console.log('Performing intelligent job-resume matching with OpenAI...');
+    console.log('Performing contextual AI job-resume matching with OpenAI...');
     
-    // Create detailed prompts for more accurate analysis
+    // Create detailed prompts for contextual analysis
     const resumeSkills = extractSkillsFromResume(resume.parsedData);
     const jobSkills = extractSkillsFromJob(job.parsedData);
     const resumeExperience = extractExperienceFromResume(resume.parsedData);
@@ -174,118 +221,143 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
       resume.tailoredForJob?.jobId && 
       resume.tailoredForJob.jobId.toString() === jobId.toString();
     
-    // Enhanced prompt for more precise matching
+    // ENHANCED: Contextual prompt for personalized recommendations
     const prompt = `
-    You are an expert ATS (Applicant Tracking System) and recruitment analyst. Perform a detailed match analysis between this resume and job posting.
+    You are an expert career coach and ATS specialist. Analyze this specific resume against this specific job posting and provide CONTEXTUAL, PERSONALIZED recommendations based on the actual content and gaps you identify.
 
-    IMPORTANT: Provide realistic and accurate scores based on actual content matching. ${isTailoredForThisJob ? 'This resume has been AI-tailored specifically for this job, so it should score higher than a generic resume.' : 'Avoid giving inflated scores.'}
+    IMPORTANT: Your recommendations must be based on:
+    1. What's actually IN the candidate's resume
+    2. What's specifically REQUIRED in this job posting
+    3. The exact GAPS between them
+    4. How to bridge those gaps with SPECIFIC, actionable advice
 
-    **JOB POSTING:**
+    **JOB POSTING DETAILS:**
     Title: ${job.title}
     Company: ${job.company}
     Description: ${job.description}
     
-    **JOB REQUIREMENTS ANALYSIS:**
+    **JOB REQUIREMENTS:**
     Required Skills: ${JSON.stringify(jobSkills.required)}
     Preferred Skills: ${JSON.stringify(jobSkills.preferred)}
     Experience Level: ${job.parsedData.experienceLevel || 'Not specified'}
     Education Requirements: ${JSON.stringify(job.parsedData.educationRequirements)}
     Key Requirements: ${JSON.stringify(jobRequirements)}
+    Technical Requirements: ${JSON.stringify(job.parsedData.technicalRequirements || [])}
+    Tools & Technologies: ${JSON.stringify(job.parsedData.toolsAndTechnologies || [])}
 
-    **CANDIDATE RESUME:**
+    **CANDIDATE'S RESUME CONTENT:**
     Summary: ${resume.parsedData.summary || 'No summary provided'}
-    Skills: ${JSON.stringify(resumeSkills)}
-    Experience: ${JSON.stringify(resumeExperience)}
+    Skills Listed: ${JSON.stringify(resumeSkills)}
+    Experience Details: ${JSON.stringify(resumeExperience)}
     Education: ${JSON.stringify(resume.parsedData.education)}
     ${isTailoredForThisJob ? 'NOTE: This resume has been specifically tailored for this job posting.' : ''}
 
-    **MATCHING CRITERIA:**
-    1. **Skills Match (40% weight)**: Compare required vs candidate skills
-    2. **Experience Match (35% weight)**: Evaluate relevant experience depth and breadth
-    3. **Education Match (25% weight)**: Check education requirements vs candidate background
+    **CONTEXTUAL ANALYSIS REQUIREMENTS:**
 
-    **SCORING GUIDELINES:**
-    - 95-100%: Perfect match, candidate exceeds all requirements ${isTailoredForThisJob ? '(expected for tailored resumes)' : ''}
-    - 85-94%: Excellent match, candidate meets all core requirements with strong alignment
-    - 75-84%: Very good match, candidate meets most requirements
-    - 65-74%: Good match, candidate meets core requirements with some gaps
-    - 55-64%: Moderate match, candidate has potential but significant gaps
-    - Below 55%: Poor match, major misalignment
+    1. **Skills Analysis**: Compare EXACTLY what skills the candidate has vs. what the job needs
+    2. **Experience Analysis**: Look at their actual work experience vs. job requirements
+    3. **Gap Analysis**: Identify SPECIFIC missing elements and how to address them
+    4. **Contextual Recommendations**: Provide advice that references their actual resume content
 
-    ${isTailoredForThisJob ? 'TAILORED RESUME BONUS: This resume should score 10-15 points higher than the original due to optimization.' : ''}
+    **SCORING GUIDELINES (Be Realistic and Context-Aware):**
+    - 90-100%: Exceptional match, candidate exceeds requirements with relevant experience
+    - 80-89%: Strong match, candidate meets most requirements with good experience alignment
+    - 70-79%: Good match, candidate meets core requirements with some gaps
+    - 60-69%: Moderate match, candidate has potential but notable gaps exist
+    - 50-59%: Poor match, significant gaps in required skills/experience
+    - Below 50%: Very poor match, major misalignment between candidate and role
+
+    **IMPROVEMENT SUGGESTIONS MUST BE:**
+    - **Specific to their resume content**: "Your project management experience at [Company] should emphasize..."
+    - **Targeted to job requirements**: "This role requires X, but your resume shows Y - here's how to bridge that gap..."
+    - **Actionable**: Give exact wording changes, not generic advice
+    - **Context-aware**: Reference their actual skills/experience and how to better position them
 
     Provide analysis in this EXACT JSON format:
     {
-      "overallScore": <realistic number 0-100>,
+      "overallScore": <realistic number 0-100 based on actual content match>,
       "categoryScores": {
-        "skills": <realistic number 0-100>,
-        "experience": <realistic number 0-100>,
-        "education": <realistic number 0-100>
+        "skills": <realistic score based on skill overlap>,
+        "experience": <realistic score based on experience relevance>,
+        "education": <realistic score based on education match>
       },
       "matchedSkills": [
         {
-          "skill": "exact skill name from job",
+          "skill": "exact skill name from job requirements",
           "found": true/false,
-          "importance": <1-10 scale>,
+          "importance": <1-10 scale based on job requirements>,
           "matchQuality": "exact|partial|related|none",
-          "resumeEvidence": "where found in resume or null"
+          "resumeEvidence": "specific evidence from their resume where this skill is demonstrated"
         }
       ],
       "missingSkills": [
         {
-          "skill": "missing skill name",
+          "skill": "specific missing skill from job requirements",
           "importance": <1-10 scale>,
           "category": "required|preferred",
-          "suggestionToAdd": "specific advice"
+          "suggestionToAdd": "CONTEXTUAL advice on how they can highlight or develop this skill based on their background"
         }
       ],
       "experienceAnalysis": {
-        "totalYearsExperience": <number>,
-        "relevantYearsExperience": <number>,
-        "seniorityMatch": "junior|mid|senior|executive",
+        "totalYearsExperience": <calculated from their actual experience>,
+        "relevantYearsExperience": <years of directly relevant experience>,
+        "seniorityMatch": "entry|junior|mid|senior|executive",
         "industryAlignment": "high|medium|low",
-        "roleAlignment": "high|medium|low"
+        "roleAlignment": "high|medium|low",
+        "experienceGaps": "specific analysis of what experience they're missing vs job requirements"
       },
       "educationAnalysis": {
         "degreeMatch": "exceeds|meets|partial|none",
         "fieldAlignment": "high|medium|low",
-        "certificationBonus": true/false
+        "certificationBonus": true/false,
+        "educationRecommendations": "specific advice based on their education vs job requirements"
       },
       "improvementSuggestions": [
-        "specific actionable suggestion 1",
-        "specific actionable suggestion 2",
-        "specific actionable suggestion 3"
+        "CONTEXTUAL suggestion 1: Reference their actual resume content and how to improve it for this specific job",
+        "CONTEXTUAL suggestion 2: Specific gap identified and how to address it with their background",
+        "CONTEXTUAL suggestion 3: Tactical advice for better positioning their existing experience"
       ],
       "strengthsHighlight": [
-        "key strength 1",
-        "key strength 2",
-        "key strength 3"
+        "Specific strength 1 from their resume that aligns with job requirements",
+        "Specific strength 2 with context about why it matches this role",
+        "Specific strength 3 that gives them an advantage for this position"
+      ],
+      "contextualKeywords": [
+        "specific keyword from job posting they should add to resume",
+        "industry term they should incorporate based on their background",
+        "technical skill they should emphasize more prominently"
       ]
     }
 
-    **IMPORTANT**: ${isTailoredForThisJob ? 'This is a tailored resume - expect scores in the 85-95% range due to optimization.' : 'Base scores on actual content analysis, not generic assumptions. Be critical and realistic in scoring.'}
+    **CRITICAL**: Your analysis must be based on the ACTUAL CONTENT comparison. If there are major gaps (leading to low scores), your improvement suggestions must be substantial and specific. If there's strong alignment (leading to high scores), your suggestions should be minor optimizations.
+
+    **EXAMPLE OF GOOD CONTEXTUAL RECOMMENDATIONS:**
+    - Instead of: "Add more technical skills"
+    - Write: "Your database experience at TechCorp should specifically mention PostgreSQL since that's the primary database this role uses. Expand your 'database optimization' bullet point to include specific query performance improvements you achieved."
+
+    Return ONLY valid JSON without markdown formatting.
     `;
 
-    // Call OpenAI API with enhanced model settings
+    // Call OpenAI API with enhanced model settings for contextual analysis
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system", 
-          content: `You are an expert ATS system and senior recruitment analyst with 15+ years of experience. You provide realistic, accurate match scores based on detailed analysis. ${isTailoredForThisJob ? 'You recognize when resumes have been optimized for specific jobs and score them appropriately higher.' : 'You never inflate scores and always provide evidence-based assessments.'} Return ONLY valid JSON without markdown formatting.`
+          content: `You are an expert career coach and ATS analyst who provides CONTEXTUAL, PERSONALIZED resume recommendations. You analyze the specific content of each resume against specific job requirements and provide targeted advice that references actual resume content and job needs. ${isTailoredForThisJob ? 'You recognize when resumes have been optimized for specific jobs and score them appropriately higher.' : 'You provide realistic scores based on content alignment.'} Return ONLY valid JSON without markdown formatting.`
         },
         {
           role: "user",
           content: prompt
         }
       ],
-      temperature: 0.1, // Lower temperature for more consistent scoring
+      temperature: 0.1, // Lower temperature for more consistent analysis
       max_tokens: 4000,
     });
 
     // Parse and validate the response
     const content = response.choices[0].message.content.trim();
-    console.log('OpenAI Response received, parsing...');
+    console.log('Contextual AI Response received, parsing...');
     
     let matchAnalysis;
     try {
@@ -317,15 +389,26 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
       
       matchAnalysis = JSON.parse(jsonStr);
       
-      // Validate and ensure realistic scoring
-      matchAnalysis = validateAndNormalizeScores(matchAnalysis);
+      // Validate and ensure contextual analysis
+      matchAnalysis = validateContextualAnalysis(matchAnalysis, resume, job);
       
-      console.log(`Enhanced matching completed - Overall Score: ${matchAnalysis.overallScore}%`);
+      // CRITICAL: Ensure improvement suggestions are properly included
+      if (!matchAnalysis.improvementSuggestions || !Array.isArray(matchAnalysis.improvementSuggestions)) {
+        console.log('🚨 Missing improvement suggestions in AI response, generating fallback');
+        matchAnalysis.improvementSuggestions = generateContextualImprovements(resume, job, matchAnalysis.overallScore);
+      }
+      
+      // Log what we're about to save
+      console.log(`📊 Saving match analysis with ${matchAnalysis.improvementSuggestions?.length || 0} improvement suggestions`);
+      console.log(`📝 Improvement suggestions: ${JSON.stringify(matchAnalysis.improvementSuggestions?.slice(0, 2))}`);
+      
+      console.log(`Contextual AI matching completed - Overall Score: ${matchAnalysis.overallScore}%`);
+      console.log(`Generated ${matchAnalysis.improvementSuggestions?.length || 0} contextual improvement suggestions`);
       
     } catch (parseError) {
-      console.error('Error parsing OpenAI response:', parseError);
+      console.error('Error parsing contextual AI response:', parseError);
       console.log('Raw response:', content);
-      throw new Error('Failed to parse AI response');
+      throw new Error('Failed to parse contextual AI response');
     }
 
     // Add additional metadata
@@ -333,23 +416,268 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
       resumeId,
       jobId,
       analyzedAt: new Date(),
-      algorithmVersion: '2.0',
-      isTailoredResume: isTailoredForThisJob
+      algorithmVersion: '3.0-contextual-ai',
+      isTailoredResume: isTailoredForThisJob,
+      analysisType: 'contextual-personalized'
     };
 
     return matchAnalysis;
     
   } catch (error) {
-    console.error('Error in enhanced job matching:', error);
+    console.error('Error in contextual AI job matching:', error);
     
-    // More intelligent fallback based on available data
-    return generateIntelligentFallback(resume, job, error);
+    // Contextual fallback based on available data
+    return generateContextualFallback(resume, job, error);
   }
 };
 
 /**
- * Extract skills from resume data
+ * Validate and enhance contextual analysis
  */
+function validateContextualAnalysis(analysis, resume, job) {
+  // Ensure required fields exist with contextual defaults
+  if (!analysis.improvementSuggestions || !Array.isArray(analysis.improvementSuggestions)) {
+    console.log('🔧 Creating improvement suggestions array');
+    analysis.improvementSuggestions = [];
+  }
+  
+  // Filter out any empty/invalid suggestions
+  if (analysis.improvementSuggestions && Array.isArray(analysis.improvementSuggestions)) {
+    const originalCount = analysis.improvementSuggestions.length;
+    analysis.improvementSuggestions = analysis.improvementSuggestions.filter(suggestion => 
+      suggestion && typeof suggestion === 'string' && suggestion.trim().length > 0
+    );
+    const filteredCount = analysis.improvementSuggestions.length;
+    
+    if (originalCount !== filteredCount) {
+      console.log(`🧹 Filtered improvement suggestions: ${originalCount} -> ${filteredCount}`);
+    }
+  }
+  
+  if (!analysis.strengthsHighlight || !Array.isArray(analysis.strengthsHighlight)) {
+    analysis.strengthsHighlight = generateContextualStrengths(resume, job);
+  }
+  
+  if (!analysis.contextualKeywords || !Array.isArray(analysis.contextualKeywords)) {
+    analysis.contextualKeywords = generateContextualKeywords(resume, job);
+  }
+  
+  // Ensure scores are realistic and contextual
+  analysis.overallScore = Math.max(0, Math.min(100, analysis.overallScore || 0));
+  
+  // CRITICAL: Ensure low scores have substantial improvement suggestions
+  if (analysis.overallScore < 60 && analysis.improvementSuggestions.length < 3) {
+    console.log('🚨 Low score detected, ensuring adequate improvement suggestions');
+    const additionalImprovements = generateContextualImprovements(resume, job, analysis.overallScore);
+    analysis.improvementSuggestions = [
+      ...analysis.improvementSuggestions,
+      ...additionalImprovements.slice(0, Math.max(0, 3 - analysis.improvementSuggestions.length))
+    ];
+    console.log(`✅ Added ${additionalImprovements.length} additional improvement suggestions`);
+  }
+  
+  // Ensure high scores have fewer, more targeted suggestions
+  if (analysis.overallScore > 80 && analysis.improvementSuggestions.length > 2) {
+    analysis.improvementSuggestions = analysis.improvementSuggestions.slice(0, 2);
+    console.log('✂️ Trimmed improvement suggestions for high score');
+  }
+  
+  // Final validation log
+  console.log(`📋 Final validation: ${analysis.improvementSuggestions.length} improvement suggestions for ${analysis.overallScore}% score`);
+  
+  return analysis;
+}
+
+/**
+ * Generate contextual improvements based on resume and job content
+ */
+function generateContextualImprovements(resume, job, overallScore) {
+  const improvements = [];
+  const resumeSkills = extractSkillsFromResume(resume.parsedData);
+  const jobSkills = extractSkillsFromJob(job.parsedData);
+  const resumeExperience = extractExperienceFromResume(resume.parsedData);
+  
+  // Based on score, generate appropriate level of suggestions
+  if (overallScore < 40) {
+    improvements.push(
+      `Your background in ${resumeExperience[0]?.title || 'your current role'} needs better alignment with ${job.title} requirements. Focus on highlighting transferable skills that match their core needs.`,
+      `This ${job.title} role requires skills you may have but aren't emphasizing. Review the job requirements and identify which of your experiences demonstrate these capabilities.`,
+      `Consider adding specific metrics and achievements from your work at ${resumeExperience[0]?.company || 'your current company'} that would resonate with ${job.company}'s goals.`
+    );
+  } else if (overallScore < 70) {
+    improvements.push(
+      `Your experience shows promise for this ${job.title} role. Strengthen your application by quantifying achievements from your work at ${resumeExperience[0]?.company || 'previous companies'}.`,
+      `Bridge the gap between your background and ${job.company}'s needs by emphasizing relevant projects and outcomes that demonstrate the skills they're seeking.`
+    );
+  } else {
+    improvements.push(
+      `Your qualifications are strong for this ${job.title} position. Consider minor optimizations to better align your experience descriptions with ${job.company}'s specific language and priorities.`
+    );
+  }
+  
+  return improvements;
+}
+
+/**
+ * Generate contextual strengths based on resume and job alignment
+ */
+function generateContextualStrengths(resume, job) {
+  const strengths = [];
+  const resumeExperience = extractExperienceFromResume(resume.parsedData);
+  const resumeSkills = extractSkillsFromResume(resume.parsedData);
+  
+  if (resumeExperience.length > 0) {
+    strengths.push(`Your ${resumeExperience[0]?.title || 'professional'} experience provides relevant background for this ${job.title} role`);
+  }
+  
+  if (resumeSkills.length > 5) {
+    strengths.push(`Strong technical skill set with ${resumeSkills.length} identified competencies`);
+  }
+  
+  if (resume.parsedData.education && resume.parsedData.education.length > 0) {
+    strengths.push(`Educational background supports the requirements for this position at ${job.company}`);
+  }
+  
+  return strengths.slice(0, 3); // Keep top 3
+}
+
+/**
+ * Generate contextual keywords based on job requirements
+ */
+function generateContextualKeywords(resume, job) {
+  const keywords = [];
+  const jobSkills = extractSkillsFromJob(job.parsedData);
+  const resumeSkills = extractSkillsFromResume(resume.parsedData);
+  
+  // Find job requirements that aren't in resume
+  const missingKeywords = [
+    ...jobSkills.required,
+    ...jobSkills.preferred,
+    ...(job.parsedData.technicalRequirements || []),
+    ...(job.parsedData.toolsAndTechnologies || [])
+  ].filter(skill => 
+    !resumeSkills.some(resumeSkill => 
+      resumeSkill.toLowerCase().includes(skill.toLowerCase()) ||
+      skill.toLowerCase().includes(resumeSkill.toLowerCase())
+    )
+  );
+  
+  return missingKeywords.slice(0, 8); // Top 8 missing keywords
+}
+
+/**
+ * Generate contextual fallback when AI analysis fails
+ */
+function generateContextualFallback(resume, job, error) {
+  console.log('Generating contextual fallback analysis...');
+  
+  try {
+    // Basic contextual matching
+    const resumeSkills = extractSkillsFromResume(resume.parsedData);
+    const jobSkills = extractSkillsFromJob(job.parsedData);
+    const resumeExperience = extractExperienceFromResume(resume.parsedData);
+    
+    // Calculate basic skill match percentage
+    const allJobSkills = [...jobSkills.required, ...jobSkills.preferred];
+    const matchedSkills = resumeSkills.filter(skill => 
+      allJobSkills.some(jobSkill => 
+        skill.toLowerCase().includes(jobSkill.toLowerCase()) ||
+        jobSkill.toLowerCase().includes(skill.toLowerCase())
+      )
+    );
+    
+    const skillsScore = allJobSkills.length > 0 ? 
+      Math.round((matchedSkills.length / allJobSkills.length) * 100) : 50;
+    
+    // Basic experience scoring
+    const experienceYears = resumeExperience.reduce((total, exp) => total + (exp.duration || 12), 0) / 12;
+    
+    let experienceScore = 40;
+    if (experienceYears >= 3) experienceScore = 60;
+    if (experienceYears >= 5) experienceScore = 75;
+    if (experienceYears >= 8) experienceScore = 85;
+    
+    // Basic education scoring
+    const hasEducation = resume.parsedData.education && resume.parsedData.education.length > 0;
+    const educationScore = hasEducation ? 70 : 50;
+    
+    // Calculate weighted overall score
+    const overallScore = Math.round(
+      (skillsScore * 0.4) + (experienceScore * 0.35) + (educationScore * 0.25)
+    );
+    
+    return {
+      overallScore,
+      categoryScores: {
+        skills: skillsScore,
+        experience: experienceScore,
+        education: educationScore
+      },
+      matchedSkills: matchedSkills.map(skill => ({
+        skill,
+        found: true,
+        importance: 5,
+        matchQuality: 'partial',
+        resumeEvidence: 'Found in skills or experience section'
+      })),
+      missingSkills: allJobSkills
+        .filter(skill => !matchedSkills.some(matched => 
+          matched.toLowerCase().includes(skill.toLowerCase())
+        ))
+        .slice(0, 8)
+        .map(skill => ({
+          skill,
+          importance: 6,
+          category: 'required',
+          suggestionToAdd: `Consider highlighting any experience you have with ${skill}, or include it in your skills section if relevant to your background`
+        })),
+      improvementSuggestions: generateContextualImprovements(resume, job, overallScore),
+      strengthsHighlight: generateContextualStrengths(resume, job),
+      contextualKeywords: generateContextualKeywords(resume, job),
+      fallbackReason: `Contextual analysis temporarily unavailable: ${error.message}`,
+      analysisMetadata: {
+        resumeId: resume._id,
+        jobId: job._id,
+        analyzedAt: new Date(),
+        algorithmVersion: '3.0-contextual-fallback'
+      }
+    };
+    
+  } catch (fallbackError) {
+    console.error('Error in contextual fallback analysis:', fallbackError);
+    
+    // Final fallback with contextual messaging
+    return {
+      overallScore: 45,
+      categoryScores: {
+        skills: 40,
+        experience: 50,
+        education: 45
+      },
+      matchedSkills: [],
+      missingSkills: [],
+      improvementSuggestions: [
+        `Unable to complete detailed analysis for this ${job.title} position at ${job.company}`,
+        'Please ensure your resume content is properly formatted and try the analysis again',
+        'Contact support if this issue persists - we want to help you optimize for this role'
+      ],
+      strengthsHighlight: [
+        'Resume successfully uploaded and basic structure detected',
+        `Profile shows potential alignment with ${job.title} requirements`
+      ],
+      contextualKeywords: [],
+      errorDetails: error.message,
+      analysisMetadata: {
+        resumeId: resume._id,
+        jobId: job._id,
+        analyzedAt: new Date(),
+        algorithmVersion: '3.0-contextual-error-fallback'
+      }
+    };
+  }
+}
+
+// Keep all existing helper functions from original file
 function extractSkillsFromResume(parsedData) {
   const skills = [];
   
@@ -376,9 +704,6 @@ function extractSkillsFromResume(parsedData) {
   return [...new Set(skills)]; // Remove duplicates
 }
 
-/**
- * Extract skills from job data
- */
 function extractSkillsFromJob(parsedData) {
   const required = [];
   const preferred = [];
@@ -415,9 +740,6 @@ function extractSkillsFromJob(parsedData) {
   };
 }
 
-/**
- * Extract experience from resume
- */
 function extractExperienceFromResume(parsedData) {
   if (!parsedData.experience || !Array.isArray(parsedData.experience)) {
     return [];
@@ -432,9 +754,6 @@ function extractExperienceFromResume(parsedData) {
   }));
 }
 
-/**
- * Extract requirements from job
- */
 function extractRequirementsFromJob(parsedData) {
   const requirements = [];
   
@@ -449,9 +768,6 @@ function extractRequirementsFromJob(parsedData) {
   return requirements;
 }
 
-/**
- * Calculate duration between two dates
- */
 function calculateDuration(startDate, endDate) {
   if (!startDate) return 0;
   
@@ -462,149 +778,4 @@ function calculateDuration(startDate, endDate) {
   const diffMonths = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 30));
   
   return diffMonths;
-}
-
-/**
- * Validate and normalize scores to ensure realistic ranges
- */
-function validateAndNormalizeScores(analysis) {
-  // Ensure overall score is reasonable based on category scores
-  if (analysis.categoryScores) {
-    const { skills, experience, education } = analysis.categoryScores;
-    
-    // Weighted average: Skills 40%, Experience 35%, Education 25%
-    const calculatedOverall = Math.round((skills * 0.4) + (experience * 0.35) + (education * 0.25));
-    
-    // If provided overall score is significantly different, use calculated
-    if (Math.abs(analysis.overallScore - calculatedOverall) > 10) {
-      analysis.overallScore = calculatedOverall;
-    }
-  }
-  
-  // Ensure scores are within valid range
-  analysis.overallScore = Math.max(0, Math.min(100, analysis.overallScore));
-  if (analysis.categoryScores) {
-    analysis.categoryScores.skills = Math.max(0, Math.min(100, analysis.categoryScores.skills));
-    analysis.categoryScores.experience = Math.max(0, Math.min(100, analysis.categoryScores.experience));
-    analysis.categoryScores.education = Math.max(0, Math.min(100, analysis.categoryScores.education));
-  }
-  
-  return analysis;
-}
-
-/**
- * Generate intelligent fallback when AI analysis fails
- */
-function generateIntelligentFallback(resume, job, error) {
-  console.log('Generating intelligent fallback analysis...');
-  
-  try {
-    // Basic skills matching
-    const resumeSkills = extractSkillsFromResume(resume.parsedData);
-    const jobSkills = extractSkillsFromJob(job.parsedData);
-    
-    // Calculate basic skill match percentage
-    const allJobSkills = [...jobSkills.required, ...jobSkills.preferred];
-    const matchedSkills = resumeSkills.filter(skill => 
-      allJobSkills.some(jobSkill => 
-        skill.toLowerCase().includes(jobSkill.toLowerCase()) ||
-        jobSkill.toLowerCase().includes(skill.toLowerCase())
-      )
-    );
-    
-    const skillsScore = allJobSkills.length > 0 ? 
-      Math.round((matchedSkills.length / allJobSkills.length) * 100) : 50;
-    
-    // Basic experience scoring
-    const experienceYears = resume.parsedData.experience ? 
-      resume.parsedData.experience.length * 2 : 0; // Rough estimate
-    
-    let experienceScore = 40;
-    if (experienceYears >= 5) experienceScore = 75;
-    if (experienceYears >= 8) experienceScore = 85;
-    if (experienceYears >= 12) experienceScore = 95;
-    
-    // Basic education scoring
-    const hasEducation = resume.parsedData.education && 
-      resume.parsedData.education.length > 0;
-    const educationScore = hasEducation ? 70 : 40;
-    
-    // Calculate weighted overall score
-    const overallScore = Math.round(
-      (skillsScore * 0.4) + (experienceScore * 0.35) + (educationScore * 0.25)
-    );
-    
-    return {
-      overallScore,
-      categoryScores: {
-        skills: skillsScore,
-        experience: experienceScore,
-        education: educationScore
-      },
-      matchedSkills: matchedSkills.map(skill => ({
-        skill,
-        found: true,
-        importance: 5,
-        matchQuality: 'partial',
-        resumeEvidence: 'Skills section'
-      })),
-      missingSkills: allJobSkills
-        .filter(skill => !matchedSkills.includes(skill))
-        .slice(0, 5)
-        .map(skill => ({
-          skill,
-          importance: 6,
-          category: 'required',
-          suggestionToAdd: `Consider highlighting experience with ${skill} if you have it`
-        })),
-      improvementSuggestions: [
-        'Analysis temporarily unavailable - basic matching performed',
-        'Consider highlighting relevant skills mentioned in the job posting',
-        'Quantify your achievements with specific metrics and results'
-      ],
-      strengthsHighlight: [
-        'Resume structure is well-organized',
-        'Relevant work experience present',
-        'Skills section is comprehensive'
-      ],
-      fallbackReason: error.message,
-      analysisMetadata: {
-        resumeId: resume._id,
-        jobId: job._id,
-        analyzedAt: new Date(),
-        algorithmVersion: '2.0-fallback'
-      }
-    };
-    
-  } catch (fallbackError) {
-    console.error('Error in fallback analysis:', fallbackError);
-    
-    // Final fallback with very basic scores
-    return {
-      overallScore: 45,
-      categoryScores: {
-        skills: 40,
-        experience: 50,
-        education: 45
-      },
-      matchedSkills: [],
-      missingSkills: [],
-      improvementSuggestions: [
-        'Unable to complete detailed analysis at this time',
-        'Please ensure your resume includes relevant skills for this position',
-        'Try the analysis again later for more detailed insights'
-      ],
-      strengthsHighlight: [
-        'Resume uploaded successfully',
-        'Basic profile information captured'
-      ],
-      errorDetails: error.message,
-      analysisMetadata: {
-        resumeId: resume._id,
-        jobId: job._id,
-        analyzedAt: new Date(),
-        algorithmVersion: '2.0-error-fallback'
-      }
-    };
-  }
 }
