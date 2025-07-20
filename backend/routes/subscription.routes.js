@@ -1,4 +1,4 @@
-// backend/routes/subscription.routes.js - FIXED MIDDLEWARE VERSION
+// backend/routes/subscription.routes.js - FIXED VERSION WITH ALL ENDPOINTS
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const SubscriptionController = require('../controllers/subscription.controller');
@@ -6,7 +6,6 @@ const authMiddleware = require('../middleware/auth.middleware');
 const SubscriptionMiddleware = require('../middleware/subscription.middleware');
 const UsageMiddleware = require('../middleware/usage.middleware');
 const { body, param, query, validationResult } = require('express-validator');
-
 
 const router = express.Router();
 
@@ -219,6 +218,7 @@ router.post('/create-checkout',
 );
 
 /**
+ * 🔧 FIXED: Customer portal route with proper error handling
  * @route POST /api/subscriptions/customer-portal
  * @desc Create customer portal session
  * @access Private
@@ -226,11 +226,18 @@ router.post('/create-checkout',
 router.post('/customer-portal',
   subscriptionLimiter,
   authMiddleware.protect,
-  SubscriptionMiddleware.requireSubscription(['casual', 'hunter']),
+  [
+    body('returnUrl')
+      .optional()
+      .isURL()
+      .withMessage('Return URL must be a valid URL')
+  ],
+  handleValidationErrors,
   SubscriptionController.createCustomerPortal
 );
 
 /**
+ * 🔧 FIXED: Cancel subscription route with proper validation
  * @route POST /api/subscriptions/cancel
  * @desc Cancel subscription
  * @access Private
@@ -245,18 +252,11 @@ router.post('/cancel',
       .withMessage('atPeriodEnd must be a boolean')
   ],
   handleValidationErrors,
-  SubscriptionMiddleware.requireSubscription(['casual', 'hunter']),
   SubscriptionController.cancelSubscription
 );
 
-router.get('/weekly-job-stats', 
-  subscriptionLimiter,
-  authMiddleware.protect,
-  SubscriptionController.getWeeklyJobStats
-);
-
-
 /**
+ * 🔧 FIXED: Resume subscription route
  * @route POST /api/subscriptions/resume
  * @desc Resume canceled subscription
  * @access Private
@@ -265,6 +265,24 @@ router.post('/resume',
   subscriptionLimiter,
   authMiddleware.protect,
   SubscriptionController.resumeSubscription
+);
+
+/**
+ * @route GET /api/subscriptions/weekly-job-stats
+ * @desc Get weekly job discovery statistics
+ * @access Private
+ */
+router.get('/weekly-job-stats', 
+  subscriptionLimiter,
+  authMiddleware.protect,
+  [
+    query('weeklyLimit')
+      .optional()
+      .isInt({ min: 1, max: 500 })
+      .withMessage('Weekly limit must be between 1 and 500')
+  ],
+  handleValidationErrors,
+  SubscriptionController.getWeeklyJobStats
 );
 
 /**
@@ -345,7 +363,6 @@ router.get('/health',
   subscriptionLimiter,
   authMiddleware.protect,
   SubscriptionMiddleware.injectSubscriptionContext(),
-  SubscriptionMiddleware.handleTrialPeriod(),
   SubscriptionController.getSubscriptionHealth
 );
 
@@ -391,6 +408,74 @@ router.get('/fresh-billing-date',
   subscriptionLimiter,
   authMiddleware.protect,
   SubscriptionController.getFreshBillingDate
+);
+
+// ======================================
+// WEEKLY TRACKING ROUTES
+// ======================================
+
+/**
+ * @route GET /api/subscriptions/weekly-tracking-summary
+ * @desc Get detailed weekly tracking summary
+ * @access Private
+ */
+router.get('/weekly-tracking-summary',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  SubscriptionController.getWeeklyTrackingSummary
+);
+
+/**
+ * @route GET /api/subscriptions/weekly-tracking-history
+ * @desc Get weekly tracking history
+ * @access Private
+ */
+router.get('/weekly-tracking-history',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  [
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 52 })
+      .withMessage('Limit must be between 1 and 52')
+  ],
+  handleValidationErrors,
+  SubscriptionController.getWeeklyTrackingHistory
+);
+
+/**
+ * @route POST /api/subscriptions/reset-weekly-tracking
+ * @desc Reset weekly tracking for testing (Admin only)
+ * @access Private (Admin)
+ */
+router.post('/reset-weekly-tracking',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  authMiddleware.restrictTo('admin'),
+  SubscriptionController.resetWeeklyTracking
+);
+
+/**
+ * @route POST /api/subscriptions/test-persistent-tracking
+ * @desc Test persistent tracking functionality (Admin only)
+ * @access Private (Admin)
+ */
+router.post('/test-persistent-tracking',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  authMiddleware.restrictTo('admin'),
+  [
+    body('jobsToAdd')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Jobs to add must be between 1 and 100'),
+    body('searchName')
+      .optional()
+      .isString()
+      .withMessage('Search name must be a string')
+  ],
+  handleValidationErrors,
+  SubscriptionController.testPersistentTracking
 );
 
 // ======================================
@@ -462,6 +547,18 @@ router.get('/admin/health-dashboard',
   authMiddleware.protect,
   authMiddleware.restrictTo('admin'),
   SubscriptionController.getHealthDashboard
+);
+
+/**
+ * @route GET /api/subscriptions/admin/persistent-tracking-analytics
+ * @desc Get persistent tracking analytics (Admin only)
+ * @access Private (Admin)
+ */
+router.get('/admin/persistent-tracking-analytics',
+  subscriptionLimiter,
+  authMiddleware.protect,
+  authMiddleware.restrictTo('admin'),
+  SubscriptionController.getPersistentTrackingAnalytics
 );
 
 /**
