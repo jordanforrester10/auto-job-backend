@@ -229,8 +229,13 @@ router.post('/customer-portal',
   [
     body('returnUrl')
       .optional()
-      .isURL()
-      .withMessage('Return URL must be a valid URL')
+      .custom((value) => {
+        // Allow empty values or basic URL format
+        if (!value || value.startsWith('http')) {
+          return true;
+        }
+        throw new Error('Invalid return URL format');
+      })
   ],
   handleValidationErrors,
   SubscriptionController.createCustomerPortal

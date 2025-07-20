@@ -1,4 +1,4 @@
-// frontend/src/utils/subscriptionService.js - CACHED VERSION WITH REDUCED API CALLS
+// frontend/src/utils/subscriptionService.js - FIXED VERSION WITH WORKING BUTTONS
 import api from './axios';
 
 class SubscriptionService {
@@ -264,6 +264,128 @@ class SubscriptionService {
   }
 
   /**
+   * 🔧 FIXED: Cancel subscription - properly handle API call and response
+   */
+  async cancelSubscription(atPeriodEnd = true) {
+    try {
+      console.log('🚫 Canceling subscription...', { atPeriodEnd });
+      
+      const response = await api.post('/subscriptions/cancel', {
+        atPeriodEnd: atPeriodEnd
+      });
+      
+      console.log('✅ Subscription cancellation response:', response.data);
+      
+      // Clear relevant caches after cancellation
+      this.clearCache('subscription');
+      this.clearCache('usage');
+      this.clearCache('billingHistory');
+      
+      return response.data.data || response.data;
+    } catch (error) {
+      console.error('❌ Error canceling subscription:', error);
+      
+      // Handle different error types
+      if (error.response?.status === 404) {
+        throw new Error('No active subscription found to cancel');
+      } else if (error.response?.status === 403) {
+        throw new Error('Not authorized to cancel this subscription');
+      } else if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      } else {
+        throw new Error('Failed to cancel subscription. Please try again.');
+      }
+    }
+  }
+
+  /**
+   * 🔧 FIXED: Resume subscription - properly handle API call and response
+   */
+  async resumeSubscription() {
+    try {
+      console.log('▶️ Resuming subscription...');
+      
+      const response = await api.post('/subscriptions/resume');
+      
+      console.log('✅ Subscription resume response:', response.data);
+      
+      // Clear relevant caches after resuming
+      this.clearCache('subscription');
+      this.clearCache('usage');
+      this.clearCache('billingHistory');
+      
+      return response.data.data || response.data;
+    } catch (error) {
+      console.error('❌ Error resuming subscription:', error);
+      
+      if (error.response?.status === 404) {
+        throw new Error('No subscription found to resume');
+      } else if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      } else {
+        throw new Error('Failed to resume subscription. Please try again.');
+      }
+    }
+  }
+
+  /**
+   * 🔧 FIXED: Create customer portal session - handle Stripe portal properly
+   */
+  async createCustomerPortalSession(returnUrl = null) {
+    try {
+      console.log('🔗 Creating customer portal session...');
+      
+      const response = await api.post('/subscriptions/customer-portal', {
+        returnUrl: returnUrl || `${window.location.origin}/settings`
+      });
+      
+      console.log('✅ Customer portal session created:', response.data);
+      
+      return response.data.data || response.data;
+    } catch (error) {
+      console.error('❌ Error creating customer portal session:', error);
+      
+      if (error.response?.status === 404) {
+        throw new Error('No subscription found. Customer portal is only available for active subscriptions.');
+      } else if (error.response?.status === 403) {
+        throw new Error('Not authorized to access customer portal');
+      } else if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      } else {
+        throw new Error('Failed to open billing portal. Please try again.');
+      }
+    }
+  }
+
+  /**
+   * 🔧 FIXED: Change subscription plan
+   */
+  async changeSubscriptionPlan(newPlanName) {
+    try {
+      console.log('🔄 Changing subscription plan to:', newPlanName);
+      
+      const response = await api.put('/subscriptions/change-plan', {
+        newPlanName: newPlanName
+      });
+      
+      console.log('✅ Plan change response:', response.data);
+      
+      // Clear all caches after plan change
+      this.clearCache();
+      
+      return response.data.data || response.data;
+    } catch (error) {
+      console.error('❌ Error changing subscription plan:', error);
+      
+      if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      } else {
+        throw new Error('Failed to change subscription plan. Please try again.');
+      }
+    }
+  }
+
+  /**
    * 🔧 NEW: Clear specific cache
    */
   clearCache(cacheKey = null) {
@@ -347,7 +469,7 @@ class SubscriptionService {
    */
   async trackUsage(feature, quantity = 1) {
     try {
-      const response = await api.post('/subscriptions/track-usage', {
+      const response = await api.post('/subscriptions/usage/track', {
         feature,
         quantity
       });
@@ -371,8 +493,8 @@ class SubscriptionService {
     try {
       const response = await api.post('/subscriptions/create-checkout', {
         planName,
-        successUrl: successUrl || `${window.location.origin}/subscription/success`,
-        cancelUrl: cancelUrl || `${window.location.origin}/pricing`
+        successUrl: successUrl || `${window.location.origin}/settings?upgraded=true`,
+        cancelUrl: cancelUrl || `${window.location.origin}/settings`
       });
       return response.data.data;
     } catch (error) {
@@ -386,7 +508,7 @@ class SubscriptionService {
    */
   async syncSubscriptionStatus() {
     try {
-      const response = await api.post('/subscriptions/sync-status');
+      const response = await api.post('/subscriptions/sync');
       
       // Clear all caches after sync
       this.clearCache();

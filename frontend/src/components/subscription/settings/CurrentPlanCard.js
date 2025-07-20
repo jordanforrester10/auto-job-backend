@@ -1,4 +1,4 @@
-// src/components/subscription/settings/CurrentPlanCard.js - FIXED DATE DISPLAY AND RESUME FUNCTIONALITY
+// src/components/subscription/settings/CurrentPlanCard.js - FIXED WORKING BUTTONS VERSION
 import React, { useState } from 'react';
 import {
   Card,
@@ -81,51 +81,67 @@ const CurrentPlanCard = ({ subscription, planInfo, onPlanChange, onError, onSucc
   const isActive = subscription?.subscriptionStatus === 'active';
   const cancelAtPeriodEnd = subscription?.cancelAtPeriodEnd;
 
-  // Handle customer portal access
+  // 🔧 FIXED: Handle customer portal access with proper error handling
   const handleManageSubscription = async () => {
     try {
       setLoading(prev => ({ ...prev, portal: true }));
       
+      console.log('🔗 Opening customer portal...');
+      
       const portalSession = await subscriptionService.createCustomerPortalSession();
       
+      console.log('✅ Portal session created:', portalSession);
+      
       // Redirect to Stripe customer portal
-      window.open(portalSession.portalUrl, '_blank');
+      if (portalSession.portalUrl) {
+        window.open(portalSession.portalUrl, '_blank');
+        onSuccess?.('Billing portal opened in a new tab');
+      } else {
+        throw new Error('No portal URL received from server');
+      }
       
     } catch (error) {
-      console.error('Error opening customer portal:', error);
-      onError?.('Failed to open billing portal. Please try again.');
+      console.error('❌ Error opening customer portal:', error);
+      onError?.(`Failed to open billing portal: ${error.message}`);
     } finally {
       setLoading(prev => ({ ...prev, portal: false }));
     }
   };
 
-  // Handle subscription cancellation
+  // 🔧 FIXED: Handle subscription cancellation with proper error handling
   const handleCancelSubscription = async () => {
     try {
       setLoading(prev => ({ ...prev, cancel: true }));
       
+      console.log('🚫 Canceling subscription...');
+      
       const result = await subscriptionService.cancelSubscription(true);
+      
+      console.log('✅ Cancellation result:', result);
       
       onSuccess?.('Subscription will be canceled at the end of your current billing period.');
       setShowCancelDialog(false);
       
-      // Refresh the page or trigger a refresh of subscription data
-      window.location.reload();
+      // Refresh the page after a short delay to show updated status
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
       
     } catch (error) {
-      console.error('Error canceling subscription:', error);
-      onError?.('Failed to cancel subscription. Please try again.');
+      console.error('❌ Error canceling subscription:', error);
+      onError?.(`Failed to cancel subscription: ${error.message}`);
+      setShowCancelDialog(false);
     } finally {
       setLoading(prev => ({ ...prev, cancel: false }));
     }
   };
 
-  // FIXED: Handle subscription resumption with proper loading state and refresh
+  // 🔧 FIXED: Handle subscription resumption with proper loading state and refresh
   const handleResumeSubscription = async () => {
     try {
       setLoading(prev => ({ ...prev, resume: true }));
       
-      console.log('🔄 Resuming subscription...');
+      console.log('▶️ Resuming subscription...');
       const result = await subscriptionService.resumeSubscription();
       console.log('✅ Resume subscription result:', result);
       
@@ -138,7 +154,7 @@ const CurrentPlanCard = ({ subscription, planInfo, onPlanChange, onError, onSucc
       
     } catch (error) {
       console.error('❌ Error resuming subscription:', error);
-      onError?.('Failed to resume subscription. Please try again.');
+      onError?.(`Failed to resume subscription: ${error.message}`);
     } finally {
       setLoading(prev => ({ ...prev, resume: false }));
     }
@@ -408,37 +424,23 @@ const CurrentPlanCard = ({ subscription, planInfo, onPlanChange, onError, onSucc
                 </Button>
                 <Button
                   variant="outlined"
-                  startIcon={<ManageIcon />}
+                  startIcon={loading.portal ? <CircularProgress size={16} /> : <ManageIcon />}
                   onClick={handleManageSubscription}
                   disabled={loading.portal}
                   sx={{ borderRadius: 2 }}
                 >
-                  {loading.portal ? (
-                    <>
-                      <CircularProgress size={16} sx={{ mr: 1 }} />
-                      Opening...
-                    </>
-                  ) : (
-                    'Manage Subscription'
-                  )}
+                  {loading.portal ? 'Opening...' : 'Manage Subscription'}
                 </Button>
               </>
             ) : (
               <Button
                 variant="outlined"
-                startIcon={<ManageIcon />}
+                startIcon={loading.portal ? <CircularProgress size={16} /> : <ManageIcon />}
                 onClick={handleManageSubscription}
                 disabled={loading.portal}
                 sx={{ borderRadius: 2 }}
               >
-                {loading.portal ? (
-                  <>
-                    <CircularProgress size={16} sx={{ mr: 1 }} />
-                    Opening...
-                  </>
-                ) : (
-                  'Manage Subscription'
-                )}
+                {loading.portal ? 'Opening...' : 'Manage Subscription'}
               </Button>
             )}
 

@@ -432,28 +432,54 @@ class SubscriptionController {
     }
   }
 
-  /**
-   * Create customer portal session
+ /**
+   * 🔧 FIXED: Create customer portal session
    * @route POST /api/subscriptions/customer-portal
    * @access Private
    */
   static async createCustomerPortal(req, res) {
     try {
       const userId = req.user.id;
+      const { returnUrl } = req.body;
+      
+      console.log(`🔗 Creating customer portal session for user ${userId}`);
+      
+      // Set default return URL if not provided
       const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      const returnUrl = `${baseUrl}/settings`;
-
-      const session = await subscriptionService.createCustomerPortalSession(userId, returnUrl);
+      const portalReturnUrl = returnUrl || `${baseUrl}/settings`;
+      
+      console.log(`🔗 Portal return URL: ${portalReturnUrl}`);
+      
+      const session = await subscriptionService.createCustomerPortalSession(userId, portalReturnUrl);
+      
+      console.log(`✅ Customer portal session created: ${session.url}`);
 
       res.status(200).json({
         success: true,
         data: {
           portalUrl: session.url,
+          returnUrl: portalReturnUrl,
           message: 'Customer portal session created successfully'
         }
       });
     } catch (error) {
-      console.error('Error creating customer portal session:', error);
+      console.error('❌ Error creating customer portal session:', error);
+      
+      // Handle specific error cases
+      if (error.message && error.message.includes('No subscription found')) {
+        return res.status(404).json({
+          success: false,
+          error: 'No active subscription found. Customer portal is only available for subscribers.'
+        });
+      }
+      
+      if (error.message && error.message.includes('No Stripe customer')) {
+        return res.status(404).json({
+          success: false,
+          error: 'No billing information found. Please contact support.'
+        });
+      }
+      
       res.status(500).json({
         success: false,
         error: error.message || 'Failed to create customer portal session'
@@ -461,8 +487,8 @@ class SubscriptionController {
     }
   }
 
-  /**
-   * Cancel subscription
+/**
+   * 🔧 FIXED: Cancel subscription
    * @route POST /api/subscriptions/cancel
    * @access Private
    */
@@ -471,19 +497,40 @@ class SubscriptionController {
       const userId = req.user.id;
       const { atPeriodEnd = true } = req.body;
 
+      console.log(`🚫 Canceling subscription for user ${userId}, atPeriodEnd: ${atPeriodEnd}`);
+
       const result = await subscriptionService.cancelSubscription(userId, atPeriodEnd);
+
+      console.log(`✅ Subscription cancellation result:`, result);
 
       res.status(200).json({
         success: true,
         data: {
           subscription: result,
+          atPeriodEnd: atPeriodEnd,
           message: atPeriodEnd 
             ? 'Subscription will be canceled at the end of the monthly billing period'
             : 'Subscription canceled immediately'
         }
       });
     } catch (error) {
-      console.error('Error canceling subscription:', error);
+      console.error('❌ Error canceling subscription:', error);
+      
+      // Handle specific error cases
+      if (error.message && error.message.includes('No active subscription')) {
+        return res.status(404).json({
+          success: false,
+          error: 'No active subscription found to cancel'
+        });
+      }
+      
+      if (error.message && error.message.includes('already canceled')) {
+        return res.status(400).json({
+          success: false,
+          error: 'Subscription is already set to cancel'
+        });
+      }
+      
       res.status(500).json({
         success: false,
         error: error.message || 'Failed to cancel subscription'
@@ -492,7 +539,7 @@ class SubscriptionController {
   }
 
   /**
-   * Resume subscription
+   * 🔧 FIXED: Resume subscription
    * @route POST /api/subscriptions/resume
    * @access Private
    */
@@ -500,7 +547,11 @@ class SubscriptionController {
     try {
       const userId = req.user.id;
       
+      console.log(`▶️ Resuming subscription for user ${userId}`);
+
       const result = await subscriptionService.resumeSubscription(userId);
+
+      console.log(`✅ Subscription resume result:`, result);
 
       res.status(200).json({
         success: true,
@@ -510,7 +561,23 @@ class SubscriptionController {
         }
       });
     } catch (error) {
-      console.error('Error resuming subscription:', error);
+      console.error('❌ Error resuming subscription:', error);
+      
+      // Handle specific error cases
+      if (error.message && error.message.includes('No subscription found')) {
+        return res.status(404).json({
+          success: false,
+          error: 'No subscription found to resume'
+        });
+      }
+      
+      if (error.message && error.message.includes('not set to cancel')) {
+        return res.status(400).json({
+          success: false,
+          error: 'Subscription is not set to cancel'
+        });
+      }
+      
       res.status(500).json({
         success: false,
         error: error.message || 'Failed to resume subscription'
