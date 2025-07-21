@@ -1,4 +1,4 @@
-// services/resumeParser.service.js - ENHANCED WITH SMART DATE PARSING
+// services/resumeParser.service.js - ENHANCED WITH SMART DATE PARSING AND ROBUST JSON HANDLING
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
 const { s3Client, S3_BUCKET } = require('../config/s3');
 const { openai } = require('../config/openai');
@@ -277,6 +277,134 @@ function enhanceEducationData(education) {
 }
 
 /**
+ * NEW: Robust JSON parser with multiple fallback strategies
+ * @param {string} responseContent - Raw response from OpenAI
+ * @returns {Object} Parsed JSON data or fallback object
+ */
+function robustJSONParse(responseContent) {
+  console.log('🔧 Attempting robust JSON parsing...');
+  
+  // Strategy 1: Clean and parse the full response
+  try {
+    let cleanedResponse = responseContent.trim();
+    
+    // Remove markdown code block syntax
+    if (cleanedResponse.startsWith('```json') || cleanedResponse.startsWith('```')) {
+      const startIndex = cleanedResponse.indexOf('{');
+      const endIndex = cleanedResponse.lastIndexOf('}');
+      
+      if (startIndex !== -1 && endIndex !== -1) {
+        cleanedResponse = cleanedResponse.substring(startIndex, endIndex + 1);
+      }
+    }
+    
+    console.log('✅ Strategy 1: Attempting to parse cleaned response...');
+    return JSON.parse(cleanedResponse);
+  } catch (error) {
+    console.log('❌ Strategy 1 failed:', error.message);
+  }
+  
+  // Strategy 2: Find and extract the JSON object boundaries
+  try {
+    const startIndex = responseContent.indexOf('{');
+    const lastBraceIndex = responseContent.lastIndexOf('}');
+    
+    if (startIndex !== -1 && lastBraceIndex !== -1 && lastBraceIndex > startIndex) {
+      const jsonString = responseContent.substring(startIndex, lastBraceIndex + 1);
+      console.log('✅ Strategy 2: Attempting to parse extracted JSON boundaries...');
+      return JSON.parse(jsonString);
+    }
+  } catch (error) {
+    console.log('❌ Strategy 2 failed:', error.message);
+  }
+  
+  // Strategy 3: Progressive truncation to find valid JSON
+  try {
+    const startIndex = responseContent.indexOf('{');
+    if (startIndex !== -1) {
+      let jsonContent = responseContent.substring(startIndex);
+      
+      // Try progressively shorter strings from the end
+      for (let i = jsonContent.length; i > jsonContent.length * 0.5; i -= 100) {
+        const testString = jsonContent.substring(0, i);
+        const lastBrace = testString.lastIndexOf('}');
+        
+        if (lastBrace !== -1) {
+          try {
+            const candidate = testString.substring(0, lastBrace + 1);
+            console.log(`✅ Strategy 3: Attempting truncated parse at position ${lastBrace}...`);
+            return JSON.parse(candidate);
+          } catch (error) {
+            // Continue to next iteration
+            continue;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.log('❌ Strategy 3 failed:', error.message);
+  }
+  
+  // Strategy 4: Manual field extraction as last resort
+  try {
+    console.log('✅ Strategy 4: Attempting manual field extraction...');
+    
+    const fallbackData = {
+      contactInfo: { name: '', email: '', phone: '', location: '', websites: [] },
+      summary: '',
+      experience: [],
+      education: [],
+      skills: [],
+      certifications: [],
+      languages: [],
+      projects: []
+    };
+    
+    // Try to extract contact name
+    const nameMatch = responseContent.match(/"name":\s*"([^"]+)"/);
+    if (nameMatch) {
+      fallbackData.contactInfo.name = nameMatch[1];
+    }
+    
+    // Try to extract email
+    const emailMatch = responseContent.match(/"email":\s*"([^"]+)"/);
+    if (emailMatch) {
+      fallbackData.contactInfo.email = emailMatch[1];
+    }
+    
+    // Try to extract summary
+    const summaryMatch = responseContent.match(/"summary":\s*"([^"]+)"/);
+    if (summaryMatch) {
+      fallbackData.summary = summaryMatch[1];
+    }
+    
+    console.log('✅ Manual extraction completed with partial data');
+    return fallbackData;
+  } catch (error) {
+    console.log('❌ Strategy 4 failed:', error.message);
+  }
+  
+  // Final fallback
+  console.log('⚠️ All parsing strategies failed, returning basic fallback');
+  return {
+    contactInfo: {
+      name: 'Parsing Error - Please Try Again',
+      email: '',
+      phone: '',
+      location: '',
+      websites: []
+    },
+    summary: 'Unable to parse resume due to formatting issues. Please try uploading again or contact support if the problem persists.',
+    experience: [],
+    education: [],
+    skills: [],
+    certifications: [],
+    languages: [],
+    projects: []
+  };
+}
+
+/**
  * Parse a resume file and extract structured data using OpenAI
  * @param {string} fileUrl - S3 key for the resume file
  * @param {string} fileType - Type of file (PDF, DOCX, DOC)
@@ -350,11 +478,11 @@ async function processWithOpenAI(text) {
   try {
     console.log('Processing resume text with OpenAI with enhanced bullet point parsing and smart date handling...');
     
-    // Check if text is too long for the API
-    const maxTokens = 8000; // GPT-4 can handle ~8000 tokens
+    // Check if text is too long for the API - INCREASED LIMITS
+    const maxTokens = 12000; // Increased from 8000 to handle larger resumes
     // Rough estimation: 1 token ~= 4 characters in English
     if (text.length > maxTokens * 4) {
-      console.log('Text is too long, truncating...');
+      console.log(`Text is too long (${text.length} chars), truncating to ${maxTokens * 4} characters...`);
       text = text.substring(0, maxTokens * 4);
     }
     
@@ -379,25 +507,10 @@ async function processWithOpenAI(text) {
     - Remove bullet symbols from the extracted text (remove -, •, *, etc.)
     - If you see dash-separated achievements, extract each as a highlight
     
-    **EXAMPLES OF BULLET POINT EXTRACTION:**
-    
-    Input text: "- Led Solution Architecture teams delivering B2B SaaS implementations
-    - Drive delivery excellence for strategic accounts while building scalable processes"
-    
-    Should extract as:
-    "highlights": [
-      "Led Solution Architecture teams delivering B2B SaaS implementations",
-      "Drive delivery excellence for strategic accounts while building scalable processes"
-    ]
-    
-    Input text: "• Built inbound funnels generating 9,564 MQLs and 2,020 demos
-    • Marketed Tovuti as the #1 trending LMS on G2 with 490 competitors"
-    
-    Should extract as:
-    "highlights": [
-      "Built inbound funnels generating 9,564 MQLs and 2,020 demos",
-      "Marketed Tovuti as the #1 trending LMS on G2 with 490 competitors"
-    ]
+    **IMPORTANT: Handle special characters carefully:**
+    - Escape quotes properly in JSON strings
+    - Handle URLs and email addresses carefully
+    - If a string contains quotes, use proper JSON escaping with backslashes
     
     Provide the information in JSON format with the following structure:
     {
@@ -465,33 +578,8 @@ async function processWithOpenAI(text) {
       ]
     }
 
-    **BULLET POINT EXTRACTION RULES:**
-    1. Extract ALL bullet points into "highlights" arrays for experience and education
-    2. Use "description" only for paragraph-style summaries without bullet points
-    3. Remove bullet symbols (-, •, *, >, etc.) from the extracted text
-    4. Each line starting with a bullet symbol should be a separate highlight
-    5. Look for quantified achievements and metrics in bullet points
-    6. Preserve the complete meaning of each bullet point
-    
-    **DATE HANDLING RULES:**
-    1. Keep "Present", "Current", "Ongoing", "Now" as strings for current positions
-    2. Convert historical dates to YYYY-MM-DD format when possible
-    3. For year-only dates, use January 1st (e.g., "2024" → "2024-01-01")
-    4. For month-year dates, use first day of month (e.g., "Jan 2024" → "2024-01-01")
-    5. Handle date ranges properly with correct start and end dates
-    
-    **EXPERIENCE SECTION FOCUS:**
-    - Extract job responsibilities and achievements as separate highlights
-    - Look for metrics, numbers, percentages, and business impact
-    - Each achievement or responsibility should be a separate highlight item
-    
-    Extract all the information accurately from the resume. For dates, use the format YYYY-MM-DD when possible, but keep "Present" as a string for current positions. 
-    If information is not available or empty, leave it as an empty string or null. 
-    For arrays, if no elements are present, return an empty array [].
-    Make sure to include all skills mentioned in each work experience and project.
-    For skill levels, use one of: "Beginner", "Intermediate", "Advanced", or "Expert".
-    
     IMPORTANT: Return ONLY the JSON object without any markdown formatting, code blocks, or additional text.
+    Make sure all strings are properly escaped for JSON parsing.
 
     Resume Text:
     ${text}
@@ -503,7 +591,7 @@ async function processWithOpenAI(text) {
       messages: [
         {
           role: "system", 
-          content: "You are an expert resume parser that excels at extracting bullet points and structured information from resume text. You pay special attention to extracting achievements, responsibilities, and bullet points into proper arrays. You understand that lines starting with -, •, *, >, or numbers are bullet points that should be extracted separately. You also handle dates intelligently, keeping 'Present' as a string for current positions and converting historical dates to proper formats. Return ONLY valid JSON without any markdown formatting or code blocks."
+          content: "You are an expert resume parser that excels at extracting bullet points and structured information from resume text. You pay special attention to extracting achievements, responsibilities, and bullet points into proper arrays. You understand that lines starting with -, •, *, >, or numbers are bullet points that should be extracted separately. You also handle dates intelligently, keeping 'Present' as a string for current positions and converting historical dates to proper formats. Return ONLY valid JSON without any markdown formatting or code blocks. Always properly escape quotes and special characters in JSON strings."
         },
         {
           role: "user",
@@ -511,31 +599,19 @@ async function processWithOpenAI(text) {
         }
       ],
       temperature: 0.1,
-      max_tokens: 3000,
+      max_tokens: 4000, // Increased token limit
     });
 
     // Get the response content
     const responseContent = response.choices[0].message.content.trim();
     
-    // Clean up the response - remove any markdown code block syntax
-    let cleanedResponse = responseContent;
+    console.log('Raw OpenAI response length:', responseContent.length);
+    console.log('Response preview:', responseContent.substring(0, 200) + '...');
     
-    // If response starts with ```json or ``` and ends with ```, remove these markers
-    if (responseContent.startsWith('```json') || responseContent.startsWith('```')) {
-      const startIndex = responseContent.indexOf('{');
-      const endIndex = responseContent.lastIndexOf('}');
-      
-      if (startIndex !== -1 && endIndex !== -1) {
-        cleanedResponse = responseContent.substring(startIndex, endIndex + 1);
-      }
-    }
+    // Use robust JSON parsing with multiple fallback strategies
+    const parsedData = robustJSONParse(responseContent);
     
-    console.log('Cleaned response for parsing:', cleanedResponse.substring(0, 100) + '...');
-    
-    // Parse the response
-    const parsedData = JSON.parse(cleanedResponse);
-    
-    // 🔧 NEW: Apply smart date processing to handle "Present" and other date formats
+    // 🔧 Apply smart date processing to handle "Present" and other date formats
     const processedData = processDateFields(parsedData);
     
     // ENHANCED: Apply post-processing to ensure bullet points are properly extracted
