@@ -1156,15 +1156,6 @@ const JobsPage = () => {
                   • <strong>Casual Plan ($14.99/month):</strong> 25 manual job imports, 25 resume tailorings, 50 jobs automatically discovered per week<br/>
                   • <strong>Hunter Plan ($24.99/month):</strong> Unlimited manual job imports, 50 resume tailorings & 100 jobs automatically discovered per week
                 </Typography>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<UpgradeIcon />}
-                  onClick={() => setOpenLimitDialog(true)}
-                  sx={{ mt: 1, borderRadius: 2 }}
-                >
-                  View Plans
-                </Button>
               </Box>
             )}
           </Box>
