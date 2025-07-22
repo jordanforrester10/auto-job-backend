@@ -143,12 +143,15 @@ const FullScreenLoader = ({ open, locations = [], jobTitles = [] }) => {
               }}
             />
 
-            {/* Logo */}
-            <Box sx={{ mb: 3 }}>
+            {/* Logo - UPDATED: Icon-only and centered */}
+            <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
               <AutoJobLogo 
-                variant="full" 
+                variant="icon-only" 
                 size="large"
                 sx={{ 
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
                   '& svg': { 
                     width: 60, 
                     height: 60 

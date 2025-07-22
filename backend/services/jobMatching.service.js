@@ -224,9 +224,9 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
       resume.tailoredForJob?.jobId && 
       resume.tailoredForJob.jobId.toString() === jobId.toString();
     
-    // ENHANCED: Contextual prompt for personalized recommendations
+    // ENHANCED: Updated prompt for clean recommendations without "CONTEXTUAL" prefix
     const prompt = `
-    You are an expert career coach and ATS specialist. Analyze this specific resume against this specific job posting and provide CONTEXTUAL, PERSONALIZED recommendations based on the actual content and gaps you identify.
+    You are an expert career coach and ATS specialist. Analyze this specific resume against this specific job posting and provide PERSONALIZED recommendations based on the actual content and gaps you identify.
 
     IMPORTANT: Your recommendations must be based on:
     1. What's actually IN the candidate's resume
@@ -255,12 +255,12 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
     Education: ${JSON.stringify(resume.parsedData.education)}
     ${isTailoredForThisJob ? 'NOTE: This resume has been specifically tailored for this job posting.' : ''}
 
-    **CONTEXTUAL ANALYSIS REQUIREMENTS:**
+    **ANALYSIS REQUIREMENTS:**
 
     1. **Skills Analysis**: Compare EXACTLY what skills the candidate has vs. what the job needs
     2. **Experience Analysis**: Look at their actual work experience vs. job requirements
     3. **Gap Analysis**: Identify SPECIFIC missing elements and how to address them
-    4. **Contextual Recommendations**: Provide advice that references their actual resume content
+    4. **Personalized Recommendations**: Provide advice that references their actual resume content
 
     **SCORING GUIDELINES (Be Realistic and Context-Aware):**
     - 90-100%: Exceptional match, candidate exceeds requirements with relevant experience
@@ -271,10 +271,10 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
     - Below 50%: Very poor match, major misalignment between candidate and role
 
     **IMPROVEMENT SUGGESTIONS MUST BE:**
-    - **Specific to their resume content**: "Your project management experience at [Company] should emphasize..."
-    - **Targeted to job requirements**: "This role requires X, but your resume shows Y - here's how to bridge that gap..."
+    - **Specific to their resume content**: Reference their actual work and how to enhance it
+    - **Targeted to job requirements**: Connect directly to what this role needs
     - **Actionable**: Give exact wording changes, not generic advice
-    - **Context-aware**: Reference their actual skills/experience and how to better position them
+    - **Personalized**: Reference their actual skills/experience and how to better position them
 
     Provide analysis in this EXACT JSON format:
     {
@@ -298,7 +298,7 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
           "skill": "specific missing skill from job requirements",
           "importance": <1-10 scale>,
           "category": "required|preferred",
-          "suggestionToAdd": "CONTEXTUAL advice on how they can highlight or develop this skill based on their background"
+          "suggestionToAdd": "Personalized advice on how they can highlight or develop this skill based on their background"
         }
       ],
       "experienceAnalysis": {
@@ -316,14 +316,14 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
         "educationRecommendations": "specific advice based on their education vs job requirements"
       },
       "improvementSuggestions": [
-        "CONTEXTUAL suggestion 1: Reference their actual resume content and how to improve it for this specific job",
-        "CONTEXTUAL suggestion 2: Specific gap identified and how to address it with their background",
-        "CONTEXTUAL suggestion 3: Tactical advice for better positioning their existing experience"
+        "Your project management experience at [Company] should emphasize specific metrics and outcomes that align with this role's requirements",
+        "Highlight your database work by mentioning specific technologies like PostgreSQL that this position uses daily",
+        "Expand your leadership examples to include cross-functional team coordination, which is crucial for this role"
       ],
       "strengthsHighlight": [
-        "Specific strength 1 from their resume that aligns with job requirements",
-        "Specific strength 2 with context about why it matches this role",
-        "Specific strength 3 that gives them an advantage for this position"
+        "Your experience with cloud platforms at [Company] directly aligns with their infrastructure needs",
+        "Strong technical background in [specific skill] gives you an advantage for this position",
+        "Leadership experience managing teams of [size] matches well with this role's requirements"
       ],
       "contextualKeywords": [
         "specific keyword from job posting they should add to resume",
@@ -332,11 +332,12 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
       ]
     }
 
-    **CRITICAL**: Your analysis must be based on the ACTUAL CONTENT comparison. If there are major gaps (leading to low scores), your improvement suggestions must be substantial and specific. If there's strong alignment (leading to high scores), your suggestions should be minor optimizations.
+    **CRITICAL**: Your analysis must be based on the ACTUAL CONTENT comparison. Provide direct, actionable suggestions without prefixes or labels - just clear, specific recommendations that reference their real experience and the job's actual requirements.
 
-    **EXAMPLE OF GOOD CONTEXTUAL RECOMMENDATIONS:**
-    - Instead of: "Add more technical skills"
-    - Write: "Your database experience at TechCorp should specifically mention PostgreSQL since that's the primary database this role uses. Expand your 'database optimization' bullet point to include specific query performance improvements you achieved."
+    **EXAMPLES OF GOOD RECOMMENDATIONS:**
+    - "Your database experience at TechCorp should specifically mention PostgreSQL since that's the primary database this role uses. Expand your 'database optimization' bullet point to include specific query performance improvements you achieved."
+    - "Highlight your AWS experience from the cloud migration project - this role specifically requires AWS expertise for their multi-cloud strategy."
+    - "Your leadership role at StartupCo should emphasize the team size (5 engineers) and project outcomes since this position involves managing similar teams."
 
     Return ONLY valid JSON without markdown formatting.
     `;
@@ -347,7 +348,7 @@ exports.matchResumeWithJob = async (resumeId, jobId) => {
       messages: [
         {
           role: "system", 
-          content: `You are an expert career coach and ATS analyst who provides CONTEXTUAL, PERSONALIZED resume recommendations. You analyze the specific content of each resume against specific job requirements and provide targeted advice that references actual resume content and job needs. ${isTailoredForThisJob ? 'You recognize when resumes have been optimized for specific jobs and score them appropriately higher.' : 'You provide realistic scores based on content alignment.'} Return ONLY valid JSON without markdown formatting.`
+          content: `You are an expert career coach and ATS analyst who provides PERSONALIZED resume recommendations. You analyze the specific content of each resume against specific job requirements and provide targeted advice that references actual resume content and job needs. ${isTailoredForThisJob ? 'You recognize when resumes have been optimized for specific jobs and score them appropriately higher.' : 'You provide realistic scores based on content alignment.'} Return ONLY valid JSON without markdown formatting. Provide clear, direct recommendations without any prefixes or labels.`
         },
         {
           role: "user",
