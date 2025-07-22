@@ -9,8 +9,7 @@ import {
   Chip,
   Alert,
   FormHelperText,
-  Divider,
-  CircularProgress
+  Divider
 } from '@mui/material';
 import {
   LocationOn as LocationOnIcon,
@@ -170,7 +169,7 @@ const JobPreferencesStep = ({ onContinue, onPrevious, resumeAnalysis, loading = 
     return true;
   };
 
-  // Handle form submission
+  // Handle form submission - UPDATED to remove loading state
   const handleContinue = () => {
     const isLocationsValid = validateLocations();
     const isJobTitlesValid = validateJobTitles();
@@ -182,6 +181,7 @@ const JobPreferencesStep = ({ onContinue, onPrevious, resumeAnalysis, loading = 
         type: location === 'Remote' ? 'remote' : 'city'
       }));
       
+      // Trigger the full-screen loader by calling onContinue
       onContinue(formattedLocations, selectedJobTitles);
     }
   };
@@ -210,6 +210,7 @@ const JobPreferencesStep = ({ onContinue, onPrevious, resumeAnalysis, loading = 
             onClick={onPrevious}
             startIcon={<ArrowBackIcon />}
             sx={{ borderRadius: 2, px: 3 }}
+            disabled={loading} // Disable during loading
           >
             Back to Analysis
           </Button>
@@ -217,23 +218,22 @@ const JobPreferencesStep = ({ onContinue, onPrevious, resumeAnalysis, loading = 
           {/* Centered Icon */}
           <TravelExploreIcon sx={{ fontSize: 48, color: 'primary.main' }} />
           
-          {/* Continue Button with Loading State */}
+          {/* Continue Button - UPDATED: Removed loading spinner */}
           <Button
             variant="contained"
             onClick={handleContinue}
-            disabled={!isFormValid || loading}
-            endIcon={loading ? <CircularProgress size={20} color="inherit" /> : <ArrowForwardIcon />}
+            disabled={!isFormValid || loading} // Keep disabled state but remove loading spinner
+            endIcon={<ArrowForwardIcon />}
             sx={{ 
               borderRadius: 2,
               px: 3,
               py: 1,
               fontSize: '0.9rem',
               fontWeight: 600,
-              whiteSpace: 'nowrap',
-              minWidth: 140 // Prevent button width changes during loading
+              whiteSpace: 'nowrap'
             }}
           >
-            {loading ? 'Finding Jobs...' : 'Find My Jobs'}
+            Find My Jobs
           </Button>
         </Box>
         
@@ -283,6 +283,7 @@ const JobPreferencesStep = ({ onContinue, onPrevious, resumeAnalysis, loading = 
               setLocationInput(newInputValue);
             }}
             freeSolo
+            disabled={loading} // Disable during loading
             renderTags={(value, getTagProps) =>
               value.map((option, index) => (
                 <Chip
@@ -351,6 +352,7 @@ const JobPreferencesStep = ({ onContinue, onPrevious, resumeAnalysis, loading = 
               setJobTitleInput(newInputValue);
             }}
             freeSolo
+            disabled={loading} // Disable during loading
             renderTags={(value, getTagProps) =>
               value.map((option, index) => (
                 <Chip
@@ -399,7 +401,7 @@ const JobPreferencesStep = ({ onContinue, onPrevious, resumeAnalysis, loading = 
         )}
 
         {/* Success Message */}
-        {isFormValid && (
+        {isFormValid && !loading && (
           <Alert severity="success" sx={{ mb: 3 }}>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
               Ready to find your perfect jobs! 🚀

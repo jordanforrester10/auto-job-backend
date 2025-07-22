@@ -247,7 +247,7 @@ const ResumesPage = () => {
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
                   <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                    🎯 We found 650 jobs matching your skills
+                    🎯 We found 300+ jobs matching your skills
                   </Typography>
                   <Chip 
                     label="AI Powered" 
@@ -260,7 +260,7 @@ const ResumesPage = () => {
                   />
                 </Box>
                 <Typography variant="body2" sx={{ opacity: 0.8, fontStyle: 'italic' }}>
-                  Add jobs manually and tailor your resume, or upgrade for automated discovery and resume tailoring
+                  Add jobs manually and tailor your resume, or upgrade for automated weekly job discovery and resume tailoring
                 </Typography>
               </Box>
             </Box>

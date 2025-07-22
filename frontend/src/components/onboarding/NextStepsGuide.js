@@ -27,7 +27,8 @@ import {
   Launch as LaunchIcon,
   Upgrade as UpgradeIcon,
   AutoAwesome as AutoAwesomeIcon,
-  Timeline as TimelineIcon
+  Timeline as TimelineIcon,
+  Work as WorkIcon
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { useSubscription } from '../../context/SubscriptionContext';
@@ -53,8 +54,9 @@ const NextStepsGuide = ({
     });
   };
 
+  // UPDATED: Navigate to /jobs instead of /dashboard
   const handleGetStarted = () => {
-    navigate('/dashboard');
+    navigate('/jobs');
   };
 
   const handleStartTailoring = () => {
@@ -167,11 +169,11 @@ const NextStepsGuide = ({
           {/* Centered Icon */}
           <TrendingUpIcon sx={{ fontSize: 48, color: 'primary.main' }} />
           
-          {/* Get Started Button */}
+          {/* UPDATED: Get Started Button with Jobs icon and better CTA */}
           <Button
             variant="contained"
             onClick={handleGetStarted}
-            endIcon={<LaunchIcon />}
+            startIcon={<WorkIcon />}
             sx={{ 
               borderRadius: 2,
               px: 3,
@@ -181,7 +183,7 @@ const NextStepsGuide = ({
               whiteSpace: 'nowrap'
             }}
           >
-            Start Your Job Search
+            Explore Your Jobs
           </Button>
         </Box>
         

@@ -15,7 +15,8 @@ import {
   IconButton,
   LinearProgress,
   StepContent,
-  Chip
+  Chip,
+  Backdrop
 } from '@mui/material';
 import { 
   CloudUpload as CloudUploadIcon,
@@ -31,14 +32,14 @@ import {
   Lock as LockIcon,
   Warning as WarningIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom'; // ADD THIS IMPORT
+import { useNavigate } from 'react-router-dom';
 import resumeService from '../../utils/resumeService';
-import jobService from '../../utils/jobService'; // ADD THIS IMPORT
+import jobService from '../../utils/jobService';
 import { useSubscription } from '../../context/SubscriptionContext';
 import UpgradePrompt from '../subscription/shared/UpgradePrompt';
 
 const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
-  const navigate = useNavigate(); // ADD THIS
+  const navigate = useNavigate();
   
   const [activeStep, setActiveStep] = useState(0);
   const [file, setFile] = useState(null);
@@ -656,12 +657,30 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
     <>
       <Dialog 
         open={open} 
-        onClose={canClose ? handleClose : undefined} 
+        onClose={canClose ? handleClose : undefined}
         maxWidth="sm" 
         fullWidth
+        // ENHANCED: Disable backdrop click and escape key during upload
+        disableEscapeKeyDown={!canClose}
+        BackdropComponent={Backdrop}
+        BackdropProps={{
+          // ENHANCED: Add blur effect when upload is in progress
+          sx: {
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: !canClose ? 'blur(8px)' : 'none',
+            WebkitBackdropFilter: !canClose ? 'blur(8px)' : 'none',
+            transition: 'all 0.3s ease-in-out'
+          },
+          onClick: canClose ? undefined : (e) => e.stopPropagation()
+        }}
         PaperProps={{
           sx: {
-            borderRadius: 2
+            borderRadius: 2,
+            // ENHANCED: Add subtle glow effect during upload
+            boxShadow: !canClose 
+              ? '0 20px 60px rgba(0, 0, 0, 0.3), 0 0 30px rgba(25, 118, 210, 0.2)'
+              : undefined,
+            transition: 'box-shadow 0.3s ease-in-out'
           }
         }}
       >
@@ -682,11 +701,31 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
                     }}
                   />
                 )}
+                {/* ENHANCED: Show upload status indicator */}
+                {!canClose && (
+                  <Chip 
+                    size="small" 
+                    icon={<CloudUploadIcon sx={{ fontSize: 16 }} />}
+                    label="Uploading..." 
+                    sx={{ 
+                      backgroundColor: 'primary.main',
+                      color: 'white',
+                      fontWeight: 500,
+                      animation: 'pulse 2s infinite'
+                    }}
+                  />
+                )}
               </Box>
             </Box>
             {canClose && (
               <IconButton onClick={handleClose} size="small">
                 <CloseIcon />
+              </IconButton>
+            )}
+            {/* ENHANCED: Show lock icon when upload is in progress */}
+            {!canClose && (
+              <IconButton disabled size="small" sx={{ opacity: 0.5 }}>
+                <LockIcon />
               </IconButton>
             )}
           </Box>
@@ -751,6 +790,7 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
                   disabled={!canClose}
                   variant="outlined"
                   color="primary"
+                  startIcon={<LockIcon />}
                 >
                   Processing...
                 </Button>
@@ -771,6 +811,21 @@ const ResumeUploadDialog = ({ open, onClose, onResumeUploaded }) => {
           currentPlan={planInfo?.tier}
         />
       )}
+
+      {/* ENHANCED: Add CSS animation for pulsing effect */}
+      <style jsx>{`
+        @keyframes pulse {
+          0% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.7;
+          }
+          100% {
+            opacity: 1;
+          }
+        }
+      `}</style>
     </>
   );
 };

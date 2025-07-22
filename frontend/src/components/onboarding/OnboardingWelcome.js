@@ -34,6 +34,7 @@ import JobPreferencesStep from './JobPreferencesStep';
 import JobRecommendations from './JobRecommendations';
 import RecruiterShowcase from './RecruiterShowcase';
 import NextStepsGuide from './NextStepsGuide';
+import FullScreenLoader from './FullScreenLoader'; // NEW IMPORT
 import { useSubscription } from '../../context/SubscriptionContext';
 import MainLayout from '../layout/MainLayout';
 
@@ -53,6 +54,9 @@ const OnboardingWelcome = () => {
   const [jobPreferences, setJobPreferences] = useState(null);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [onboardingStatus, setOnboardingStatus] = useState(null);
+  
+  // NEW: Full screen loader state
+  const [showFullScreenLoader, setShowFullScreenLoader] = useState(false);
 
   const steps = [
     { label: 'Resume Analysis', icon: <PsychologyIcon /> },
@@ -134,19 +138,34 @@ const OnboardingWelcome = () => {
     navigate('/settings?tab=subscription');
   };
 
-  // Handle job preferences collection
+  // UPDATED: Handle job preferences collection with full-screen loader
   const handleJobPreferences = async (locations, jobTitles) => {
     try {
+      // Show full-screen loader immediately
+      setShowFullScreenLoader(true);
       setLoadingJobs(true);
       setJobPreferences({ locations, jobTitles });
       
       console.log('🎯 Job preferences collected:', { locations, jobTitles });
+      
+      // Add a minimum delay to ensure the loader is visible and smooth - UPDATED: Longer minimum time
+      const minLoadingTime = 8000; // UPDATED: 8 seconds minimum to allow users to see the process
+      const startTime = Date.now();
       
       // Call backend to get personalized jobs based on preferences using onboarding-specific endpoint
       const response = await resumeService.getPersonalizedJobsForOnboarding(resumeId, {
         locations: locations,
         jobTitles: jobTitles
       });
+      
+      // Calculate remaining time to meet minimum loading duration
+      const elapsedTime = Date.now() - startTime;
+      const remainingTime = Math.max(0, minLoadingTime - elapsedTime);
+      
+      // Wait for remaining time if needed
+      if (remainingTime > 0) {
+        await new Promise(resolve => setTimeout(resolve, remainingTime));
+      }
       
       if (response.success && response.jobs && response.jobs.length > 0) {
         // Update onboarding data with personalized jobs AND recruiters
@@ -164,12 +183,14 @@ const OnboardingWelcome = () => {
         // Keep existing jobs as fallback
       }
       
-      // Move to job recommendations step
+      // Hide full-screen loader and move to job recommendations step
+      setShowFullScreenLoader(false);
       setActiveStep(2);
       
     } catch (error) {
       console.error('❌ Error getting personalized jobs:', error);
-      // Continue with existing jobs as fallback
+      // Hide loader and continue with existing jobs as fallback
+      setShowFullScreenLoader(false);
       setActiveStep(2);
     } finally {
       setLoadingJobs(false);
@@ -219,125 +240,133 @@ const OnboardingWelcome = () => {
   }
 
   return (
-    <MainLayout>
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-      {/* Header - Reduced height and removed green checkmark */}
-      <Paper 
-        elevation={0} 
-        sx={{ 
-          p: 3, 
-          mb: 4, 
-          background: `linear-gradient(135deg, ${theme.palette.primary.main}15, ${theme.palette.secondary.main}15)`,
-          border: `1px solid ${theme.palette.divider}`,
-          borderRadius: 3
-        }}
-      >
-        <Box sx={{ textAlign: 'center', mb: 2 }}>
-          <Typography variant="h3" sx={{ fontWeight: 700, mb: 2, color: 'primary.main' }}>
-            Let's help you get started! 🎉
-          </Typography>
-          <Typography variant="h6" color="text.secondary" sx={{ maxWidth: 600, mx: 'auto' }}>
-            Your resume has been analyzed, and we have some personalized job matches and recruiters waiting for you.
-          </Typography>
+    <>
+      {/* NEW: Full Screen Loader */}
+      <FullScreenLoader 
+        open={showFullScreenLoader} 
+        locations={jobPreferences?.locations || []}
+        jobTitles={jobPreferences?.jobTitles || []}
+      />
+      
+      <MainLayout>
+        <Container maxWidth="lg" sx={{ py: 4 }}>
+        {/* Header - Reduced height and removed green checkmark */}
+        <Paper 
+          elevation={0} 
+          sx={{ 
+            p: 3, 
+            mb: 4, 
+            background: `linear-gradient(135deg, ${theme.palette.primary.main}15, ${theme.palette.secondary.main}15)`,
+            border: `1px solid ${theme.palette.divider}`,
+            borderRadius: 3
+          }}
+        >
+          <Box sx={{ textAlign: 'center', mb: 2 }}>
+            <Typography variant="h3" sx={{ fontWeight: 700, mb: 2, color: 'primary.main' }}>
+              Let's help you get started! 🎉
+            </Typography>
+            <Typography variant="h6" color="text.secondary" sx={{ maxWidth: 600, mx: 'auto' }}>
+              Your resume has been analyzed, and we have some personalized job matches and recruiters waiting for you.
+            </Typography>
+          </Box>
+
+          {/* Plan indicator */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
+            <Chip 
+              label={planInfo?.displayName || 'Free Plan'}
+              sx={{ 
+                backgroundColor: planInfo?.backgroundColor || theme.palette.grey[100],
+                color: planInfo?.color || theme.palette.text.primary,
+                fontWeight: 600,
+                px: 2
+              }}
+            />
+          </Box>
+
+          {/* Progress Stepper */}
+          <Stepper activeStep={activeStep} sx={{ mb: 3 }}>
+            {steps.map((step, index) => (
+              <Step key={step.label} completed={index < activeStep}>
+                <StepLabel 
+                  StepIconComponent={() => step.icon}
+                  onClick={() => handleStepClick(index)}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  {step.label}
+                </StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+        </Paper>
+
+        {/* Content Sections */}
+        <Box sx={{ mb: 4 }}>
+          {activeStep === 0 && (
+            <ResumeAnalysisSummary 
+              analysis={onboardingData.resumeAnalysis}
+              onNext={() => setActiveStep(1)}
+            />
+          )}
+          
+          {activeStep === 1 && (
+            <JobPreferencesStep
+              onContinue={handleJobPreferences}
+              onPrevious={() => setActiveStep(0)}
+              resumeAnalysis={onboardingData.resumeAnalysis}
+              loading={showFullScreenLoader} // Pass full-screen loader state
+            />
+          )}
+          
+          {activeStep === 2 && (
+            <>
+              {loadingJobs && !showFullScreenLoader ? (
+                <Paper elevation={0} sx={{ p: 4, border: `1px solid ${theme.palette.divider}`, borderRadius: 3, textAlign: 'center' }}>
+                  <CircularProgress size={60} sx={{ mb: 3 }} />
+                  <Typography variant="h5" gutterBottom>
+                    Finding Your Perfect Jobs! 🔍
+                  </Typography>
+                  <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 500, mx: 'auto' }}>
+                    We're searching for {jobPreferences?.jobTitles?.join(', ')} positions in {jobPreferences?.locations?.map(loc => loc.name).join(', ')}...
+                  </Typography>
+                  <LinearProgress sx={{ width: '100%', maxWidth: 400, mt: 3, mx: 'auto' }} />
+                </Paper>
+              ) : (
+                <JobRecommendations 
+                  jobs={onboardingData.jobs}
+                  locations={jobPreferences?.locations}
+                  jobTitles={jobPreferences?.jobTitles}
+                  personalizedJobs={onboardingData.personalizedJobs}
+                  onNext={() => setActiveStep(3)}
+                  onPrevious={() => setActiveStep(1)}
+                  allowBackToPreferences={!onboardingStatus?.lockedFlow}
+                />
+              )}
+            </>
+          )}
+          
+          {activeStep === 3 && (
+            <RecruiterShowcase 
+              recruiters={onboardingData.recruiters}
+              onNext={() => setActiveStep(4)}
+              onPrevious={() => setActiveStep(2)}
+            />
+          )}
+          
+          {activeStep === 4 && (
+            <NextStepsGuide 
+              resumeId={resumeId}
+              jobsCount={onboardingData.jobs.length}
+              recruitersCount={onboardingData.recruiters.length}
+              onGetStarted={handleGetStarted}
+              onUpgrade={handleUpgrade}
+              onPrevious={() => setActiveStep(3)}
+            />
+          )}
         </Box>
 
-        {/* Plan indicator */}
-        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
-          <Chip 
-            label={planInfo?.displayName || 'Free Plan'}
-            sx={{ 
-              backgroundColor: planInfo?.backgroundColor || theme.palette.grey[100],
-              color: planInfo?.color || theme.palette.text.primary,
-              fontWeight: 600,
-              px: 2
-            }}
-          />
-        </Box>
-
-        {/* Progress Stepper */}
-        <Stepper activeStep={activeStep} sx={{ mb: 3 }}>
-          {steps.map((step, index) => (
-            <Step key={step.label} completed={index < activeStep}>
-              <StepLabel 
-                StepIconComponent={() => step.icon}
-                onClick={() => handleStepClick(index)}
-                sx={{ cursor: 'pointer' }}
-              >
-                {step.label}
-              </StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-      </Paper>
-
-      {/* Content Sections */}
-      <Box sx={{ mb: 4 }}>
-        {activeStep === 0 && (
-          <ResumeAnalysisSummary 
-            analysis={onboardingData.resumeAnalysis}
-            onNext={() => setActiveStep(1)}
-          />
-        )}
-        
-        {activeStep === 1 && (
-          <JobPreferencesStep
-            onContinue={handleJobPreferences}
-            onPrevious={() => setActiveStep(0)}
-            resumeAnalysis={onboardingData.resumeAnalysis}
-            loading={loadingJobs}
-          />
-        )}
-        
-        {activeStep === 2 && (
-          <>
-            {loadingJobs ? (
-              <Paper elevation={0} sx={{ p: 4, border: `1px solid ${theme.palette.divider}`, borderRadius: 3, textAlign: 'center' }}>
-                <CircularProgress size={60} sx={{ mb: 3 }} />
-                <Typography variant="h5" gutterBottom>
-                  Finding Your Perfect Jobs! 🔍
-                </Typography>
-                <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 500, mx: 'auto' }}>
-                  We're searching for {jobPreferences?.jobTitles?.join(', ')} positions in {jobPreferences?.locations?.map(loc => loc.name).join(', ')}...
-                </Typography>
-                <LinearProgress sx={{ width: '100%', maxWidth: 400, mt: 3, mx: 'auto' }} />
-              </Paper>
-            ) : (
-              <JobRecommendations 
-                jobs={onboardingData.jobs}
-                locations={jobPreferences?.locations}
-                jobTitles={jobPreferences?.jobTitles}
-                personalizedJobs={onboardingData.personalizedJobs}
-                onNext={() => setActiveStep(3)}
-                onPrevious={() => setActiveStep(1)}
-                allowBackToPreferences={!onboardingStatus?.lockedFlow}
-              />
-            )}
-          </>
-        )}
-        
-        {activeStep === 3 && (
-          <RecruiterShowcase 
-            recruiters={onboardingData.recruiters}
-            onNext={() => setActiveStep(4)}
-            onPrevious={() => setActiveStep(2)}
-          />
-        )}
-        
-        {activeStep === 4 && (
-          <NextStepsGuide 
-            resumeId={resumeId}
-            jobsCount={onboardingData.jobs.length}
-            recruitersCount={onboardingData.recruiters.length}
-            onGetStarted={handleGetStarted}
-            onUpgrade={handleUpgrade}
-            onPrevious={() => setActiveStep(3)}
-          />
-        )}
-      </Box>
-
-
-      </Container>
-    </MainLayout>
+        </Container>
+      </MainLayout>
+    </>
   );
 };
 
