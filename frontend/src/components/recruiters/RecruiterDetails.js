@@ -429,7 +429,7 @@ const RecruiterDetails = ({ open, onClose, recruiterId, onStartOutreach }) => {
       </Button>
       
       <Typography variant="caption" color="text.secondary" sx={{ mt: 2 }}>
-        Starting at $19.99/month • Cancel anytime
+        Starting at $14.99/month • Cancel anytime
       </Typography>
     </Box>
   );

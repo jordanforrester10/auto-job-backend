@@ -1153,8 +1153,8 @@ const JobsPage = () => {
                   <strong>Upgrade for more capacity:</strong>
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  • <strong>Casual Plan ($19.99/month):</strong> 25 manual job imports, 25 resume tailorings, 50 jobs automatically discovered per week<br/>
-                  • <strong>Hunter Plan ($34.99/month):</strong> Unlimited manual job imports, 50 resume tailorings & 100 jobs automatically discovered per week
+                  • <strong>Casual Plan ($14.99/month):</strong> 25 manual job imports, 25 resume tailorings, 50 jobs automatically discovered per week<br/>
+                  • <strong>Hunter Plan ($24.99/month):</strong> Unlimited manual job imports, 50 resume tailorings & 100 jobs automatically discovered per week
                 </Typography>
                 <Button
                   variant="outlined"

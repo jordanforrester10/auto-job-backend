@@ -17,7 +17,6 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  Divider,
   Paper,
   CircularProgress,
   Alert
@@ -49,43 +48,39 @@ const UpgradePrompt = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Plan configurations with correct pricing
+  // Condensed plan configurations with key features only
   const planConfigs = {
     casual: {
       name: 'Casual',
-      price: '$19.99',
+      price: '$14.99',
       period: 'month',
       color: theme.palette.primary.main,
       description: 'Perfect for active job seekers',
-      features: [
+      keyFeatures: [
         'Unlimited Resume uploads & analysis',
         '25 Manual Job imports per month',
         '25 Resume tailoring sessions',
         'Full recruiter database access',
-        '25 Recruiter Contact unlocks per month',
-        'Up to 50 Jobs Automatically Delivered per week',
-        'Priority email support'
+        '25 Recruiter Contact unlocks',
+        'Up to 50 Jobs per week'
       ],
-      highlights: ['Most Popular', 'Best Value']
+      highlights: ['Most Popular']
     },
     hunter: {
       name: 'Hunter',
-      price: '$34.99',
+      price: '$24.99',
       period: 'month',
       color: theme.palette.warning.main,
-      description: 'For serious job hunters & career changers',
-      features: [
+      description: 'For serious job hunters',
+      keyFeatures: [
         'Unlimited resume uploads & analysis',
         'Unlimited manual job imports',
         '50 Resume tailoring sessions',
-        'Full recruiter database access',
-        'Unlimited recruiter contact unlocks',
-        'Up to 100 Jobs Automatically Delivered per week',
-        'AI Assistant with 5 conversations',
-        '20 messages per conversation',
-        'Priority support & phone support'
+        'Unlimited recruiter unlocks',
+        'Up to 100 Jobs per week',
+        'AI Assistant with 5 conversations'
       ],
-      highlights: ['Full Access', 'AI Powered']
+      highlights: ['Full Access']
     }
   };
 
@@ -146,7 +141,6 @@ const UpgradePrompt = ({
       
       if (checkoutData && checkoutData.checkoutUrl) {
         console.log('✅ Checkout session created, redirecting to:', checkoutData.checkoutUrl);
-        // Redirect to Stripe Checkout
         window.location.href = checkoutData.checkoutUrl;
       } else {
         throw new Error('Failed to create checkout session - no URL returned');
@@ -154,7 +148,6 @@ const UpgradePrompt = ({
     } catch (err) {
       console.error('❌ Error creating checkout session:', err);
       
-      // Show user-friendly error message
       if (err.response?.status === 403) {
         setError('Please log in to upgrade your plan.');
       } else if (err.response?.status === 500) {
@@ -176,32 +169,33 @@ const UpgradePrompt = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth="md"
       fullWidth
       PaperProps={{
         sx: { 
           borderRadius: 3,
-          minHeight: '500px'
+          maxHeight: '90vh',
+          height: 'auto'
         }
       }}
     >
-      {/* Header */}
+      {/* Compact Header */}
       <DialogTitle sx={{ 
         p: 0,
-        background: `linear-gradient(135deg, ${theme.palette.primary.main}15, ${theme.palette.secondary.main}15)`,
-        borderBottom: `1px solid ${theme.palette.divider}`
+        background: `linear-gradient(135deg, ${theme.palette.primary.main}10, ${theme.palette.secondary.main}10)`
       }}>
         <Box sx={{ 
           display: 'flex', 
           justifyContent: 'space-between', 
           alignItems: 'center',
-          p: 3
+          p: 2,
+          pb: 1.5
         }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Box
               sx={{
-                width: 48,
-                height: 48,
+                width: 36,
+                height: 36,
                 borderRadius: 2,
                 backgroundColor: theme.palette.primary.main + '15',
                 display: 'flex',
@@ -213,71 +207,60 @@ const UpgradePrompt = ({
               {featureInfo.icon}
             </Box>
             <Box>
-              <Typography variant="h5" sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
+              <Typography variant="h6" sx={{ fontWeight: 600, mb: 0 }}>
                 {featureInfo.title}
               </Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
                 {featureInfo.description}
               </Typography>
             </Box>
           </Box>
           <IconButton 
             onClick={onClose}
+            size="small"
             sx={{ 
               bgcolor: 'background.paper',
               '&:hover': { bgcolor: 'grey.100' }
             }}
           >
-            <CloseIcon />
+            <CloseIcon fontSize="small" />
           </IconButton>
         </Box>
       </DialogTitle>
 
-      <DialogContent sx={{ p: 0 }}>
+      <DialogContent sx={{ p: 0, overflow: 'hidden' }}>
         {error && (
-          <Box sx={{ p: 3 }}>
+          <Box sx={{ p: 2 }}>
             <Alert 
               severity="error" 
               sx={{ borderRadius: 2 }}
-              action={
-                <Button 
-                  color="inherit" 
-                  size="small" 
-                  onClick={() => setError(null)}
-                >
-                  Dismiss
-                </Button>
-              }
+              onClose={() => setError(null)}
             >
               {error}
             </Alert>
           </Box>
         )}
 
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 3, textAlign: 'center' }}>
+        <Box sx={{ p: 2 }}>
+          <Typography variant="h6" sx={{ mb: 2, textAlign: 'center', fontSize: '1.1rem' }}>
             Choose the perfect plan for your job search
           </Typography>
 
-          <Grid container spacing={3}>
+          <Grid container spacing={2}>
             {Object.entries(planConfigs).map(([planKey, plan]) => {
               const isRecommended = planKey === recommendedPlan;
               const isCurrentPlan = planKey === currentPlan;
               
               return (
-                <Grid item xs={12} md={6} key={planKey}>
+                <Grid item xs={12} sm={6} key={planKey}>
                   <Card 
-                    elevation={isRecommended ? 8 : 2}
+                    elevation={isRecommended ? 6 : 2}
                     sx={{
                       height: '100%',
                       position: 'relative',
                       border: isRecommended ? `2px solid ${plan.color}` : `1px solid ${theme.palette.divider}`,
-                      borderRadius: 3,
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        transform: 'translateY(-4px)',
-                        boxShadow: theme.shadows[8]
-                      }
+                      borderRadius: 2,
+                      transition: 'all 0.2s ease'
                     }}
                   >
                     {/* Recommended badge */}
@@ -285,7 +268,7 @@ const UpgradePrompt = ({
                       <Box
                         sx={{
                           position: 'absolute',
-                          top: -10,
+                          top: -8,
                           left: '50%',
                           transform: 'translateX(-50%)',
                           zIndex: 1
@@ -297,66 +280,48 @@ const UpgradePrompt = ({
                           size="small"
                           sx={{
                             fontWeight: 600,
-                            fontSize: '0.7rem',
-                            height: 20
+                            fontSize: '0.65rem',
+                            height: 18
                           }}
                         />
                       </Box>
                     )}
 
-                    <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                      {/* Plan header */}
-                      <Box sx={{ textAlign: 'center', mb: 3 }}>
+                    <CardContent sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      {/* Plan header - more compact */}
+                      <Box sx={{ textAlign: 'center', mb: 2 }}>
                         <Typography 
-                          variant="h4" 
+                          variant="h5" 
                           sx={{ 
                             fontWeight: 700, 
                             color: plan.color,
-                            mb: 1
+                            mb: 0.5,
+                            fontSize: '1.5rem'
                           }}
                         >
                           {plan.name}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
                           {plan.description}
                         </Typography>
                         <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 0.5 }}>
-                          <Typography variant="h3" sx={{ fontWeight: 700, color: plan.color }}>
+                          <Typography variant="h4" sx={{ fontWeight: 700, color: plan.color, fontSize: '1.8rem' }}>
                             {plan.price}
                           </Typography>
-                          <Typography variant="body1" color="text.secondary">
+                          <Typography variant="caption" color="text.secondary">
                             /{plan.period}
                           </Typography>
                         </Box>
                       </Box>
 
-                      {/* Highlights */}
-                      {plan.highlights && (
-                        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mb: 3 }}>
-                          {plan.highlights.map((highlight, index) => (
-                            <Chip
-                              key={index}
-                              label={highlight}
-                              size="small"
-                              variant="outlined"
-                              sx={{
-                                borderColor: plan.color + '40',
-                                color: plan.color,
-                                fontSize: '0.7rem'
-                              }}
-                            />
-                          ))}
-                        </Box>
-                      )}
-
-                      {/* Features list */}
-                      <List sx={{ flex: 1, py: 0 }}>
-                        {plan.features.map((feature, index) => (
-                          <ListItem key={index} sx={{ px: 0, py: 0.5 }}>
-                            <ListItemIcon sx={{ minWidth: 32 }}>
+                      {/* Compact features list */}
+                      <List sx={{ flex: 1, py: 0, '& .MuiListItem-root': { py: 0.25, px: 0 } }}>
+                        {plan.keyFeatures.map((feature, index) => (
+                          <ListItem key={index} sx={{ px: 0, py: 0.25 }}>
+                            <ListItemIcon sx={{ minWidth: 24 }}>
                               <CheckIcon 
                                 sx={{ 
-                                  fontSize: 18, 
+                                  fontSize: 16, 
                                   color: plan.color 
                                 }} 
                               />
@@ -365,27 +330,28 @@ const UpgradePrompt = ({
                               primary={feature}
                               primaryTypographyProps={{
                                 variant: 'body2',
-                                sx: { fontSize: '0.875rem' }
+                                sx: { fontSize: '0.8rem', lineHeight: 1.3 }
                               }}
                             />
                           </ListItem>
                         ))}
                       </List>
 
-                      {/* Action button */}
+                      {/* Compact action button */}
                       <Button
                         variant={isRecommended ? "contained" : "outlined"}
-                        size="large"
+                        size="medium"
                         fullWidth
                         disabled={loading || isCurrentPlan}
                         onClick={() => handleUpgrade(planKey)}
-                        startIcon={loading && isRecommended ? <CircularProgress size={20} color="inherit" /> : <UpgradeIcon />}
+                        startIcon={loading && isRecommended ? <CircularProgress size={16} color="inherit" /> : <UpgradeIcon sx={{ fontSize: 16 }} />}
                         sx={{
-                          mt: 2,
-                          py: 1.5,
+                          mt: 1.5,
+                          py: 1,
                           borderRadius: 2,
                           fontWeight: 600,
                           textTransform: 'none',
+                          fontSize: '0.85rem',
                           ...(isRecommended && {
                             backgroundColor: plan.color,
                             '&:hover': {
@@ -408,38 +374,38 @@ const UpgradePrompt = ({
             })}
           </Grid>
 
-          {/* Trust indicators */}
+          {/* Compact trust indicators */}
           <Paper 
             elevation={0} 
             sx={{ 
-              mt: 4, 
-              p: 3, 
+              mt: 2, 
+              p: 1.5, 
               backgroundColor: theme.palette.grey[50],
               border: `1px solid ${theme.palette.divider}`,
               borderRadius: 2
             }}
           >
-            <Grid container spacing={3} alignItems="center">
-              <Grid item xs={12} sm={4}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <SecurityIcon sx={{ color: theme.palette.success.main }} />
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            <Grid container spacing={2} alignItems="center">
+              <Grid item xs={4}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'center' }}>
+                  <SecurityIcon sx={{ color: theme.palette.success.main, fontSize: 16 }} />
+                  <Typography variant="caption" sx={{ fontWeight: 500, fontSize: '0.7rem' }}>
                     Secure Payment
                   </Typography>
                 </Box>
               </Grid>
-              <Grid item xs={12} sm={4}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <SupportIcon sx={{ color: theme.palette.info.main }} />
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              <Grid item xs={4}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'center' }}>
+                  <SupportIcon sx={{ color: theme.palette.info.main, fontSize: 16 }} />
+                  <Typography variant="caption" sx={{ fontWeight: 500, fontSize: '0.7rem' }}>
                     Cancel Anytime
                   </Typography>
                 </Box>
               </Grid>
-              <Grid item xs={12} sm={4}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <SpeedIcon sx={{ color: theme.palette.warning.main }} />
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              <Grid item xs={4}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'center' }}>
+                  <SpeedIcon sx={{ color: theme.palette.warning.main, fontSize: 16 }} />
+                  <Typography variant="caption" sx={{ fontWeight: 500, fontSize: '0.7rem' }}>
                     Instant Access
                   </Typography>
                 </Box>
@@ -450,19 +416,22 @@ const UpgradePrompt = ({
       </DialogContent>
 
       <DialogActions sx={{ 
-        p: 3, 
+        p: 2, 
+        pt: 1,
         borderTop: `1px solid ${theme.palette.divider}`,
         background: theme.palette.grey[50],
         justifyContent: 'space-between'
       }}>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
           Powered by Stripe • Safe & Secure
         </Typography>
         <Button 
           onClick={onClose} 
+          size="small"
           sx={{ 
             borderRadius: 2,
-            textTransform: 'none'
+            textTransform: 'none',
+            fontSize: '0.8rem'
           }}
         >
           Maybe Later

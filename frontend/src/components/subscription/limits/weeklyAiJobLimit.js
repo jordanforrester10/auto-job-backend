@@ -51,7 +51,7 @@ const WeeklyAiJobLimit = ({
   const planBenefits = {
     casual: {
       name: 'Casual Plan',
-      price: '$19.99/month',
+      price: '$14.99/month',
       color: theme.palette.primary.main,
       aiSearchSlots: 1,
       weeklyJobs: 50,
@@ -69,7 +69,7 @@ const WeeklyAiJobLimit = ({
     },
     hunter: {
       name: 'Hunter Plan',
-      price: '$34.99/month',
+      price: '$24.99/month',
       color: theme.palette.warning.main,
       aiSearchSlots: 1,
       weeklyJobs: 100,

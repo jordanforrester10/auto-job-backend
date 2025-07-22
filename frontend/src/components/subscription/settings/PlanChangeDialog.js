@@ -56,7 +56,7 @@ const PlanChangeDialog = ({ open, onClose, currentPlan, onSuccess, onError }) =>
     },
     casual: {
       name: 'Casual Plan',
-      price: 19.99,
+      price: 14.99,
       color: theme.palette.primary.main,
       icon: <StarIcon />,
       description: 'Enhanced job search with recruiter access',
@@ -71,7 +71,7 @@ const PlanChangeDialog = ({ open, onClose, currentPlan, onSuccess, onError }) =>
     },
     hunter: {
       name: 'Hunter Plan',
-      price: 34.99,
+      price: 24.99,
       color: theme.palette.warning.main,
       icon: <PremiumIcon />,
       description: 'Full AI-powered job hunting suite',

@@ -937,8 +937,8 @@ const ResumeTailoring = () => {
               <Typography variant="body2">
                 <strong>Resume Tailoring Limits:</strong><br/>
                 • <strong>Free Plan:</strong> 1 tailoring per month<br/>
-                • <strong>Casual Plan ($19.99/month):</strong> 25 tailorings per month<br/>
-                • <strong>Hunter Plan ($34.99/month):</strong> 50 tailorings per month
+                • <strong>Casual Plan ($14.99/month):</strong> 25 tailorings per month<br/>
+                • <strong>Hunter Plan ($24.99/month):</strong> 50 tailorings per month
               </Typography>
             </Box>
           </Alert>
@@ -1125,8 +1125,8 @@ const ResumeTailoring = () => {
               You've reached your resume tailoring limit for this month.
               <Box sx={{ mt: 1 }}>
                 <Typography variant="body2">
-                  • <strong>Casual Plan ($19.99/month):</strong> 25 tailorings per month<br/>
-                  • <strong>Hunter Plan ($34.99/month):</strong> 50 tailorings per month
+                  • <strong>Casual Plan ($14.99/month):</strong> 25 tailorings per month<br/>
+                  • <strong>Hunter Plan ($24.99/month):</strong> 50 tailorings per month
                 </Typography>
               </Box>
             </Alert>

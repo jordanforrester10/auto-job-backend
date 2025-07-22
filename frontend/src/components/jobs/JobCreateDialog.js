@@ -416,8 +416,8 @@ const JobCreateDialog = ({ open, onClose, onJobCreated }) => {
               {showUpgradePrompt && (
                 <Box sx={{ mt: 1 }}>
                   <Typography variant="body2">
-                    • <strong>Casual Plan ($19.99/month):</strong> 25 job imports per month<br/>
-                    • <strong>Hunter Plan ($34.99/month):</strong> Unlimited job imports
+                    • <strong>Casual Plan (14.99/month):</strong> 25 job imports per month<br/>
+                    • <strong>Hunter Plan ($24.99/month):</strong> Unlimited job imports
                   </Typography>
                 </Box>
               )}

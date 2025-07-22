@@ -188,7 +188,7 @@ const BillingHistoryCard = ({ subscription, onError, onSuccess }) => {
     // Convert to number if it's a string
     const numAmount = parseFloat(amount);
     
-    // If amount is already a decimal (like 34.99), don't divide by 100
+    // If amount is already a decimal (like 24.99), don't divide by 100
     // If amount is in cents (like 3499), divide by 100
     let finalAmount = numAmount;
     

@@ -40,7 +40,7 @@ const ResumeTailoringLimit = ({
   const planBenefits = {
     casual: {
       name: 'Casual Plan',
-      price: '$19.99/month',
+      price: '$14.99/month',
       color: theme.palette.primary.main,
       tailorings: 25,
       features: [
@@ -55,7 +55,7 @@ const ResumeTailoringLimit = ({
     },
     hunter: {
       name: 'Hunter Plan',
-      price: '$34.99/month',
+      price: '$24.99/month',
       color: theme.palette.warning.main,
       tailorings: 50,
       features: [

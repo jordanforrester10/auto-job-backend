@@ -479,8 +479,8 @@ const UsageStatsCard = ({ usage, planLimits, subscription, onUpgradeClick }) => 
                 }}
               >
                 {currentTier === 'free' 
-                  ? 'Upgrade to Casual ($19.99/month)'
-                  : 'Upgrade to Hunter ($34.99/month)'
+                  ? 'Upgrade to Casual ($14.99/month)'
+                  : 'Upgrade to Hunter ($24.99/month)'
                 }
               </Button>
             </Box>

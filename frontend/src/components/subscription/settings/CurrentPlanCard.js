@@ -73,8 +73,8 @@ const CurrentPlanCard = ({ subscription, planInfo, onPlanChange, onError, onSucc
   // FIXED: Updated plan pricing to match requirements
   const planPricing = {
     free: { monthly: 0, yearly: 0 },
-    casual: { monthly: 19.99, yearly: 199.90 }, // Changed from 29 to 19.99
-    hunter: { monthly: 34.99, yearly: 349.90 }  // Changed from 79 to 34.99
+    casual: { monthly: 14.99, yearly: 149.90 }, // Changed from 29 to 14.99
+    hunter: { monthly: 24.99, yearly: 249.90 }  // Changed from 79 to 24.99
   };
 
   const currentTier = subscription?.subscriptionTier || 'free';
@@ -420,7 +420,7 @@ const CurrentPlanCard = ({ subscription, planInfo, onPlanChange, onError, onSucc
                     background: `linear-gradient(45deg, ${theme.palette.warning.main}, ${theme.palette.warning.dark})`
                   }}
                 >
-                  Upgrade to Hunter ($34.99/month)
+                  Upgrade to Hunter ($24.99/month)
                 </Button>
                 <Button
                   variant="outlined"

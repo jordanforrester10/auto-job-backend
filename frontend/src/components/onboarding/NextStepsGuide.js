@@ -317,7 +317,7 @@ const NextStepsGuide = ({
           }}
         >
           <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'info.main', mb: 1 }}>
-            ✨ What You Get with Hunter Plan ($34.99/month)
+            ✨ What You Get with Hunter Plan ($24.99/month)
           </Typography>
           <Grid container spacing={2}>
             <Grid item xs={12} md={6}>

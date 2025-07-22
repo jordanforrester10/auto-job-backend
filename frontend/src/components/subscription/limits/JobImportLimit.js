@@ -39,7 +39,7 @@ const JobImportLimit = ({
   const planBenefits = {
     casual: {
       name: 'Casual Plan',
-      price: '$19.99/month',
+      price: '$14.99/month',
       color: theme.palette.primary.main,
       jobImports: 25,
       features: [
@@ -53,7 +53,7 @@ const JobImportLimit = ({
     },
     hunter: {
       name: 'Hunter Plan',
-      price: '$34.99/month',
+      price: '$24.99/month',
       color: theme.palette.warning.main,
       jobImports: 'Unlimited',
       features: [
