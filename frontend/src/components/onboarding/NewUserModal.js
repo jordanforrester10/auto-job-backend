@@ -20,7 +20,7 @@ import {
   Search as JobSearchIcon,
   AutoAwesome as TailoringIcon,
   ContactMail as RecruiterIcon,
-  FilterAlt as H1BFilterIcon,
+  Assignment as TrackerIcon,
   Chat as ChatIcon,
   Upload as UploadIcon,
   TrendingUp as TrendingUpIcon,
@@ -65,7 +65,7 @@ const NewUserModal = ({ open, onClose, onSkip }) => {
     }, 300);
   };
 
-  // Platform capabilities data - UPDATED with 6 tiles including AI Assistant
+  // Platform capabilities data - UPDATED with Job Application Tracker
   const capabilities = [
     {
       icon: <ResumeIcon sx={{ fontSize: 28 }} />,
@@ -92,9 +92,9 @@ const NewUserModal = ({ open, onClose, onSkip }) => {
       color: theme.palette.info.main
     },
     {
-      icon: <H1BFilterIcon sx={{ fontSize: 28 }} />,
-      title: 'H1B Filter Support',
-      description: 'Find H1B sponsoring companies and opportunities',
+      icon: <TrackerIcon sx={{ fontSize: 28 }} />,
+      title: 'Job Application Tracker',
+      description: 'Skip the spreadsheets and track your applications',
       color: theme.palette.success.main
     },
     {

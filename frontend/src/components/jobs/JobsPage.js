@@ -1,4 +1,4 @@
-// src/components/jobs/JobsPage.js - Enhanced with Tailor Resume button on job cards
+// src/components/jobs/JobsPage.js - Enhanced with Add to Tracker button on job cards
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { 
@@ -63,11 +63,14 @@ import {
   TrendingUp as TrendingUpIcon,
   Speed as SpeedIcon,
   Psychology as PsychologyIcon,
-  Insights as InsightsIcon
+  Insights as InsightsIcon,
+  PlaylistAdd as PlaylistAddIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import jobService from '../../utils/jobService';
 import resumeService from '../../utils/resumeService';
+import trackerService from '../../utils/trackerService';
+import { useTrackerActions } from '../tracker/hooks/useTrackerActions';
 import MainLayout from '../layout/MainLayout';
 import JobCreateDialog from './JobCreateDialog';
 import FindJobsDialog from './FindJobsDialog';
@@ -455,6 +458,7 @@ const JobsPage = () => {
     const validColors = ['primary', 'secondary', 'error', 'warning', 'info', 'success'];
     return validColors.includes(color) ? color : fallback;
   };
+
   const navigate = useNavigate();
   const location = useLocation();
   const { 
@@ -470,6 +474,9 @@ const JobsPage = () => {
 
   // NEW: Use AI searches hook to check for existing searches
   const { searches: aiSearches, loading: aiSearchesLoading } = useAiSearches();
+
+  // NEW: Add tracker actions hook
+  const { trackJob, isLoading: trackingInProgress } = useTrackerActions();
 
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -501,6 +508,10 @@ const JobsPage = () => {
   const [resumeMatchStatus, setResumeMatchStatus] = useState({});
   const [usageData, setUsageData] = useState(null);
   const [canCreateTailoredResume, setCanCreateTailoredResume] = useState(true);
+
+  // NEW: State for tracking jobs
+  const [trackedJobs, setTrackedJobs] = useState(new Set());
+  const [trackingLoading, setTrackingLoading] = useState(new Set());
 
   // Safe AutoJobLogo wrapper component - FIXED VERSION
   const SafeAutoJobLogo = ({ size = 'small', color, sx, ...props }) => {
@@ -546,6 +557,7 @@ const JobsPage = () => {
   useEffect(() => {
     fetchJobs();
     fetchActiveResumes();
+    fetchTrackedJobs();
   }, []);
 
   // NEW: Check usage limits for tailoring
@@ -594,6 +606,32 @@ const JobsPage = () => {
       setAllResumes(resumesData || []);
     } catch (err) {
       console.error('Error fetching active resumes:', err);
+    }
+  };
+
+  // NEW: Fetch tracked jobs - UPDATED with better error handling
+  const fetchTrackedJobs = async () => {
+    try {
+      const trackedJobsData = await trackerService.getTrackedJobs();
+      console.log('🔧 Tracked jobs data received:', trackedJobsData);
+      
+      // Handle both array and object responses safely
+      let jobIds = [];
+      if (Array.isArray(trackedJobsData)) {
+        jobIds = trackedJobsData.map(job => job.jobId || job._id);
+      } else if (trackedJobsData && Array.isArray(trackedJobsData.trackedJobs)) {
+        jobIds = trackedJobsData.trackedJobs.map(job => job.jobId || job._id);
+      } else if (trackedJobsData && trackedJobsData.data && Array.isArray(trackedJobsData.data.trackedJobs)) {
+        jobIds = trackedJobsData.data.trackedJobs.map(job => job.jobId || job._id);
+      }
+      
+      const trackedJobIds = new Set(jobIds.filter(id => id)); // Remove any undefined IDs
+      setTrackedJobs(trackedJobIds);
+      console.log('🔧 Tracked job IDs set:', trackedJobIds);
+    } catch (err) {
+      console.error('Error fetching tracked jobs:', err);
+      // Set empty set on error to prevent crashes
+      setTrackedJobs(new Set());
     }
   };
 
@@ -782,6 +820,75 @@ const JobsPage = () => {
     setUsageSummaryExpanded(!usageSummaryExpanded);
   };
 
+  // NEW: Add to tracker function - UPDATED to use hook
+  const handleAddToTracker = async (job) => {
+    const jobId = job._id;
+    
+    // Check if already tracked
+    if (trackedJobs.has(jobId)) {
+      showSnackbar('Job is already in your tracker', 'warning');
+      return;
+    }
+
+    // Check if job analysis is complete
+    const analysisStatus = getJobAnalysisStatus(job);
+    if (!analysisStatus.canViewJob) {
+      showSnackbar('Please wait for job analysis to complete before adding to tracker', 'warning');
+      return;
+    }
+
+    setTrackingLoading(prev => new Set([...prev, jobId]));
+    
+    try {
+      // Prepare job data for tracking - MATCH your existing AddToTrackerButton format
+      const trackingData = {
+        jobId: jobId,
+        status: 'interested', // Default initial status
+        priority: 'medium', // Default priority
+        notes: `Added from jobs page on ${new Date().toLocaleDateString()}`,
+        source: 'manual' // Must match backend enum values
+      };
+
+      console.log('🔧 Calling trackJob with data:', trackingData);
+      
+      // Use the hook instead of direct service call
+      const result = await trackJob(trackingData);
+      
+      console.log('🔧 trackJob result:', result);
+      
+      if (result && result.success) {
+        // Update local state
+        setTrackedJobs(prev => new Set([...prev, jobId]));
+        showSnackbar('Job added to tracker successfully!', 'success');
+      } else {
+        throw new Error(result?.message || 'Failed to add job to tracker');
+      }
+    } catch (error) {
+      console.error('Error adding job to tracker:', error);
+      
+      // Handle different error types
+      let errorMessage = 'Failed to add job to tracker. Please try again.';
+      
+      if (error.response?.status === 409) {
+        errorMessage = 'Job is already in your tracker';
+        // Update local state if backend says it's already tracked
+        setTrackedJobs(prev => new Set([...prev, jobId]));
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      showSnackbar(errorMessage, 'error');
+    } finally {
+setTrackingLoading(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(jobId);
+        return newSet;
+      });
+    }
+  };
+
   // NEW: Resume tailoring functions (from JobDetail.js)
   const handleOpenTailorDialog = (job) => {
     // Check if user can create tailored resume before opening dialog
@@ -836,8 +943,7 @@ const JobsPage = () => {
       await fetchJobs();
       
       // Force refresh subscription data after successful matching
-      try {
-        await refreshSubscription(true);
+      try {await refreshSubscription(true);
       } catch (refreshError) {
         console.error('Error refreshing subscription (non-critical):', refreshError);
       }
@@ -985,7 +1091,7 @@ const JobsPage = () => {
       return {
         disabled: true,
         tooltip: 'Upload a resume first to tailor it for this job',
-        text: 'Tailor My Resume',
+        text: 'Tailor Resume',
         variant: 'outlined',
         color: getValidColor('default', 'primary')
       };
@@ -1013,9 +1119,59 @@ const JobsPage = () => {
       tooltip: planLimits?.resumeTailoring === -1 
         ? 'Create tailored resume (unlimited)' 
         : `Create tailored resume (${remainingTailorings} remaining)`,
-      text: 'Tailor My Resume',
+      text: 'Tailor Resume',
       variant: 'contained',
       color: getValidColor('warning') // CHANGED FROM 'secondary' TO 'warning' for orange color
+    };
+  };
+
+  // NEW: Get Add to Tracker button state - UPDATED
+  const getAddToTrackerButtonState = (job) => {
+    const jobId = job._id;
+    const isTracked = trackedJobs.has(jobId);
+    const isLoading = trackingLoading.has(jobId) || trackingInProgress;
+    const analysisStatus = getJobAnalysisStatus(job);
+
+    if (isTracked) {
+      return {
+        disabled: true,
+        tooltip: 'Job is already in your tracker',
+        text: 'Tracked',
+        variant: 'outlined',
+        color: getValidColor('success'),
+        icon: CheckCircleIcon
+      };
+    }
+
+    if (isLoading) {
+      return {
+        disabled: true,
+        tooltip: 'Adding to tracker...',
+        text: 'Adding...',
+        variant: 'outlined',
+        color: getValidColor('primary'),
+        icon: CircularProgress
+      };
+    }
+
+    if (!analysisStatus.canViewJob) {
+      return {
+        disabled: true,
+        tooltip: 'Wait for job analysis to complete',
+        text: 'Track Job',
+        variant: 'contained',
+        color: getValidColor('primary'),
+        icon: PlaylistAddIcon
+      };
+    }
+
+    return {
+      disabled: false,
+      tooltip: 'Add job to your application tracker',
+      text: 'Track Job',
+      variant: 'contained',
+      color: getValidColor('primary'),
+      icon: PlaylistAddIcon
     };
   };
 
@@ -1391,6 +1547,7 @@ const JobsPage = () => {
         const canView = analysisStatus.canViewJob;
         const isAnalyzing = analysisStatus.status === 'analyzing' || analysisStatus.status === 'pending';
         const tailorButtonState = getTailorButtonState(job);
+        const addToTrackerButtonState = getAddToTrackerButtonState(job);
         
         return (
           <Grid item xs={12} sm={6} md={4} key={job._id}>
@@ -1493,7 +1650,7 @@ const JobsPage = () => {
                       <Typography variant="subtitle2" fontWeight={500}>
                         Match Score
                       </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+ <Box sx={{ display: 'flex', alignItems: 'center' }}>
                         <Typography variant="h6" fontWeight={600} color={getScoreColor(job.matchAnalysis.overallScore)}>
                           {job.matchAnalysis.overallScore}
                         </Typography>
@@ -1518,11 +1675,42 @@ const JobsPage = () => {
                 )}
                 
                 <Box sx={{ mt: 2 }}>
-                  <Typography variant="body2" color="text.secondary" noWrap>
-                    Posted: {new Date(job.createdAt).toLocaleDateString()}
-                  </Typography>
+                  {/* UPDATED: Move posted date and icons to same line */}
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary" noWrap>
+                      Posted: {new Date(job.createdAt).toLocaleDateString()}
+                    </Typography>
+                    
+                    {/* MOVED: 3 dots and open in new tab button */}
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      {job.sourceUrl && (
+                        <Tooltip title="Open Original Listing">
+                          <IconButton 
+                            size="small" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open(job.sourceUrl, '_blank');
+                            }}
+                          >
+                            <OpenInNewIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      <IconButton 
+                        size="small"
+                        aria-controls={`job-menu-${job._id}`}
+                        aria-haspopup="true"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                        handleMenuOpen(e, job._id);
+                        }}
+                      >
+                        <MoreVertIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  </Box>
                   
-                  <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     <Chip 
                       label={job.jobType?.replace('_', ' ') || 'Full-time'} 
                       size="small" 
@@ -1541,7 +1729,8 @@ const JobsPage = () => {
               </CardContent>
 
               <CardActions sx={{ justifyContent: 'space-between', p: 2, pt: 0 }}>
-                <Box sx={{ display: 'flex', gap: 1, flex: 1 }}>
+                {/* UPDATED: Reorganized button layout */}
+                <Box sx={{ display: 'flex', gap: 1, flex: 1, flexWrap: 'wrap' }}>
                   <Tooltip 
                     title={!canView ? "Analysis in progress - please wait" : "View job details"}
                     arrow
@@ -1556,25 +1745,29 @@ const JobsPage = () => {
                         startIcon={
                           canView ? <VisibilityIcon /> : <ScheduleIcon />
                         }
-                        sx={{ minWidth: '110px' }}
+                        sx={{ minWidth: '80px', fontSize: '0.75rem' }}
                       >
-                        {canView ? 'View Details' : 'Analyzing...'}
+                        {canView ? 'Details' : 'Analyzing...'}
                       </Button>
                     </span>
                   </Tooltip>
                   
-                  {/* NEW: Tailor Resume Button */}
+                  {/* Tailor Resume Button */}
                   <Tooltip title={tailorButtonState.tooltip} arrow>
                     <span>
                       <Button 
                         size="small" 
                         variant={tailorButtonState.variant}
                         color={tailorButtonState.color}
-                        onClick={() => handleOpenTailorDialog(job)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenTailorDialog(job);
+                        }}
                         disabled={tailorButtonState.disabled}
                         startIcon={<AutoFixHighIcon />}
                         sx={{ 
-                          minWidth: '120px',
+                          minWidth: '100px',
+                          fontSize: '0.75rem',
                           fontWeight: tailorButtonState.disabled ? 600 : 500
                         }}
                       >
@@ -1582,28 +1775,38 @@ const JobsPage = () => {
                       </Button>
                     </span>
                   </Tooltip>
-                </Box>
-                
-                <Box>
-                  {job.sourceUrl && (
-                    <Tooltip title="Open Original Listing">
-                      <IconButton 
+
+                  {/* NEW: Add to Tracker Button */}
+                  <Tooltip title={addToTrackerButtonState.tooltip} arrow>
+                    <span>
+                      <Button 
                         size="small" 
-                        onClick={() => window.open(job.sourceUrl, '_blank')}
-                        sx={{ mr: 1 }}
+                        variant={addToTrackerButtonState.variant}
+                        color={addToTrackerButtonState.color}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddToTracker(job);
+                        }}
+                        disabled={addToTrackerButtonState.disabled}
+                        startIcon={
+                          addToTrackerButtonState.icon === CircularProgress ? (
+                            <CircularProgress size={16} color="inherit" />
+                          ) : (
+                            React.createElement(addToTrackerButtonState.icon, { 
+                              sx: { fontSize: '16px !important' } 
+                            })
+                          )
+                        }
+                        sx={{ 
+                          minWidth: '100px',
+                          fontSize: '0.75rem',
+                          fontWeight: addToTrackerButtonState.disabled && trackedJobs.has(job._id) ? 600 : 500
+                        }}
                       >
-                        <OpenInNewIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                  <IconButton 
-                    size="small"
-                    aria-controls={`job-menu-${job._id}`}
-                    aria-haspopup="true"
-                    onClick={(e) => handleMenuOpen(e, job._id)}
-                  >
-                    <MoreVertIcon fontSize="small" />
-                  </IconButton>
+                        {addToTrackerButtonState.text}
+                      </Button>
+                    </span>
+                  </Tooltip>
                 </Box>
               </CardActions>
             </Card>
@@ -2227,8 +2430,7 @@ const JobsPage = () => {
                           </Box>
                           {renderResumeStatusChip(resume)}
                         </Box>
-                      </MenuItem>
-                    ))}
+                      </MenuItem>))}
                   </Select>
                 </FormControl>
               </Box>

@@ -23,7 +23,7 @@ const FullScreenLoader = ({ open, locations = [], jobTitles = [] }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [progress, setProgress] = useState(0);
 
-  // Loading steps with messages - UPDATED: More realistic timing and messages
+  // Loading steps with messages - UPDATED: Extended timing for 90 seconds
   const loadingSteps = [
     {
       icon: <PsychologyIcon sx={{ fontSize: 48, color: 'primary.main' }} />,
@@ -57,7 +57,7 @@ const FullScreenLoader = ({ open, locations = [], jobTitles = [] }) => {
     }
   ];
 
-  // Auto-advance through steps - UPDATED: Slower timing for 20-30 seconds
+  // Auto-advance through steps - UPDATED: Much slower timing for 90 seconds
   useEffect(() => {
     if (!open) {
       setCurrentStep(0);
@@ -68,16 +68,16 @@ const FullScreenLoader = ({ open, locations = [], jobTitles = [] }) => {
     const timer = setInterval(() => {
       setProgress(prev => {
         if (prev >= 100) return 100;
-        return prev + 0.4; // UPDATED: Much slower - takes ~25 seconds to complete
+        return prev + 0.111; // UPDATED: Much slower - takes ~90 seconds to complete (100 / 0.111 * 0.1 = ~90 seconds)
       });
-    }, 100); // UPDATED: Slower progress increment
+    }, 100); // Progress updates every 100ms
 
     return () => clearInterval(timer);
   }, [open]);
 
   // Update current step based on progress - UPDATED: Adjusted for slower timing
   useEffect(() => {
-    const stepThresholds = [0, 15, 35, 60, 80, 100]; // UPDATED: More realistic step progression
+    const stepThresholds = [0, 15, 35, 60, 80, 100]; // Step progression remains the same
     for (let i = stepThresholds.length - 1; i >= 0; i--) {
       if (progress >= stepThresholds[i]) {
         setCurrentStep(i);
@@ -274,7 +274,7 @@ const FullScreenLoader = ({ open, locations = [], jobTitles = [] }) => {
             </Box>
           </Paper>
 
-          {/* Bottom Message - UPDATED: More realistic timing expectation */}
+          {/* Bottom Message - UPDATED: Adjusted timing expectation to 90 seconds */}
           <Typography 
             variant="body2" 
             color="text.secondary" 
@@ -285,7 +285,7 @@ const FullScreenLoader = ({ open, locations = [], jobTitles = [] }) => {
             }}
           >
             Please don't close this window while we're working our magic. 
-            This process can take up to 20-30 seconds as we search through thousands of opportunities.
+            This comprehensive search process can take up to 60-90 seconds as we thoroughly analyze thousands of opportunities.
           </Typography>
         </Box>
       </Fade>

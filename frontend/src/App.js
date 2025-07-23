@@ -25,6 +25,9 @@ import JobDetail from './components/jobs/JobDetail';
 import ResumeTailoring from './components/jobs/ResumeTailoring';
 import AiSearchesPage from './components/jobs/AiSearchesPage';
 
+// Import tracker components
+import TrackerPage from './components/tracker/TrackerPage';
+
 // Import recruiter-related components
 import RecruiterPage from './components/recruiters/RecruiterPage';
 import RecruiterDetails from './components/recruiters/RecruiterDetails';
@@ -208,6 +211,16 @@ function App() {
               element={
                 <ProtectedRouteWithSubscription>
                   <AiSearchesPage />
+                </ProtectedRouteWithSubscription>
+              }
+            />
+            
+            {/* Job Tracker Route */}
+            <Route
+              path="/job-tracker"
+              element={
+                <ProtectedRouteWithSubscription>
+                  <TrackerPage />
                 </ProtectedRouteWithSubscription>
               }
             />

@@ -122,6 +122,13 @@ const Sidebar = ({ open, onClose }) => {
         available: true, // CHANGED: Now available for all users including Free
         usageFeature: isFreePlan ? null : 'recruiterUnlocks', // Only show usage for paid plans
         showLimitedBadge: isFreePlan // Show "Limited" badge for free users
+      },
+      { 
+        title: 'Application Tracker',
+        path: '/job-tracker',
+        icon: <AssignmentIcon />,
+        color: '#9c27b0',
+        available: true
       }
     ];
 
@@ -594,12 +601,7 @@ const Sidebar = ({ open, onClose }) => {
               <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
                 {isFreePlan ? 'Unlock Premium Features' : 'Go Pro with Hunter'}
               </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
-                {isFreePlan 
-                  ? 'Access full recruiter database and AI job discovery'
-                  : 'Get unlimited access and AI assistant'
-                }
-              </Typography>
+
               <Button
                 variant="contained"
                 fullWidth

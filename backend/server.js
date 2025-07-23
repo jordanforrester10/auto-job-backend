@@ -12,6 +12,9 @@ const connectMongoDB = require('./config/mongodb');
 const { createTables, seedInitialData } = require('./models/postgresql/schema');
 const { initializeStripe } = require('./config/stripe');
 
+// Import services
+const { initialize: initializeTrackerService } = require('./services/tracker.service');
+
 // Import routes
 const authRoutes = require('./routes/auth.routes');
 const resumeRoutes = require('./routes/resume.routes');
@@ -23,6 +26,7 @@ const settingsRoutes = require('./routes/settings.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
 const adminRoutes = require('./routes/admin.routes'); // NEW: Admin routes
 const supportRoutes = require('./routes/support.routes');
+const trackerRoutes = require('./routes/tracker.routes'); // NEW: Tracker routes
 
 // Initialize Express
 const app = express();
@@ -259,6 +263,10 @@ const initializeServices = async () => {
       console.log('⚠️ Stripe initialization failed - subscription features may not work');
     }
     
+    // Initialize Tracker Service
+    await initializeTrackerService();
+    console.log('✅ Job Application Tracker Service initialized successfully');
+    
     console.log('🎉 All services initialized successfully');
   } catch (error) {
     console.error('❌ Service initialization error:', error.message);
@@ -296,7 +304,8 @@ app.get('/', (req, res) => {
       '💳 Subscription & Billing System',
       '📊 Usage Tracking & Limits',
       '⚡ Feature Gating',
-      '👑 Admin Dashboard' // NEW: Admin feature
+      '👑 Admin Dashboard',
+      '📋 Job Application Tracker' // NEW: Tracker feature
     ]
   });
 });
@@ -332,6 +341,7 @@ app.use('/api/search', searchRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/admin', adminRoutes); // NEW: Mount admin routes
+app.use('/api/tracker', trackerRoutes); // NEW: Mount tracker routes
 
 // Catch-all route for undefined API endpoints
 app.all('/api/*', (req, res) => {
@@ -400,6 +410,18 @@ app.all('/api/*', (req, res) => {
         'GET /api/admin/users/:userId',
         'PUT /api/admin/users/:userId/subscription',
         'GET /api/admin/stats'
+      ],
+      tracker: [ // NEW: Job Application Tracker endpoints
+        'GET /api/tracker/jobs',
+        'POST /api/tracker/jobs',
+        'GET /api/tracker/jobs/:id',
+        'PUT /api/tracker/jobs/:id/status',
+        'PUT /api/tracker/jobs/:id/notes',
+        'POST /api/tracker/jobs/:id/interview',
+        'PUT /api/tracker/jobs/:id',
+        'DELETE /api/tracker/jobs/:id',
+        'GET /api/tracker/stats',
+        'PUT /api/tracker/archive-all-closed'
       ]
     }
   });

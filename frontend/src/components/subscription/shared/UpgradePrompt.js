@@ -59,9 +59,9 @@ const UpgradePrompt = ({
       keyFeatures: [
         'Unlimited Resume uploads & analysis',
         '25 Manual Job imports per month',
-        '25 Resume tailoring sessions',
-        'Full recruiter database access',
-        '25 Recruiter Contact unlocks',
+        '25 Resume tailoring sessions per month',
+        'Limited recruiter database access',
+        '25 Recruiter Contact unlocks per month',
         'Up to 50 Jobs per week'
       ],
       highlights: ['Most Popular']
@@ -75,7 +75,7 @@ const UpgradePrompt = ({
       keyFeatures: [
         'Unlimited resume uploads & analysis',
         'Unlimited manual job imports',
-        '50 Resume tailoring sessions',
+        '50 Resume tailoring sessions per month',
         'Unlimited recruiter unlocks',
         'Up to 100 Jobs per week',
         'AI Assistant with 5 conversations'

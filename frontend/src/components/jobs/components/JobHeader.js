@@ -18,6 +18,7 @@ import {
   TrendingUp as TrendingUpIcon
 } from '@mui/icons-material';
 import AutoJobLogo from '../../common/AutoJobLogo';
+import AddToTrackerButton from '../../tracker/AddToTrackerButton';
 
 const JobHeader = ({ 
   job, 
@@ -146,6 +147,12 @@ const JobHeader = ({
               Open Original
             </Button>
           )}
+          <AddToTrackerButton 
+            job={job}
+            variant="contained"
+            color="primary"
+            sx={{ borderRadius: 2 }}
+          />
           <Button
             variant="contained"
             color="secondary"
