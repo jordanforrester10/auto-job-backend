@@ -1,4 +1,4 @@
-// backend/server.js - FIXED WEBHOOK BODY PARSING + ADMIN ROUTES
+// backend/server.js - UPDATED WITH EXTENSION ROUTES
 const express = require('express');
 
 const cors = require('cors');
@@ -24,27 +24,32 @@ const recruiterRoutes = require('./routes/recruiter.routes');
 const searchRoutes = require('./routes/search.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
-const adminRoutes = require('./routes/admin.routes'); // NEW: Admin routes
+const adminRoutes = require('./routes/admin.routes');
 const supportRoutes = require('./routes/support.routes');
-const trackerRoutes = require('./routes/tracker.routes'); // NEW: Tracker routes
+const trackerRoutes = require('./routes/tracker.routes');
+const extensionRoutes = require('./routes/extension.routes'); // NEW: Extension routes
 
 // Initialize Express
 const app = express();
 
-// app.set('trust proxy', true);
-
-console.log('🚀 Starting Job Application Platform API with Subscription System...');
+console.log('🚀 Starting Job Application Platform API with Extension Support...');
 
 // Trust proxy for production
 if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-// CORS configuration
+// CORS configuration - Updated to include extension origin
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? process.env.FRONTEND_URL || 'https://yourproductiondomain.com'
-    : 'http://localhost:3000',
+    ? [
+        process.env.FRONTEND_URL || 'https://yourproductiondomain.com',
+        'chrome-extension://*' // Allow Chrome extension
+      ]
+    : [
+        'http://localhost:3000',
+        'chrome-extension://*' // Allow Chrome extension in development
+      ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
@@ -159,6 +164,18 @@ const aiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Special rate limiter for Extension API (moderate limits)
+const extensionLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 60, // Allow reasonable extension usage
+  message: {
+    success: false,
+    error: 'Extension rate limit exceeded. Please wait before making more requests.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Special rate limiter for Recruiter API (moderate limits)
 const recruiterLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
@@ -221,11 +238,12 @@ const adminLimiter = rateLimit({
 
 app.use('/api/', generalLimiter);
 app.use('/api/assistant', aiLimiter);
+app.use('/api/extension', extensionLimiter); // NEW: Extension rate limiting
 app.use('/api/recruiters', recruiterLimiter);
 app.use('/api/search', searchLimiter);
 app.use('/api/settings', settingsLimiter);
 app.use('/api/subscriptions', subscriptionLimiter);
-app.use('/api/admin', adminLimiter); // NEW: Admin rate limiting
+app.use('/api/admin', adminLimiter);
 app.use('/api/support', supportRoutes);
 
 // Request logging middleware (development only)
@@ -287,8 +305,8 @@ initializeServices();
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'Job Application Platform API with Subscription System',
-    version: '2.0.0',
+    message: 'Job Application Platform API with Chrome Extension Support',
+    version: '2.1.0',
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
     features: [
@@ -305,7 +323,8 @@ app.get('/', (req, res) => {
       '📊 Usage Tracking & Limits',
       '⚡ Feature Gating',
       '👑 Admin Dashboard',
-      '📋 Job Application Tracker' // NEW: Tracker feature
+      '📋 Job Application Tracker',
+      '🧩 Chrome Extension Support' // NEW: Extension feature
     ]
   });
 });
@@ -326,7 +345,8 @@ app.get('/api/health', (req, res) => {
         mongodb: 'connected',
         postgresql: 'connected'
       },
-      admin_status: 'configured' // NEW: Admin status
+      admin_status: 'configured',
+      extension_status: 'configured' // NEW: Extension status
     }
   });
 });
@@ -340,8 +360,9 @@ app.use('/api/recruiters', recruiterRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/admin', adminRoutes); // NEW: Mount admin routes
-app.use('/api/tracker', trackerRoutes); // NEW: Mount tracker routes
+app.use('/api/admin', adminRoutes);
+app.use('/api/tracker', trackerRoutes);
+app.use('/api/extension', extensionRoutes); // NEW: Mount extension routes
 
 // Catch-all route for undefined API endpoints
 app.all('/api/*', (req, res) => {
@@ -405,13 +426,13 @@ app.all('/api/*', (req, res) => {
         'GET /api/subscriptions/billing-history',
         'POST /api/subscriptions/webhook'
       ],
-      admin: [ // NEW: Admin endpoints
+      admin: [
         'GET /api/admin/dashboard',
         'GET /api/admin/users/:userId',
         'PUT /api/admin/users/:userId/subscription',
         'GET /api/admin/stats'
       ],
-      tracker: [ // NEW: Job Application Tracker endpoints
+      tracker: [
         'GET /api/tracker/jobs',
         'POST /api/tracker/jobs',
         'GET /api/tracker/jobs/:id',
@@ -422,6 +443,14 @@ app.all('/api/*', (req, res) => {
         'DELETE /api/tracker/jobs/:id',
         'GET /api/tracker/stats',
         'PUT /api/tracker/archive-all-closed'
+      ],
+      extension: [ // NEW: Extension endpoints
+        'GET /api/extension/auth/check',
+        'GET /api/extension/resumes',
+        'POST /api/extension/autofill',
+        'POST /api/extension/enhance-field',
+        'GET /api/extension/usage',
+        'POST /api/extension/check-usage'
       ]
     }
   });
@@ -517,7 +546,7 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running successfully on port ${PORT}`);
   console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 CORS enabled for: ${process.env.NODE_ENV === 'production' ? 'production domain' : 'http://localhost:3000'}`);
+  console.log(`🌐 CORS enabled for: ${process.env.NODE_ENV === 'production' ? 'production domain + extension' : 'http://localhost:3000 + extension'}`);
   console.log(`📊 Health check available at: http://localhost:${PORT}/api/health`);
   console.log(`🔗 API documentation: http://localhost:${PORT}/`);
   console.log(`🤖 AI Assistant: ${process.env.OPENAI_API_KEY ? '✅ Configured' : '❌ Not configured - add OPENAI_API_KEY to .env'}`);
@@ -527,7 +556,8 @@ const server = app.listen(PORT, () => {
   console.log(`🔍 Global Search: ✅ Configured with cross-platform search`);
   console.log(`⚙️ Settings API: ✅ Configured with profile & security management`);
   console.log(`📈 Subscription System: ✅ Configured with usage tracking & limits`);
-  console.log(`👑 Admin Dashboard: ✅ Configured with user management & analytics`); // NEW: Admin logging
+  console.log(`👑 Admin Dashboard: ✅ Configured with user management & analytics`);
+  console.log(`🧩 Chrome Extension: ✅ Configured with AI-powered auto-fill`); // NEW: Extension logging
 });
 
 // Graceful shutdown handlers

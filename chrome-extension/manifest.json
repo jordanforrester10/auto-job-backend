@@ -1,0 +1,76 @@
+{
+  "manifest_version": 3,
+  "name": "auto-job.ai - ATS Auto-Fill Assistant",
+  "version": "1.0.0",
+  "description": "AI-powered auto-fill for job applications on ATS platforms like Greenhouse, Workday, and Lever",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "background"
+  ],
+  "host_permissions": [
+    "https://auto-job-backend-production.up.railway.app/*",
+    "http://localhost:5000/*",
+    "https://boards.greenhouse.io/*",
+    "https://*.myworkday.com/*",
+    "https://jobs.lever.co/*",
+    "https://*.greenhouse.io/*",
+    "https://*.workday.com/*",
+    "https://*.lever.co/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*",
+        "https://*.myworkday.com/*",
+        "https://jobs.lever.co/*",
+        "https://*.greenhouse.io/*",
+        "https://*.workday.com/*",
+        "https://*.lever.co/*"
+      ],
+      "js": ["src/content/content-main.js"],
+      "css": ["src/content/content-styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "JobRightAI Assistant",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "options_page": "src/options/options.html",
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/content/injected-script.js",
+        "assets/images/*"
+      ],
+      "matches": [
+        "https://boards.greenhouse.io/*",
+        "https://*.myworkday.com/*",
+        "https://jobs.lever.co/*",
+        "https://*.greenhouse.io/*",
+        "https://*.workday.com/*",
+        "https://*.lever.co/*"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

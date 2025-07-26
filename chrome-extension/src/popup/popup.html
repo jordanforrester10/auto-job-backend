@@ -1,0 +1,262 @@
+<!-- chrome-extension/src/popup/popup.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>auto-job.ai Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Loading State -->
+    <div id="loading" class="screen">
+      <div class="header">
+        <img src="../../assets/icons/icon48.png" alt="JobRightAI" class="logo">
+        <h1>auto-job.ai</h1>
+      </div>
+      <div class="loading-spinner"></div>
+      <p>Initializing...</p>
+    </div>
+
+    <!-- Login Screen -->
+    <div id="login" class="screen" style="display: none;">
+      <div class="header">
+        <img src="../../assets/icons/icon48.png" alt="JobRightAI" class="logo">
+        <h1>auto-job.ai</h1>
+        <p class="subtitle">AI-powered ATS auto-fill</p>
+      </div>
+      
+      <form id="loginForm" class="form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required>
+        </div>
+        
+        <button type="submit" class="btn btn-primary" id="loginBtn">
+          <span class="btn-text">Sign In</span>
+          <div class="btn-spinner" style="display: none;"></div>
+        </button>
+        
+        <div id="loginError" class="error-message" style="display: none;"></div>
+      </form>
+      
+      <div class="footer">
+        <p>Don't have an account? <a href="#" id="signupLink">Sign up</a></p>
+      </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="screen" style="display: none;">
+      <div class="header">
+        <div class="user-info">
+          <img src="../../assets/icons/icon32.png" alt="Avatar" class="avatar">
+          <div>
+            <h2 id="userName">Loading...</h2>
+            <p id="userPlan" class="plan-badge">Free Plan</p>
+          </div>
+        </div>
+        <button id="settingsBtn" class="icon-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V6a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V12a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- ATS Detection Status -->
+      <div id="atsStatus" class="status-card">
+        <div class="status-icon" id="atsIcon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 12l2 2 4-4"></path>
+            <circle cx="12" cy="12" r="9"></circle>
+          </svg>
+        </div>
+        <div class="status-content">
+          <h3 id="atsStatusText">Scanning for ATS...</h3>
+          <p id="atsDescription">Looking for supported job application platforms</p>
+        </div>
+      </div>
+
+      <!-- Usage Stats -->
+      <div class="usage-card">
+        <h3>This Month's Usage</h3>
+        <div class="usage-stats">
+          <div class="usage-item">
+            <span class="usage-label">Auto-fills</span>
+            <span class="usage-value">
+              <span id="usageCount">0</span>/<span id="usageLimit">5</span>
+            </span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resume Selection -->
+      <div class="resume-card">
+        <h3>Active Resume</h3>
+        <div id="resumeSelector">
+          <select id="resumeSelect" class="select">
+            <option value="">Select a resume...</option>
+          </select>
+          <button id="refreshResumes" class="icon-btn" title="Refresh resumes">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="actions">
+        <button id="autoFillBtn" class="btn btn-primary" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 6L9 17l-5-5"></path>
+          </svg>
+          Start Auto-Fill
+        </button>
+        
+        <button id="enhanceBtn" class="btn btn-secondary" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+          </svg>
+          AI Enhance
+        </button>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <button id="upgradeBtn" class="btn-link upgrade-link" style="display: none;">Upgrade Plan</button>
+        <a href="https://app.auto-job.ai" target="_blank" class="btn-link">Open Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Settings Screen -->
+    <div id="settings" class="screen" style="display: none;">
+      <div class="header">
+        <button id="backBtn" class="icon-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5"></path>
+            <path d="M12 19l-7-7 7-7"></path>
+          </svg>
+        </button>
+        <h2>Settings</h2>
+      </div>
+
+      <div class="settings-content">
+        <!-- Extension Settings -->
+        <div class="setting-group">
+          <h3>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 6L9 17l-5-5"></path>
+            </svg>
+            Auto-Fill Settings
+          </h3>
+          
+          <label class="setting-item">
+            <input type="checkbox" id="autoFillEnabled" checked>
+            <span class="checkmark"></span>
+            <div class="setting-info">
+              <span class="setting-title">🤖 Enable Auto-Fill</span>
+              <span class="setting-description">Automatically fill form fields when ATS is detected</span>
+            </div>
+          </label>
+
+          <label class="setting-item">
+            <input type="checkbox" id="aiEnhancementEnabled" checked>
+            <span class="checkmark"></span>
+            <div class="setting-info">
+              <span class="setting-title">✨ AI Enhancement</span>
+              <span class="setting-description">Use AI to improve responses for better job fit</span>
+            </div>
+          </label>
+
+          <label class="setting-item">
+            <input type="checkbox" id="showNotifications" checked>
+            <span class="checkmark"></span>
+            <div class="setting-info">
+              <span class="setting-title">🔔 Show Notifications</span>
+              <span class="setting-description">Display success and error notifications</span>
+            </div>
+          </label>
+        </div>
+
+        <!-- Support & Help -->
+        <div class="setting-group">
+          <h3>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            Support & Help
+          </h3>
+          
+          <div class="setting-buttons">
+            <button id="helpBtn" class="btn btn-secondary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14,2 14,8 20,8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10,9 9,9 8,9"></polyline>
+              </svg>
+              Help & Tutorials
+            </button>
+            
+            <button id="feedbackBtn" class="btn btn-secondary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              Send Feedback
+            </button>
+          </div>
+        </div>
+
+        <!-- Account Actions -->
+        <div class="setting-group">
+          <h3>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            Account
+          </h3>
+          
+          <div class="setting-buttons">
+            <button id="dashboardBtn" class="btn btn-secondary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7"></rect>
+                <rect x="14" y="3" width="7" height="7"></rect>
+                <rect x="14" y="14" width="7" height="7"></rect>
+                <rect x="3" y="14" width="7" height="7"></rect>
+              </svg>
+              Open Dashboard
+            </button>
+            
+            <button id="logoutBtn" class="btn btn-danger">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
+              </svg>
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

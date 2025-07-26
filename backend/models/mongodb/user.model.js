@@ -1,4 +1,4 @@
-// backend/models/mongodb/user.model.js - COMPLETE MONTHLY ONLY VERSION
+// backend/models/mongodb/user.model.js - UPDATED WITH EXTENSION SUPPORT
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
@@ -120,6 +120,7 @@ const userSchema = new mongoose.Schema({
     aiJobDiscovery: { type: Number, default: 0 },
     aiConversations: { type: Number, default: 0 },
     aiMessagesTotal: { type: Number, default: 0 },
+    extensionAutoFills: { type: Number, default: 0 }, // NEW: Extension auto-fills
     resetDate: { type: Date, default: Date.now }
   },
   usageHistory: [{
@@ -132,7 +133,8 @@ const userSchema = new mongoose.Schema({
       recruiterUnlocks: { type: Number, default: 0 },
       aiJobDiscovery: { type: Number, default: 0 },
       aiConversations: { type: Number, default: 0 },
-      aiMessagesTotal: { type: Number, default: 0 }
+      aiMessagesTotal: { type: Number, default: 0 },
+      extensionAutoFills: { type: Number, default: 0 } // NEW: Extension auto-fills history
     }
   }],
   
@@ -245,7 +247,7 @@ userSchema.methods.resetLoginAttempts = function() {
 };
 
 // ======================================
-// SUBSCRIPTION METHODS (MONTHLY ONLY)
+// SUBSCRIPTION METHODS (MONTHLY ONLY) - UPDATED WITH EXTENSION SUPPORT
 // ======================================
 
 // Get current subscription plan limits
@@ -261,7 +263,8 @@ userSchema.methods.getPlanLimits = function() {
       aiJobDiscovery: false,
       aiAssistant: false,
       aiConversations: 0,
-      aiMessagesPerConversation: 0
+      aiMessagesPerConversation: 0,
+      extensionAutoFills: 5 // NEW: 5 free auto-fills per month
     },
     casual: {
       resumeUploads: -1, // unlimited - REMOVED FEATURE GATING
@@ -273,7 +276,8 @@ userSchema.methods.getPlanLimits = function() {
       aiJobDiscovery: 1,
       aiAssistant: false,
       aiConversations: 0,
-      aiMessagesPerConversation: 0
+      aiMessagesPerConversation: 0,
+      extensionAutoFills: 25 // NEW: 25 auto-fills per month
     },
     hunter: {
       resumeUploads: -1, // unlimited - ALREADY UNLIMITED
@@ -285,7 +289,8 @@ userSchema.methods.getPlanLimits = function() {
       aiJobDiscovery: -1, // unlimited
       aiAssistant: true,
       aiConversations: 5,
-      aiMessagesPerConversation: 20
+      aiMessagesPerConversation: 20,
+      extensionAutoFills: 50 // NEW: 50 auto-fills per month
     }
   };
   
@@ -310,7 +315,32 @@ userSchema.methods.canPerformAction = function(action, quantity = 1) {
     return { allowed: false, reason: 'AI Job Discovery not available in your plan' };
   }
   
-  // Check usage limits
+  // NEW: Check extension auto-fills
+  if (action === 'extensionAutoFills') {
+    const limit = limits.extensionAutoFills;
+    if (limit === 0) {
+      return { allowed: false, reason: 'Extension auto-fill not available in your plan' };
+    }
+    
+    const currentUsed = usage.extensionAutoFills || 0;
+    if (limit > 0 && currentUsed + quantity > limit) {
+      return { 
+        allowed: false, 
+        reason: `Auto-fill limit exceeded. You have used ${currentUsed}/${limit} for this month`,
+        current: currentUsed,
+        limit: limit
+      };
+    }
+    
+    return { 
+      allowed: true, 
+      remaining: limit > 0 ? limit - currentUsed - quantity : -1,
+      current: currentUsed,
+      limit: limit
+    };
+  }
+  
+  // Check usage limits for other actions
   const limit = limits[action];
   if (limit === -1) {
     return { allowed: true }; // Unlimited
@@ -368,6 +398,7 @@ userSchema.methods.trackUsage = async function(action, quantity = 1) {
       aiJobDiscovery: 0,
       aiConversations: 0,
       aiMessagesTotal: 0,
+      extensionAutoFills: 0, // NEW: Reset extension auto-fills
       resetDate: now
     };
   }
@@ -383,6 +414,7 @@ userSchema.methods.trackUsage = async function(action, quantity = 1) {
       aiJobDiscovery: 0,
       aiConversations: 0,
       aiMessagesTotal: 0,
+      extensionAutoFills: 0, // NEW: Initialize extension auto-fills
       resetDate: now
     };
   }

@@ -1,0 +1,301 @@
+/* chrome-extension/src/content/content-styles.css */
+
+/* Floating Action Button */
+#jobrightai-fab {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10000;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.jobrightai-fab-button {
+  width: 56px;
+  height: 56px;
+  background: #1976d2;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(25, 118, 210, 0.4);
+  transition: all 0.3s ease;
+}
+
+.jobrightai-fab-button:hover {
+  background: #1565c0;
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(25, 118, 210, 0.5);
+}
+
+.jobrightai-fab-menu {
+  position: absolute;
+  bottom: 70px;
+  right: 0;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  padding: 8px;
+  min-width: 150px;
+  border: 1px solid #e0e0e0;
+}
+
+.jobrightai-menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #333;
+  transition: background-color 0.2s;
+}
+
+.jobrightai-menu-item:hover {
+  background: #f5f5f5;
+}
+
+.jobrightai-menu-item:active {
+  background: #e0e0e0;
+}
+
+/* Field Detection Highlights */
+.jobrightai-detected {
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.jobrightai-detected::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border: 2px solid #1976d2;
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.jobrightai-detected:focus::after {
+  opacity: 0.5;
+}
+
+.jobrightai-enhanceable {
+  position: relative;
+}
+
+.jobrightai-enhanceable::before {
+  content: '✨';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #ff9800;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  z-index: 10;
+  opacity: 0.8;
+}
+
+/* Notifications */
+.jobrightai-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  max-width: 300px;
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 10001;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: jobrightai-slideIn 0.3s ease-out;
+  border-left: 4px solid transparent;
+}
+
+.jobrightai-notification.jobrightai-success {
+  background: #e8f5e8;
+  color: #2e7d32;
+  border-left-color: #4caf50;
+}
+
+.jobrightai-notification.jobrightai-error {
+  background: #ffeee8;
+  color: #d32f2f;
+  border-left-color: #f44336;
+}
+
+.jobrightai-notification.jobrightai-warning {
+  background: #fff8e1;
+  color: #f57c00;
+  border-left-color: #ff9800;
+}
+
+.jobrightai-notification.jobrightai-info {
+  background: #e3f2fd;
+  color: #1976d2;
+  border-left-color: #2196f3;
+}
+
+@keyframes jobrightai-slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Processing Indicator */
+#jobrightai-processing {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 20px 30px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 10002;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.jobrightai-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top: 3px solid white;
+  border-radius: 50%;
+  animation: jobrightai-spin 1s linear infinite;
+}
+
+@keyframes jobrightai-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Field Fill Animation */
+.jobrightai-filling {
+  animation: jobrightai-fillPulse 0.6s ease-in-out;
+}
+
+@keyframes jobrightai-fillPulse {
+  0% {
+    background-color: transparent;
+    transform: scale(1);
+  }
+  50% {
+    background-color: #e8f5e8;
+    transform: scale(1.02);
+  }
+  100% {
+    background-color: transparent;
+    transform: scale(1);
+  }
+}
+
+/* Override common ATS styles that might interfere */
+.jobrightai-detected,
+.jobrightai-enhanceable {
+  box-sizing: border-box !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  #jobrightai-fab {
+    bottom: 80px;
+    right: 15px;
+  }
+  
+  .jobrightai-fab-button {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .jobrightai-notification {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+  
+  #jobrightai-processing {
+    padding: 15px 20px;
+    font-size: 14px;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .jobrightai-fab-menu {
+    background: #333;
+    border-color: #555;
+    color: white;
+  }
+  
+  .jobrightai-menu-item {
+    color: white;
+  }
+  
+  .jobrightai-menu-item:hover {
+    background: #444;
+  }
+  
+  .jobrightai-menu-item:active {
+    background: #555;
+  }
+}
+
+/* Accessibility improvements */
+.jobrightai-fab-button:focus {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.jobrightai-menu-item:focus {
+  outline: 2px solid #1976d2;
+  outline-offset: -2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .jobrightai-detected::after {
+    border-width: 3px;
+    opacity: 0.8;
+  }
+  
+  .jobrightai-notification {
+    border-width: 2px;
+  }
+}
+
+/* Print styles - hide extension elements when printing */
+@media print {
+  #jobrightai-fab,
+  .jobrightai-notification,
+  #jobrightai-processing {
+    display: none !important;
+  }
+  
+  .jobrightai-detected::after,
+  .jobrightai-enhanceable::before {
+    display: none !important;
+  }
+}
